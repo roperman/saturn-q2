@@ -100,11 +100,12 @@ culling, 8-byte grid points, per-frame view-space axes, the walk in
 assembly, coarse grids for distant faces and cut-down distant models: the
 benchmark's CPU 254 to 190 ms, frames 339 to 259. Next:
 
-1. **Fights**: after the trace work (OVERNIGHT.md section 5) a 20-second
-   fight in the round room runs at 57 ms a frame: the game 13 ms, the rest
-   the drawing, with many soldiers on screen (a close one is ~7 ms of a
-   CPU). The models are next; then the traces' brush clipping (320 us of a
-   step's 550) in assembly, or brushes' boxes baked into their records
+1. **Fights**: a 20-second fight in the round room ran at 82 ms a frame
+   before the traces work; 52.7 now, 47 with the game's tick during the
+   drawing (START + UP; OVERNIGHT.md sections 5-7). Left: the drawing of
+   the world (about 45 of the 55 ms of CPU); the traces' brush clipping in
+   assembly; each CPU's half of the texture cache (the slave misses more
+   when it does more)
 2. **VDP1**: demo2's lighter views wait for it (CPU 20-30 ms, frames 40)
 3. **LWRAM**: cells and lights are still there (59 cycles a miss); copy each
    face's ahead of time with the SH-2's own DMA, or 8-bit lights (a palette)

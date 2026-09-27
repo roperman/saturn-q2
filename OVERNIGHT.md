@@ -321,3 +321,26 @@ models' commands.
 
 The benchmark's view 4 (a soldier) went 34.2 to 31.9 ms of CPU; demo1's
 six views 1918 to 1844 (frames 2270 to 2233).
+
+## 7. The game's tick during the drawing (a switch: START + UP)
+
+In a fight the master ran the game's tick (about 12 ms: the monsters, the
+traces) before drawing started, with the slave idle. With the switch on,
+the master runs it between its walk and its own drawing; the slave
+meanwhile draws from the front of the face list, and the master then
+takes from the back until they meet, so the slave just does more of it.
+Nothing the tick changes is read by the drawing (the entities, sprites and
+lights it draws are copied out before, and doors only move in
+movers_update), but the monsters are drawn as they were a frame earlier;
+your view isn't.
+
+| fight benchmark | off | on |
+|---|---|---|
+| frame (ms) | 52.7 | 47.1-48.2 |
+| master / slave drawing (ms) | 23.5 / 32.4 | 18.8 / 38.8 |
+| pictures up 40 ms / 60 ms | 135-139 / 236-241 | 240-269 / 155-175 |
+
+Texture uploads go up from about 4 to 12 a frame (each CPU has its own
+half of the texture cache, and the slave now draws more), about 1.7 ms of
+it, counted in the above. Off by default, your call; OPT=-DGAME_DURING_DRAW
+builds it on.

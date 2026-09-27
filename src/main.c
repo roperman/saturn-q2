@@ -208,6 +208,25 @@ static void         warp_trigger(void)
     }
 }
 
+/* the player's weapon and the game's tick (with OPT=-DGAME_DURING_DRAW, run by
+   the renderer on the master while the slave draws: what's drawn is then the
+   game as it was a frame before, for the monsters; the view is this frame's) */
+static s32          game_dt;
+#ifdef GAME_DURING_DRAW
+static bool         game_during_draw = true;    /* START + UP switches it */
+#else
+static bool         game_during_draw;
+#endif
+
+static void         game_step(void)
+{
+    u32             tg = frt_read();
+
+    g_player_fire(pad_now & PAD_B && !(pad_now & PAD_START), cam.pos, cam.yaw, cam.pitch);
+    g_frame(game_dt);
+    us_game = frt_to_us((frt_read() - tg) & 0xFFFF);
+}
+
 void                main(void)
 {
     u32             t_last, t0, us_frame = 0, us_cpu = 0;
@@ -334,6 +353,12 @@ void                main(void)
             warp_ent(true);
         if (pressed(PAD_X) && (pad_now & PAD_START))
             god = !god;
+        if (pressed(PAD_UP) && (pad_now & PAD_START))
+        {
+            game_during_draw = !game_during_draw;
+            g_centerprint(game_during_draw ? "Game during drawing: on" : "Game during drawing: off");
+            start_used = true;
+        }
 #ifdef FIGHT_BENCH
         if (pressed(PAD_R) && (pad_now & PAD_START))
         {
@@ -511,13 +536,9 @@ void                main(void)
         }
         movers_update(dt);
         pmove(&cmd, dt);
-        {
-            u32 tg = frt_read();
-
-            g_player_fire(pad_now & PAD_B && !(pad_now & PAD_START), cam.pos, cam.yaw, cam.pitch);
-        g_frame(dt);
-            us_game = frt_to_us((frt_read() - tg) & 0xFFFF);
-        }
+        game_dt = dt;
+        if (!game_during_draw)
+            game_step();
         cam.pos[0] = pl.origin[0];
         cam.pos[1] = pl.origin[1];
         cam.pos[2] = pl.origin[2] + (g_player->dead ? FIX(-8) : FIX(22));   /* the eyes (dead: on the floor) */
@@ -557,7 +578,10 @@ void                main(void)
 #ifdef ONE_CPU
             r_two_cpus = false;             /* (OPT=-DONE_CPU: the master alone, to see what sharing gains) */
 #endif
+        if (game_during_draw)
+            r_during = game_step;
         render_world(vdp_get_writer(0), vdp_get_writer(1));
+        r_during = NULL;
         /* the status bar and messages */
         hud_draw();
         if (bench_done)

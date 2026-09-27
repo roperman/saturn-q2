@@ -310,6 +310,7 @@ extern bool         r_two_cpus;                             /* the slave draws t
 extern bool         r_use_dsp;                              /* model vertices on the SCU DSP */
 void                render_init(void);                      /* after level_load: colour tables, the cache */
 void                render_world(vdp_writer *w0, vdp_writer *w1);
+extern void         (*r_during)(void);                      /* run on the master between the walk and its drawing */
 void                render_slave(void);                     /* the slave's part, when signalled */
 void                render_sky_init(void);                  /* the skybox's horizon on a VDP2 layer */
 void                render_sky(void);                       /* per frame, after cam_update() */

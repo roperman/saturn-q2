@@ -277,3 +277,47 @@ the movers, 30 the entities. In the fight the drawing is now most of the
 frame: CPU 56 ms, of which the game is 13.
 
 HWRAM free: demo1 8 KB, demo2 113 KB, demo3 40 KB.
+
+## 6. The models
+
+Timed in the fight benchmark: about 2 soldiers are on screen at a time
+there, all on the DSP path. Model time a frame, both CPUs together (ms):
+
+| | light | vertices | cull, sort | commands | all | fight frame |
+|---|---|---|---|---|---|---|
+| start | 0.9 | 4.1 | 3.7 | 4.2 | 12.9 | 56-58 |
+| polygon and texture records in HWRAM | 0.8 | 4.1 | 2.7 | 3.2 | 11.0 | 54 |
+| the command pass's state in locals (C) | 0.9 | 4.1 | 2.7 | 2.6 | 10.4 | 54 |
+| vertices in assembly | 0.8 | 3.4 | 2.7 | 2.6 | 9.7 | 55 |
+| cull and sort in assembly | 0.8 | 3.4 | 2.1 | 2.6 | 9.0 | 52-53 |
+| commands in assembly | 0.8 | 3.4 | 2.1 | 2.45 | 8.9 | 53-54 |
+| the vertices' divides overlapped | 0.8 | 3.2 | 2.1 | 2.45 | 8.6 | 52.7 |
+
+The same polygons as before, drawn the same: `COMPARE=models
+tools/compare.sh` renders the benchmark's views with the old C loops and
+the new ones (with `CMP_EXTRA=-DONE_CPU` pixel for pixel; with both CPUs
+a few shared cell edges can change hands, because faster models move the
+CPUs' split). `OPT="-DFIGHT_BENCH -DMODEL_CHECK"` runs the C alongside in
+the fight and compares everything: no differences in 300,000 vertices,
+43,000 bucket lists (17,000 quads decided by their second half) and 1,300
+models' commands.
+
+- **The records**: every model's data was used in place on the cart, 75
+  cycles a miss; the monsters' polygon and texture records (both passes
+  read one a polygon) are now copied to HWRAM at the end of start-up, in
+  what's left. Room for them: the sine table is a quarter wave (the same
+  values exactly), 12 KB less. demo1 has 3 KB of HWRAM left.
+- **Assembly** (`src/mdraw.s`): the vertices (the whole mesh; the far
+  mesh's subset stays in C), the cull and depth sort, and the commands. The
+  compiler's versions spilled registers to the stack, and with the cache
+  writing through every spill is a bus write, shared with the other CPU
+  and the DSP. The command pass gained least: its 11 stores a polygon
+  (the command and its Gouraud table) are most of it.
+- **Sorting baked in** (per viewing direction): not done. The sort is a
+  depth bucket a polygon, a few instructions of the cull pass; the time
+  is in the culling test and the stores.
+- What's left in the vertices: waiting for the DSP 0.3 ms, the assembly 2.0,
+  each vertex's normal index 0.6 (it's in the frame, on the cart).
+
+The benchmark's view 4 (a soldier) went 34.2 to 31.9 ms of CPU; demo1's
+six views 1918 to 1844 (frames 2270 to 2233).

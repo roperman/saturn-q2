@@ -66,6 +66,8 @@ static bool         fight_done;
 static g_trace_site fight_sites[16];            /* the traces' call sites, most time first */
 static u32          fight_tr[6];                /* trace.c's counts */
 static u32          fight_tt[4];                /* a box trace's parts, 0.1 us */
+static u32          fight_r[14];                /* the drawing: master, slave; models, their polygons; the
+                                                   models' light, vertices, polygons, commands (cumulative), DSP wait */
 #endif
 static u32          us_game, bench_us[5];
 
@@ -236,6 +238,7 @@ void                main(void)
     movers_init();
     g_init();
     render_sky_init();
+    models_hot();
     pmove_spawn(lv.start);
     cam.yaw = lv.start_yaw;
     cam.pitch = 0;
@@ -353,6 +356,7 @@ void                main(void)
             fight_frames = 0;
             fight_done = false;
             fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
+            memset(fight_r, 0, sizeof(fight_r));
         }
         if (fight_frames >= 0)
         {
@@ -420,12 +424,23 @@ void                main(void)
             /* (OPT=-DBENCH_HOLD: a view held, DOWN for the next, UP to switch the cells'
                assembly on and off: the two should be identical, pixel for pixel) */
             {
-                extern bool r_cells_asm;
-
                 if (pressed(PAD_DOWN))
                     bench_view = (bench_view + 1) % NBENCH;
+#ifdef COMPARE_MODELS
                 if (pressed(PAD_UP))
+                {
+                    extern bool r_model_ref;
+
+                    r_model_ref = !r_model_ref;
+                }
+#else
+                if (pressed(PAD_UP))
+                {
+                    extern bool r_cells_asm;
+
                     r_cells_asm = !r_cells_asm;
+                }
+#endif
                 bench_frame = 0;
             }
 #endif
@@ -584,6 +599,15 @@ void                main(void)
         if (fight_done)
         {
             u32 n = fight_n ? fight_n : 1;
+#ifdef MODEL_CHECK
+            {
+                extern u32 model_checks[3], model_diffs[2];
+
+                vdp_printf(8, 30, RGB(255, 255, 120), "VERTS %d DIFF %d", model_checks[0], model_diffs[0]);
+                vdp_printf(8, 39, RGB(255, 255, 120), "BUCKETS %d DIFF %d QUADS %d", model_checks[1], model_diffs[1],
+                           model_checks[2]);
+            }
+#endif
 #ifdef TRACE_CHECK
             {
                 extern u32 trace_checks, trace_diffs, trace_dkind[4], trace_later;
@@ -601,12 +625,24 @@ void                main(void)
                        fight_us / n / 100 % 10, fight_cpu / n / 1000, fight_cpu / n / 100 % 10);
             vdp_printf(8, 115, RGB(255, 255, 255), "GAME %d.%d MS, MOST %d.%d", fight_game / n / 1000,
                        fight_game / n / 100 % 10, fight_gmax / 1000, fight_gmax / 100 % 10);
-            vdp_printf(8, 133, RGB(255, 255, 255), "TRACES %d A FRAME, %d.%d MS", fight_ntr / n,
+            vdp_printf(8, 124, RGB(255, 255, 255), "TRACES %d A FRAME, %d.%d MS", fight_ntr / n,
                        fight_ttr / n / 1000, fight_ttr / n / 100 % 10);
+#define MS10(v)     (int)((v) / n / 100)
+            vdp_printf(8, 142, RGB(160, 255, 160), "(0.1 MS) MASTER %d SLAVE %d", MS10(fight_r[0]), MS10(fight_r[1]));
+            vdp_printf(8, 151, RGB(160, 255, 160), "MODELS %d.%d CPU %d.%d DSP %d.%d: %d", fight_r[2] * 10 / n / 10,
+                       fight_r[2] * 10 / n % 10, fight_r[10] * 10 / n / 10, fight_r[10] * 10 / n % 10,
+                       fight_r[11] * 10 / n / 10, fight_r[11] * 10 / n % 10, MS10(fight_r[7]));
+            vdp_printf(8, 160, RGB(160, 255, 160), "L%d V%d(W%d A%d N%d) P%d C%d", MS10(fight_r[4]),
+                       MS10(fight_r[5] - fight_r[4]), MS10(fight_r[8]), MS10(fight_r[12]), MS10(fight_r[13]),
+                       MS10(fight_r[6] - fight_r[5]), MS10(fight_r[7] - fight_r[6]));
+            vdp_printf(8, 169, RGB(160, 255, 160), "UPLOADS %d.%d, MODELS' %d.%d", fight_r[9] / 1000 * 10 / n / 10,
+                       fight_r[9] / 1000 * 10 / n % 10, fight_r[9] % 1000 * 10 / n / 10, fight_r[9] % 1000 * 10 / n % 10);
+#undef MS10
+#ifdef FIGHT_TRACES
             {
                 int j;
 
-                vdp_printf(8, 124, RGB(255, 200, 160), "BOX %d: BOXOUT%d L%d B%d S%d MOV%d", fight_tr[4] / n,
+                vdp_printf(8, 133, RGB(255, 200, 160), "BOX %d: BOXOUT%d L%d B%d S%d MOV%d", fight_tr[4] / n,
                            fight_tr[0] / imax(fight_tr[4], 1), fight_tr[1] / imax(fight_tr[4], 1),
                            fight_tr[2] / imax(fight_tr[4], 1), fight_tr[3] / imax(fight_tr[4], 1), fight_tr[5] / n);
                 vdp_printf(8, 181, RGB(255, 200, 160), "US G%d C%d M%d E%d", fight_tt[0] / 10,
@@ -617,6 +653,7 @@ void                main(void)
                                fight_sites[j].n * 10 / n % 10, fight_sites[j].us / n / 1000,
                                fight_sites[j].us / n / 100 % 10);
             }
+#endif
             vdp_printf(8, 190, RGB(255, 255, 255), "UP 20:%d 40:%d 60:%d 80:%d 100+:%d", fight_swaps[1],
                        fight_swaps[2], fight_swaps[3], fight_swaps[4], fight_swaps[5] + fight_swaps[6] + fight_swaps[7]);
         }
@@ -730,6 +767,20 @@ void                main(void)
                 fight_us += us_frame;
                 fight_cpu += us_cpu;
                 fight_game += us_game;
+                fight_r[0] += rs.t_face;
+                fight_r[1] += rs.t_grid;
+                fight_r[2] += (u32)rs.models;
+                fight_r[3] += (u32)rs.mpolys;
+                fight_r[4] += rs.t_mlight;
+                fight_r[5] += rs.t_mverts;
+                fight_r[6] += rs.t_mpolys;
+                fight_r[7] += rs.t_models;
+                fight_r[8] += rs.t_mwait;
+                fight_r[9] += (u32)rs.uploads * 1000 + (u32)rs.muploads;
+                fight_r[10] += (u32)rs.mcpu;
+                fight_r[11] += (u32)rs.mdsp;
+                fight_r[12] += rs.t_masm;
+                fight_r[13] += rs.t_mnorm;
                 fight_gmax = imax((s32)fight_gmax, (s32)us_game);
                 ++fight_n;
                 if (fight_us >= 20000000)

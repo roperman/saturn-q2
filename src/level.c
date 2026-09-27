@@ -74,6 +74,11 @@ const void          *level_hot(const void *src, u32 bytes)
     return hot(src, bytes, true);
 }
 
+const void          *level_hot_keep(const void *src, u32 bytes, u32 keep)
+{
+    return hot_spare(src, bytes, true, keep);
+}
+
 u32                 level_heap(void)
 {
     return (u32)hw_next;

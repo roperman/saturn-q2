@@ -4,14 +4,23 @@
 #include "q2.h"
 #include "sintab.h"
 
+/* step i (0..4095) of the wave from the quarter: mirrored in the second
+   and fourth quarters, negated in the second half */
+static inline s32   sin_step(int i)
+{
+    s32             v = sinq[i & 1024 ? 1024 - (i & 1023) : i & 1023];
+
+    return i & 2048 ? -v : v;
+}
+
 s32                 fsin(int a)
 {
-    return sintab[(a >> 4) & 4095];
+    return sin_step((a >> 4) & 4095);
 }
 
 s32                 fcos(int a)
 {
-    return sintab[((a >> 4) + 1024) & 4095];
+    return sin_step(((a >> 4) + 1024) & 4095);
 }
 
 /* atan(r) for 0 <= r <= 1 (16.16), as a 16-bit angle: pi/4 r + 0.273 r (1 - r),

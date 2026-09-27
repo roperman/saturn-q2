@@ -67,6 +67,33 @@ void                models_load_all(void)
             nmodels_loaded = i + 1;
 }
 
+/* The animated models' polygons, far mesh and texture records into HWRAM,
+   in what's left once everything else has had its share (the last thing at
+   start-up; 2 KB kept for later): both of draw_model's polygon passes read
+   a record a polygon, and a miss on the cart is 75 cycles to HWRAM's 10.
+   The frames stay on the cart: the DSP reads those */
+#define HOT_KEEP        (2048)
+
+void                models_hot(void)
+{
+    int             i;
+
+    for (i = 0; i < nmodels_loaded; ++i)
+    {
+        q_mdl       *m = &models[i];
+
+        if (!m->loaded || m->nframes < 2)
+            continue;
+        m->polys = level_hot_keep(m->polys, (u32)m->npolys * sizeof(q_mpoly), HOT_KEEP);
+        m->tex = level_hot_keep(m->tex, (u32)m->ntex * sizeof(q_mtex), HOT_KEEP);
+        if (m->nfpolys)
+        {
+            m->fpolys = level_hot_keep(m->fpolys, (u32)m->nfpolys * sizeof(q_mpoly), HOT_KEEP);
+            m->fverts = level_hot_keep(m->fverts, (u32)m->nfverts * 2, HOT_KEEP);
+        }
+    }
+}
+
 int                 model_anim(const q_mdl *m, const char *name)
 {
     int             i, k;

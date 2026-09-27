@@ -152,6 +152,7 @@ void                level_facevis(int cluster, u8 *bits);   /* the faces a clust
 void                *level_alloc(u32 bytes);                /* high work RAM, for the level's life */
 const u8            *cart_load(const char *name);           /* another file onto the cart, after the level */
 const void          *level_hot(const void *src, u32 bytes);  /* a copy in high work RAM if there's room */
+const void          *level_hot_keep(const void *src, u32 bytes, u32 keep);     /* ...leaving keep bytes */
 
 /* trace.c: Quake 2's box traces against the brushes (qcommon/cmodel.c), in 16.16 */
 typedef struct
@@ -281,6 +282,7 @@ typedef struct
 extern q_mdl        models[MDL_COUNT];
 extern int          nmodels_loaded;
 void                models_load_all(void);                  /* tools/models.txt's, onto the cart */
+void                models_hot(void);                       /* the monsters' polygons into HWRAM (last at start-up) */
 extern q_entity     ents[MAX_ENTITIES];
 extern int          nents;
 bool                model_load(q_mdl *m, const char *file);
@@ -295,8 +297,8 @@ void                hud_draw(void);
 typedef struct
 {
     int             faces, cells, culled, near, uploads, nocache, dropped, leaf, cluster, nodes, proj, gverts, seen;
-    int             models, mpolys, nfast, nslow, nexact, pieces, faces_out, cells_all, cells_384, cells_512;
-    u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys;
+    int             models, mpolys, nfast, nslow, nexact, pieces, faces_out, cells_all, cells_384, cells_512, muploads, mcpu, mdsp;
+    u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys, t_mwait, t_masm, t_mnorm;
     u32             us_pre, us_mdsp, us_tree;   /* R_PROFILE: the walk's parts (the master's, us) */
     u32             t_mfar;                     /* R_PROFILE: models beyond 400 units: their time, */
     int             mfar;                       /* and how many */

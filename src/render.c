@@ -541,6 +541,7 @@ static __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
         /* a model's: which one, which skin, which polygon's */
         int m;
 
+        ++x->st.muploads;
         for (m = 0; m < nmodels_loaded; ++m)
         {
             const q_mdl *md = &models[m];
@@ -2013,11 +2014,14 @@ static bool         model_xf(const q_entity *e, model_xform *o)
 
 /* the frame's models for the DSP: those in leaves the view can see, and not
    all off the screen, weighted for their blends; started at once */
+static int          rs_mdsp;                /* (stats: models the DSP was given this frame) */
+
 static void         models_to_dsp(void)
 {
     u32             *st = dspm_stream;
     int             i, k, nm = 0, nb = 0;
 
+    rs_mdsp = 0;
     for (i = 0; i < nents; ++i)
         ent_dsp[i] = -1;
     if (!r_use_dsp)
@@ -2049,6 +2053,7 @@ static void         models_to_dsp(void)
         st[2] = (u32)blocks;
         st += 3;
         ent_dsp[i] = (s16)nm++;
+        ++rs_mdsp;
         ent_blk[i] = (s16)nb;
         nb += blocks;
     }
@@ -2058,6 +2063,40 @@ static void         models_to_dsp(void)
         dsp_models(dspm_stream, dspm_out, nm, &dspm_count);
     }
 }
+
+#ifdef MODEL_CHECK
+u32                 model_checks[3], model_diffs[2];   /* vertices, buckets (and quads by their other half) */
+#endif
+#ifdef COMPARE_MODELS
+bool                r_model_ref;            /* (tools/compare.sh with COMPARE=models: UP, draw_model's old loops) */
+#endif
+
+/* src/mdraw.s: a model's whole mesh from the DSP into screen space (offsets fixed there) */
+typedef struct
+{
+    const s32       *out;                   /* the DSP's results: blocks of 16 x, 16 y, 16 z */
+    u32             *mxy;
+    s32             *mz;
+    u8              *moc;
+    s32             n, zmin, zmax;          /* (zmin and zmax in and out) */
+}                   mverts_args;
+
+void                mverts_asm(mverts_args *a);
+
+/* ...and its polygons facing the camera into depth buckets */
+typedef struct
+{
+    const q_mpoly   *polys;
+    s32             n;
+    const u8        *moc;
+    const u32       *mxy;
+    const s32       *mz;
+    s16             *mhead;                 /* (mnext right after it) */
+    s32             zmin, inv;
+}                   mpolys_args;
+
+void                mpolys_asm(mpolys_args *a);
+_Static_assert(__builtin_offsetof(r_ctx, mnext) == __builtin_offsetof(r_ctx, mhead) + MBUCKETS * 2, "mdraw.s: mnext after mhead");
 
 static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
 {
@@ -2080,6 +2119,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     if (ent_dsp[ei] < 0 && !model_xf(e, &xf))
         return;
     ++x->st.models;
+    x->st.mcpu += ent_dsp[ei] < 0;
     {
         /* far: the mesh merged on a coarse grid (a third of the polygons), if it has one */
         s32 dx = (e->origin[0] - cam.pos[0]) >> 16, dy = (e->origin[1] - cam.pos[1]) >> 16;
@@ -2138,15 +2178,118 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         const s32   *out = dspm_out + ent_blk[ei] * 48;
         u32         a, end = (u32)(out + ((nv + 15) >> 4) * 48);
 
+        u32         tw = frt_read();
+
         while (*(volatile u32 *)UNCACHED(&dspm_count) <= (u32)ent_dsp[ei])
             ;
+        x->st.t_mwait += (frt_read() - tw) & 0xFFFF;
         for (a = (u32)out; a < end; a += 16)
             *(volatile u32 *)(0x40000000 | (a & 0x1FFFFFFF)) = 0;      /* the cache's associative purge */
+#ifdef COMPARE_MODELS
+        if (r_model_ref)
         for (vi = 0; vi < nvl; ++vi)
         {
             const s32   *o;
 
             i = vlist ? vlist[vi] : vi;
+            o = out + (i >> 4) * 48 + (i & 15);
+            s32         vx = o[0], vy = o[16], vz = o[32];
+            u8          oc = 0;
+
+            x->mz[i] = vz;
+            x->mg[i] = gt[vn[i * 4 + 3] < 162 ? vn[i * 4 + 3] : 0];
+            if (vz < NEAR_Z)
+                oc = OC_NEAR;
+            else
+            {
+                u32 xy = project(x, vx, vy, vz);
+                s32 sx = XY_X(xy), sy = XY_Y(xy);
+
+                x->mxy[i] = xy;
+                if (sx < 0) oc |= OC_LEFT;
+                else if (sx >= SCREEN_W) oc |= OC_RIGHT;
+                if (sy < 0) oc |= OC_TOP;
+                else if (sy >= SCREEN_H) oc |= OC_BOTTOM;
+                if (vz < zmin) zmin = vz;
+                if (vz > zmax) zmax = vz;
+            }
+            x->moc[i] = oc;
+        }
+        else
+#endif
+        if (!vlist)
+        {
+            /* the whole mesh: in assembly (src/mdraw.s), then each vertex's
+               light by its normal (its index is in the frame, on the cart) */
+            mverts_args a;
+
+            a.out = out;
+            a.mxy = x->mxy;
+            a.mz = x->mz;
+            a.moc = x->moc;
+            a.n = nv;
+            a.zmin = zmin;
+            a.zmax = zmax;
+#ifdef FIGHT_BENCH
+            u32 ta = frt_read();
+#endif
+            mverts_asm(&a);
+#ifdef FIGHT_BENCH
+            x->st.t_masm += (frt_read() - ta) & 0xFFFF;
+            ta = frt_read();
+#endif
+#ifdef MODEL_CHECK
+            {
+                /* (OPT=-DMODEL_CHECK: the C again, compared) */
+                s32 cmin = zmin, cmax = zmax;
+                int k;
+
+                for (k = 0; k < nv; ++k)
+                {
+                    const s32   *o = out + (k >> 4) * 48 + (k & 15);
+                    s32         vx = o[0], vy = o[16], vz = o[32];
+                    u8          oc = 0;
+                    u32         xy = 0;
+
+                    if (vz >= NEAR_Z)
+                    {
+                        xy = project(x, vx, vy, vz);
+                        if (XY_X(xy) < 0) oc |= OC_LEFT;
+                        else if (XY_X(xy) >= SCREEN_W) oc |= OC_RIGHT;
+                        if (XY_Y(xy) < 0) oc |= OC_TOP;
+                        else if (XY_Y(xy) >= SCREEN_H) oc |= OC_BOTTOM;
+                        if (vz < cmin) cmin = vz;
+                        if (vz > cmax) cmax = vz;
+                    }
+                    else
+                        oc = OC_NEAR;
+                    ++model_checks[0];
+                    if (x->mz[k] != vz || x->moc[k] != oc || (vz >= NEAR_Z && x->mxy[k] != xy))
+                        ++model_diffs[0];
+                }
+                if (cmin != a.zmin || cmax != a.zmax)
+                    ++model_diffs[0];
+            }
+#endif
+            zmin = a.zmin;
+            zmax = a.zmax;
+            PROF(x->st.proj += nv);
+            for (i = 0; i < nv; ++i)
+            {
+                int k = vn[i * 4 + 3];
+
+                x->mg[i] = gt[k < 162 ? k : 0];
+            }
+#ifdef FIGHT_BENCH
+            x->st.t_mnorm += (frt_read() - ta) & 0xFFFF;
+#endif
+        }
+        else for (vi = 0; vi < nvl; ++vi)
+        {
+            /* the far mesh: only the vertices it uses */
+            const s32   *o;
+
+            i = vlist[vi];
             o = out + (i >> 4) * 48 + (i & 15);
             s32         vx = o[0], vy = o[16], vz = o[32];
             u8          oc = 0;
@@ -2218,6 +2361,72 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     for (b = 0; b < MBUCKETS; ++b)
         x->mhead[b] = -1;
     inv = ((MBUCKETS - 1) << 16) / imax(((zmax - zmin) >> 16) + 1, 1);
+#ifdef COMPARE_MODELS
+    if (!r_model_ref)
+#endif
+    {
+        mpolys_args a;
+
+        a.polys = polys;
+        a.n = np;
+        a.moc = x->moc;
+        a.mxy = x->mxy;
+        a.mz = x->mz;
+        a.mhead = x->mhead;
+        a.zmin = zmin;
+        a.inv = inv;
+        mpolys_asm(&a);
+#ifdef MODEL_CHECK
+        {
+            s16 head[MBUCKETS], nxt[MAX_MPOLYS];
+            int k, j, q;
+
+            memcpy(head, x->mhead, sizeof(head));
+            memcpy(nxt, x->mnext, sizeof(nxt));
+            for (k = 0; k < MBUCKETS; ++k)
+                x->mhead[k] = -1;
+            for (i = 0; i < np; ++i)
+            {
+                const q_mpoly   *p = &polys[i];
+                int             a0 = p->v[0], b0 = p->v[1], c0 = p->v[2], d0 = p->v[3];
+                s32             cross, z;
+                u32             pa, pb, pc;
+
+                if (x->moc[a0] & x->moc[b0] & x->moc[c0] & x->moc[d0])
+                    continue;
+                if ((x->moc[a0] | x->moc[b0] | x->moc[c0] | x->moc[d0]) & OC_NEAR)
+                    continue;
+                pa = x->mxy[a0];
+                pb = x->mxy[b0];
+                pc = x->mxy[c0];
+                cross = (XY_X(pb) - XY_X(pa)) * (XY_Y(pc) - XY_Y(pa)) - (XY_Y(pb) - XY_Y(pa)) * (XY_X(pc) - XY_X(pa));
+                if (cross == 0 && !(p->flags & 1))
+                {
+                    u32 pd = x->mxy[d0];
+
+                    ++model_checks[2];
+                    cross = (XY_X(pc) - XY_X(pa)) * (XY_Y(pd) - XY_Y(pa)) - (XY_Y(pc) - XY_Y(pa)) * (XY_X(pd) - XY_X(pa));
+                }
+                if (cross * MODEL_FRONT <= 0)
+                    continue;
+                z = (x->mz[a0] >> 1) + (x->mz[c0] >> 1);
+                b = iclamp((((z - zmin) >> 16) * inv) >> 16, 0, MBUCKETS - 1);
+                x->mnext[i] = x->mhead[b];
+                x->mhead[b] = (s16)i;
+            }
+            for (k = 0; k < MBUCKETS; ++k)
+            {
+                ++model_checks[1];
+                for (j = head[k], q = x->mhead[k]; j >= 0 && q >= 0 && j == q; j = nxt[j], q = x->mnext[q])
+                    ;
+                if (j != q)
+                    ++model_diffs[1];
+            }
+        }
+#endif
+    }
+#ifdef COMPARE_MODELS
+    else
     for (i = 0; i < np; ++i)
     {
         const q_mpoly   *p = &polys[i];
@@ -2246,8 +2455,11 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         x->mnext[i] = x->mhead[b];
         x->mhead[b] = (s16)i;
     }
+#endif
     x->st.t_mpolys += (frt_read() - t0) & 0xFFFF;
     /* out: nearest first when pushing, farthest first when appending */
+#ifdef COMPARE_MODELS
+    if (r_model_ref)
     for (bi = 0; bi < MBUCKETS; ++bi)
         for (b = x->fifo ? MBUCKETS - 1 - bi : bi, i = x->mhead[b]; i >= 0; i = x->mnext[i])
         {
@@ -2273,6 +2485,83 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             dw[7] = (u32)grda << 16;
             ++x->st.mpolys;
         }
+    else
+#endif
+    {
+        /* cmd_alloc's, tex_vram's and vdp_gouraud_fast's work with what they
+           keep in the writer and the model held in locals: stores through
+           dw could be to anything, so the compiler reloads fields otherwise */
+        u32         *cmds = (u32 *)w->cmds, *gst = w->gst, gb = w->gbase >> 3;
+        int         bk = x->bucket, cnt = w->count, head = w->head[bk], tail = w->tail[bk], gc = w->gcount;
+        int         gmax = w->gmax, tid0 = m->tex_id0 + e->skin * m->ntex, n = 0;
+        u32         lb = w->link_base, colr0 = lut_vram + (u32)(m->lut0 + e->skin * m->nluts) * 32;
+        bool        luts = m->nluts > 1, fifo = x->fifo;
+        const u16   *tslot = x->tex_slot, *mg = x->mg;
+        const u32   *mxy = x->mxy;
+        const s16   *mnext = x->mnext;
+        const q_mtex *tex = m->tex;
+
+        for (bi = 0; bi < MBUCKETS; ++bi)
+            for (b = fifo ? MBUCKETS - 1 - bi : bi, i = x->mhead[b]; i >= 0; i = mnext[i])
+            {
+                const q_mpoly   *p = &polys[i];
+                const q_mtex    *mt = &tex[p->tex];
+                int             t = tid0 + p->tex, sl = tslot[t], gi;
+                s32             vram;
+                u32             *dw, link = 0;
+
+                if (sl != 0xFFFF)
+                {
+                    slot_frame[sl] = frame;
+                    vram = (s32)(slot_vram + (u32)sl * slot_bytes);
+                }
+                else if ((vram = tex_load(x, t)) < 0)
+                    continue;
+                if (cnt >= WRITER_CMDS)
+                {
+                    ++x->st.dropped;
+                    continue;
+                }
+                if (fifo)
+                {
+                    if (head < 0)
+                        head = cnt;
+                    else
+                        ((u16 *)&cmds[tail * 8])[1] = (u16)(lb + (u32)cnt * 4);
+                    tail = cnt;
+                }
+                else
+                {
+                    if (head < 0)
+                        tail = cnt;
+                    else
+                        link = (u16)(lb + (u32)head * 4);
+                    head = cnt;
+                }
+                dw = &cmds[cnt++ * 8];
+                dw[0] = 0x10020000u | link;
+                dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((colr0 + (luts ? (u32)p->tex * 32 : 0)) >> 3);
+                dw[2] = ((u32)vram >> 3) << 16 | (u32)(((mt->w >> 3) << 8) | mt->h);
+                dw[3] = mxy[p->v[0]];
+                dw[4] = mxy[p->v[1]];
+                dw[5] = mxy[p->v[2]];
+                dw[6] = mxy[p->v[3]];
+                gi = gc;
+                if (gi >= gmax)
+                    gi = gmax - 1;
+                else
+                    gc = gi + 1;
+                gst[gi * 2] = (u32)mg[p->v[0]] << 16 | mg[p->v[1]];
+                gst[gi * 2 + 1] = (u32)mg[p->v[2]] << 16 | mg[p->v[3]];
+                dw[7] = (gb + (u32)gi) << 16;
+                ++n;
+            }
+        w->count = cnt;
+        w->head[bk] = (s16)head;
+        w->tail[bk] = (s16)tail;
+        w->gcount = gc;
+        x->st.mpolys += n;
+    }
     x->st.t_models += (frt_read() - t0) & 0xFFFF;
 #ifdef R_PROFILE
     {
@@ -2515,12 +2804,18 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.seen += s->seen;
         rs.models += s->models;
         rs.mpolys += s->mpolys;
+        rs.muploads += s->muploads;
+        rs.mcpu += s->mcpu;
+        rs.mdsp = rs_mdsp;
         rs.t_models += frt_to_us(s->t_models);
         rs.t_mfar += frt_to_us(s->t_mfar);
         rs.mfar += s->mfar;
         rs.t_mlight += frt_to_us(s->t_mlight);
         rs.t_mverts += frt_to_us(s->t_mverts);
         rs.t_mpolys += frt_to_us(s->t_mpolys);
+        rs.t_mwait += frt_to_us(s->t_mwait);
+        rs.t_masm += frt_to_us(s->t_masm);
+        rs.t_mnorm += frt_to_us(s->t_mnorm);
         rs.nfast += s->nfast;
         rs.nslow += s->nslow;
         rs.nexact += s->nexact;

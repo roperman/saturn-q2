@@ -151,12 +151,21 @@ struct g_ent_s
     g_ent           *activator;
 };
 
+/* The monsters think in groups (edict number % MON_GROUPS), each at 10 Hz
+   but a share of a tick apart, so a fight's AI is spread over the frames
+   rather than all in one every 100 ms */
+#ifndef MON_GROUPS
+# define MON_GROUPS     (4)
+#endif
+
 typedef struct
 {
     s32             time;                   /* game seconds (16.16) */
     int             framenum;
     s32             acc;                    /* time into the current tick */
     g_ent           *sight_client;
+    s32             mon_time[MON_GROUPS];   /* the monsters' ticks, a group at a time (g_frame) */
+    s32             mon_acc[MON_GROUPS];
 }                   g_level;
 
 extern g_level      level;

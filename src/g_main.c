@@ -373,6 +373,8 @@ void                g_init(void)
     g_player = &g_edicts[0];
     memset(g_edicts, 0, MAX_EDICTS * sizeof(g_ent));
     memset(&level, 0, sizeof(level));
+    for (i = 0; i < MON_GROUPS; ++i)
+        level.mon_acc[i] = FRAMETIME * i / MON_GROUPS;
     kills = total_monsters = found_secrets = total_secrets = found_goals = total_goals = 0;
     level_complete = false;
     g_client_init();
@@ -464,7 +466,7 @@ void                g_player_noise(void)
 
 static void         g_tick(void)
 {
-    int             i, k;
+    int             i;
 
     level.time += FRAMETIME;
     ++level.framenum;
@@ -475,16 +477,29 @@ static void         g_tick(void)
     {
         g_ent *e = &g_edicts[i];
 
-        if (e->kind != EK_MONSTER || e->inactive)
+        /* all but the active monsters: its think, when it's time */
+        if ((e->kind != EK_MONSTER || e->inactive) && e->kind != EK_FREE && e->think && e->nextthink
+            && level.time >= e->nextthink)
         {
-            /* everything else: its think, when it's time */
-            if (e->kind != EK_FREE && e->think && e->nextthink && level.time >= e->nextthink)
-            {
-                e->nextthink = 0;
-                e->think(e);
-            }
-            continue;
+            e->nextthink = 0;
+            e->think(e);
         }
+    }
+}
+
+/* a group's monsters' tick, in their own time */
+static void         g_tick_monsters(int g)
+{
+    s32             now = level.time;
+    int             i, k;
+
+    level.time = level.mon_time[g] += FRAMETIME;
+    for (i = 1 + (MON_GROUPS - 1 + g) % MON_GROUPS; i < MAX_EDICTS; i += MON_GROUPS)
+    {
+        g_ent *e = &g_edicts[i];
+
+        if (e->kind != EK_MONSTER || e->inactive)
+            continue;
         for (k = 0; k < 3; ++k)
             e->old_origin[k] = e->origin[k];
         e->old_yaw = e->yaw;
@@ -497,11 +512,12 @@ static void         g_tick(void)
             || e->origin[2] != e->old_origin[2])
             monster_physics(e);
     }
+    level.time = now;
 }
 
 void                g_frame(s32 dt)
 {
-    int             n = 0, k;
+    int             n = 0, k, g;
 
     /* the player, from pmove */
     for (k = 0; k < 3; ++k)
@@ -516,12 +532,23 @@ void                g_frame(s32 dt)
     }
     if (level.acc >= FRAMETIME)
         level.acc = 0;                      /* far behind: let it go */
+    for (g = 0; g < MON_GROUPS; ++g)
+    {
+        level.mon_acc[g] += dt;
+        for (n = 0; level.mon_acc[g] >= FRAMETIME && n < 3; ++n)
+        {
+            level.mon_acc[g] -= FRAMETIME;
+            g_tick_monsters(g);
+        }
+        while (level.mon_acc[g] >= FRAMETIME)
+            level.mon_acc[g] -= FRAMETIME;  /* (far behind: those ticks go, the group keeps its place) */
+    }
 }
 
 /* monsters, items and objects into the renderer's entities, blended between the last tick and this one */
 void                g_render_ents(void)
 {
-    s32             f = level.acc * 10;     /* 0..1 of a tick */
+    s32             f;                      /* 0..1 of a tick (a monster's group's) */
     int             i, k, spin = (int)fmul(level.time + level.acc, 0x4700);    /* items: 100 degrees a second */
 
     for (i = 0; i < MAX_EDICTS; ++i)
@@ -542,6 +569,7 @@ void                g_render_ents(void)
         r->pitch = 0;
         if (e->kind == EK_MONSTER)
         {
+            f = level.mon_acc[i % MON_GROUPS] * 10;
             for (k = 0; k < 3; ++k)
                 r->origin[k] = e->old_origin[k] + fmul(e->origin[k] - e->old_origin[k], f);
             r->yaw = (e->old_yaw + fmul((s16)((e->yaw - e->old_yaw) & 0xFFFF), f)) & 0xFFFF;

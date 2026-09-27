@@ -100,12 +100,15 @@ culling, 8-byte grid points, per-frame view-space axes, the walk in
 assembly, coarse grids for distant faces and cut-down distant models: the
 benchmark's CPU 254 to 190 ms, frames 339 to 259. Next:
 
-1. **Frame pacing**: an even 40 ms rather than 40 and 60 alternating
-2. **LWRAM**: cells and lights are still there (59 cycles a miss); copy each
+1. **The AI's traces**: in a fight they're 26-31 ms of a frame (31 of them,
+   about 1 ms each; OVERNIGHT.md section 4). Cheaper line traces (the node
+   walk in assembly like the render's, the data in HWRAM), and fewer: the
+   PVS before a sight line, a monster's sight result kept for a tick
+2. **VDP1**: demo2's lighter views wait for it (CPU 20-30 ms, frames 40)
+3. **LWRAM**: cells and lights are still there (59 cycles a miss); copy each
    face's ahead of time with the SH-2's own DMA, or 8-bit lights (a palette)
-3. **Memory per level**: demo1 has 12 KB of HWRAM left; the three levels
+4. **Memory per level**: demo1 has 12 KB of HWRAM left; the three levels
    could each have their own layout
-4. The AI's traces (see above): the node walk in assembly like the render's
 
 ## Notes
 

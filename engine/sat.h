@@ -183,7 +183,8 @@ u32                 lzss_size(const u8 *src);
 u32                 lzss_decode(const u8 *src, u8 *dst);    /* returns the decoded size */
 #define LWRAM       ((u8 *)0x00200000)  /* 1MB low work RAM: unpacked assets */
 
-void                scu_timer0_start(int line, void (*isr)(void));   /* isr: __attribute__((interrupt_handler)) */
+void                scu_timer0_start(int line, void (*isr)(void));   /* isr: an ordinary function (the BIOS dispatches) */
+void                scu_vblank_in_start(void (*isr)(void));
 void                slave_start(void);                      /* boots the slave into slave_main() */
 void                slave_main(void);                       /* provided by the program */
 static inline void  signal_slave(void)  { REG16(0x21000000) = 0xFFFF; }

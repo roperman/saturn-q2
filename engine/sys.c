@@ -271,6 +271,18 @@ void                scu_timer0_start(int line, void (*isr)(void))
     __asm__ volatile ("ldc %0, sr" : : "r" (0xB0));  /* accept levels 12-15 */
 }
 
+/* the same for VBLANK-IN (vector 0x40, level 15) */
+void                scu_vblank_in_start(void (*isr)(void))
+{
+    void            (*ihr_set)(u32, void (*)(void)) = *(void (**)(u32, void (*)(void)))0x06000300;
+    void            (*mask_chg)(u32, u32) = *(void (**)(u32, u32))0x06000344;
+
+    mask_chg(0xFFFFFFFF, 1u << 0);
+    ihr_set(0x40, isr);
+    mask_chg(~(1u << 0), 0);
+    __asm__ volatile ("ldc %0, sr" : : "r" (0xB0));
+}
+
 extern void         slave_entry(void);
 
 static void         smpc_command(u8 cmd)

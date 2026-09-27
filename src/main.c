@@ -54,6 +54,16 @@ static void         message(const char *a, const char *b)
 }
 
 static bool         slave_ok, start_used;
+
+#ifdef FIGHT_BENCH
+/* (OPT=-DFIGHT_BENCH: START + R stands you in the round room, god mode on,
+   wakes the monsters around it and times 20 seconds of the fight, the game
+   running: frame, CPU and game time, and how long each picture stayed up) */
+#define FIGHT_SKIP      (10)                    /* frames before timing starts */
+static int          fight_frames = -1;          /* -1: not running */
+static u32          fight_us, fight_cpu, fight_game, fight_gmax, fight_n, fight_swaps[8], fight_ntr, fight_ttr;
+static bool         fight_done;
+#endif
 static u32          us_game, bench_us[5];
 
 /* the benchmark (START + R): fixed views, 16 frames each, the game paused. x y z (eye), yaw, pitch */
@@ -78,7 +88,7 @@ static const s32    bench_demo2[][5] = {
 static const s32    (*bench_views)[5];
 #define BENCH_FRAMES    (16)
 static int          bench_view = -1, bench_frame;
-static u32          bench_acc[NBENCH][6];   /* walk, master, slave, cpu, frame (us, summed), vblanks waiting for VDP1 */
+static u32          bench_acc[NBENCH][7];   /* walk, master, slave, cpu, frame (us, summed), vblanks waiting for VDP1, the lists' DMA */
 static u32          bench_prof[15];         /* setup, grid, cells, slow, models, nfast, nslow, faces, the models' light, verts, polys */
 static bool         bench_done;
 static bool         god;
@@ -207,6 +217,9 @@ void                main(void)
     vdp_init(RGB(0, 0, 0));
     vdp_set_hw_erase(false);
     vdp_set_min_frame(1);
+#ifndef NO_PIPE
+    vdp_set_pipelined(true);                    /* (OPT=-DNO_PIPE: submit waits for the swap) */
+#endif
     message("QUAKE II", "LOADING DEMO1 ONTO THE RAM CART");
     bench_views = MAP_FILE[4] == '2' ? bench_demo2 : bench_demo1;      /* "DEMO2.MAP" */
     if (!level_load(MAP_FILE))
@@ -315,6 +328,36 @@ void                main(void)
             warp_ent(true);
         if (pressed(PAD_X) && (pad_now & PAD_START))
             god = !god;
+#ifdef FIGHT_BENCH
+        if (pressed(PAD_R) && (pad_now & PAD_START))
+        {
+            static const s32 at[3] = { FIX(600), FIX(-428), FIX(-96) };
+            int         i;
+
+            god = true;
+            pmove_spawn(at);
+            for (i = 1; i < MAX_EDICTS; ++i)
+            {
+                g_ent   *e = &g_edicts[i];
+
+                if (e->kind == EK_MONSTER && !e->inactive && e->health > 0 && !e->enemy
+                    && iabs(e->origin[0] - at[0]) < FIX(900) && iabs(e->origin[1] - at[1]) < FIX(900))
+                {
+                    e->enemy = g_player;
+                    FoundTarget(e);
+                }
+            }
+            fight_frames = 0;
+            fight_done = false;
+            fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
+        }
+        if (fight_frames >= 0)
+        {
+            cam.yaw = 0x4000;                   /* standing still, looking into the room */
+            cam.pitch = 0;
+            pad_now &= PAD_START;
+        }
+#else
         if (pressed(PAD_R) && (pad_now & PAD_START))
         {
             bench_view = 0;
@@ -330,6 +373,7 @@ void                main(void)
 #endif
             memset(bench_prof, 0, sizeof(bench_prof));
         }
+#endif
         if (pressed(PAD_L) && (pad_now & PAD_START))
             warp_trigger();
         if (pressed(PAD_Z) && (pad_now & PAD_START))
@@ -417,6 +461,7 @@ void                main(void)
                 a[3] += us_cpu;
                 a[4] += us_frame;
                 a[5] += (u32)waited;
+                a[6] += vdp_us_dma;
                 bench_prof[0] += rs.p_setup;
                 bench_prof[1] += rs.p_grid;
                 bench_prof[2] += rs.p_cells;
@@ -502,13 +547,14 @@ void                main(void)
             u32 tot[5] = { 0, 0, 0, 0, 0 };
             int v, k, n = BENCH_FRAMES - 2;
 
-            vdp_text(8, 96, RGB(255, 220, 120), "V WALK MAST SLAV CPU FRM  WT");
+            vdp_text(8, 96, RGB(255, 220, 120), "V WALK MAST SLAV CPU FRM  WT DMA");
             for (v = 0; v < NBENCH; ++v)
             {
                 u32 *a = bench_acc[v];
 
-                vdp_printf(8, 106 + v * 9, RGB(255, 255, 255), "%d %4d %4d %4d %4d %4d %3d", v + 1, a[0] / n / 100,
-                           a[1] / n / 100, a[2] / n / 100, a[3] / n / 100, a[4] / n / 100, (int)(a[5] * 10 / (u32)n));
+                vdp_printf(8, 106 + v * 9, RGB(255, 255, 255), "%d %4d %4d %4d %4d %4d %3d %3d", v + 1, a[0] / n / 100,
+                           a[1] / n / 100, a[2] / n / 100, a[3] / n / 100, a[4] / n / 100, (int)(a[5] * 10 / (u32)n),
+                           a[6] / n / 100);
                 for (k = 0; k < 5; ++k)
                     tot[k] += a[k] / n;
             }
@@ -531,6 +577,22 @@ void                main(void)
                            bench_prof[14] / n, bench_prof[13] / n / 1000, bench_prof[13] / n / 100 % 10);
             }
         }
+#ifdef FIGHT_BENCH
+        if (fight_done)
+        {
+            u32 n = fight_n ? fight_n : 1;
+
+            vdp_printf(8, 96, RGB(255, 220, 120), "FIGHT: %d FRAMES", fight_n);
+            vdp_printf(8, 106, RGB(255, 255, 255), "FRAME %d.%d CPU %d.%d MS", fight_us / n / 1000,
+                       fight_us / n / 100 % 10, fight_cpu / n / 1000, fight_cpu / n / 100 % 10);
+            vdp_printf(8, 115, RGB(255, 255, 255), "GAME %d.%d MS, MOST %d.%d", fight_game / n / 1000,
+                       fight_game / n / 100 % 10, fight_gmax / 1000, fight_gmax / 100 % 10);
+            vdp_printf(8, 133, RGB(255, 255, 255), "TRACES %d A FRAME, %d.%d MS", fight_ntr / n,
+                       fight_ttr / n / 1000, fight_ttr / n / 100 % 10);
+            vdp_printf(8, 124, RGB(255, 255, 255), "UP 20:%d 40:%d 60:%d 80:%d 100+:%d", fight_swaps[1],
+                       fight_swaps[2], fight_swaps[3], fight_swaps[4], fight_swaps[5] + fight_swaps[6] + fight_swaps[7]);
+        }
+#endif
         if (level_complete)
         {
             vdp_text(160 - 7 * 8, 60, RGB(255, 220, 120), "LEVEL COMPLETE");
@@ -609,5 +671,39 @@ void                main(void)
         t0 = frt_read();
         us_frame = frt_to_us((t0 - t_last) & 0xFFFF);
         t_last = t0;
+#ifdef FIGHT_BENCH
+        if (fight_frames >= 0)
+        {
+            extern int  g_ntraces;
+            extern u32  g_trace_ticks;
+            int         k;
+
+            if (fight_frames >= FIGHT_SKIP)
+            {
+                fight_ntr += (u32)g_ntraces;
+                fight_ttr += frt_to_us(g_trace_ticks);
+            }
+            g_ntraces = 0;
+            g_trace_ticks = 0;
+            if (++fight_frames == FIGHT_SKIP)
+                for (k = 0; k < 8; ++k)
+                    fight_swaps[k] = vdp_swap_fields[k];
+            else if (fight_frames > FIGHT_SKIP)
+            {
+                fight_us += us_frame;
+                fight_cpu += us_cpu;
+                fight_game += us_game;
+                fight_gmax = imax((s32)fight_gmax, (s32)us_game);
+                ++fight_n;
+                if (fight_us >= 20000000)
+                {
+                    for (k = 0; k < 8; ++k)
+                        fight_swaps[k] = vdp_swap_fields[k] - fight_swaps[k];
+                    fight_frames = -1;
+                    fight_done = true;
+                }
+            }
+        }
+#endif
     }
 }

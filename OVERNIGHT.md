@@ -182,3 +182,49 @@ of the cart now stops with a message too. HWRAM free: demo1 12 KB, demo2
 
 Checked: `tools/compare.sh` (the cells in assembly against the C) shows
 only single pixels on shared cell edges, as before.
+
+## 4. The frame swap, the monsters' ticks
+
+**The swap by interrupt** (`vdp_set_pipelined`, `engine/vdp.c`). The frame
+used to end with both CPUs idle until the next vblank: a frame needing 41 ms
+was shown for 60. Now `vdp_submit` sends the list and returns, the CPUs start
+the next frame, and the timer-0 interrupt just before each vblank swaps to
+the waiting list once VDP1 has finished the one before. The vblank interrupt
+then sets the sky for the picture now on screen (each frame's sky is kept in
+a small ring). Up to three frames are in hand, so textures stay cached for
+two frames after their last use, and the text colours in VRAM no longer
+change. The interrupt wrappers save MACH/MACL and GBR too (the walk's MAC
+sums, grid.s's divider). `OPT=-DNO_PIPE` has the old swap.
+
+| benchmark frames (ms, six views) | old swap | by interrupt |
+|---|---|---|
+| demo1 | 259 | 227-229 |
+| demo2 | 259 | 242 |
+
+demo2's views 3-6 stay at 40 ms: VDP1 is the limit there (their CPU time is
+20-30 ms). The CPU total went up about 2% (1904 to 1938 in the benchmark's
+units), the same with the old swap: the code and data moving in the cache,
+not the new swap (padding the code back into place didn't recover it).
+
+**The lists' copy to VDP1** (the benchmark's new DMA column): 0.2 to 1.5 ms
+a frame. Small, so it's left as it is.
+
+**The fight benchmark** (`OPT=-DFIGHT_BENCH`, `tools/fight.sh`): START + R
+stands you in the round room in god mode, wakes the monsters around it and
+times 20 seconds of the fight with the game running. In a fight the game,
+not the drawing, is the heavy part: 30-36 ms of game a frame, of which 26-31
+is traces (31-32 a frame, about 1 ms each).
+
+**The monsters' ticks staggered** (`MON_GROUPS`, `src/g_main.c`): the
+monsters think in four groups (edict number % 4), each at 10 Hz in its own
+time but a quarter of a tick apart, so a fight's AI is spread over the
+frames instead of all landing on one every 100 ms. Twice each:
+
+| fight, 20 s | together | staggered |
+|---|---|---|
+| frame (ms) | 82-83 | 77-81 |
+| the worst frame's game (ms) | 65-66 | 54 |
+| pictures up 100 ms or more | 104-105 | 38-56 |
+| pictures up 80 ms | 84-87 | 148-154 |
+
+With the old swap the same fight's frames are 102 ms.

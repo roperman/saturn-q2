@@ -137,6 +137,10 @@ void                vdp_color_offset_off(void);
 void                vdp_color_offset_all(int r, int g, int b);   /* every layer: fades */
 
 extern u32          vdp_us_dma, vdp_us_wait;            /* last submit: list DMA, waiting for VDP1 */
+void                vdp_set_pipelined(bool on);         /* submit returns at once, the swap's by interrupt (vdp.c) */
+u32                 vdp_frame_no(void);                 /* frames submitted so far: the one being built */
+extern volatile u32 vdp_shown;                          /* in the vblank hook: the frame now on screen */
+extern volatile u32 vdp_swap_fields[8];                 /* how long pictures stayed up: 1, 2, ... 7+ fields */
 void                vdp_set_field_hook(void (*fn)(void));   /* every field, in the timer interrupt */
 extern u32          late_frames;                        /* VDP1 ran late: polygon clear instead of erase */
 

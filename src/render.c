@@ -515,7 +515,7 @@ static __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
         s = x->slot0 + x->hand;
         if (++x->hand == x->nslots)
             x->hand = 0;
-        if (slot_tex[s] == 0xFFFF || (u16)(frame - slot_frame[s]) >= 2)
+        if (slot_tex[s] == 0xFFFF || (u16)(frame - slot_frame[s]) >= 3)     /* (two frames may be in flight) */
             break;
     }
     if (n == x->nslots)
@@ -1948,70 +1948,6 @@ static __attribute__((noinline)) void draw_sprite(r_ctx *x, int si)
     }
 }
 
-/* ---- the sky: a VDP2 layer behind everything, showing where VDP1 drew nothing ---- */
-
-static int          sky_h, sky_horizon = -9999;
-static u16          sky_above, sky_below, sky_zenith;
-static volatile int sky_line;               /* the horizon the back colour table was last built for */
-
-static void         sky_vblank(void)
-{
-    volatile u16    *tab = (volatile u16 *)(VDP2_VRAM + 0x7F000);
-    int             y, top = sky_horizon - sky_h / 2;
-
-    sky_commit();
-    if (sky_line == sky_horizon)
-        return;
-    /* above the strip: from its top edge's colour to the zenith's, over about
-       60 degrees; below it: its bottom edge's colour */
-    for (y = 0; y < SCREEN_H; ++y)
-    {
-        if (y >= top + 2)
-            tab[y] = sky_below;
-        else
-        {
-            int t = iclamp((top + 2 - y) * 256 / (FOCAL * 2), 0, 256), k;
-            u16 c = 0x8000;
-
-            for (k = 0; k < 15; k += 5)
-            {
-                int a = (sky_above >> k) & 31, b = (sky_zenith >> k) & 31;
-
-                c |= (u16)((a + ((b - a) * t >> 8)) << k);
-            }
-            tab[y] = c;
-        }
-    }
-    sky_line = sky_horizon;
-}
-
-void                render_sky_init(void)
-{
-    const u16       *s = lv.sky;
-
-    if (!s)
-        return;
-    sky_h = s[1];
-    sky_above = s[18];
-    sky_below = s[19];
-    sky_zenith = s[20];
-    REG16(VDP2_REG + 0x0E) = 0x0300;        /* RAMCTL: banks A and B split; the sky's in B1 */
-    sky_init((const u8 *)(s + 21), s[0], sky_h, s + 2);
-    sky_enable(true);
-    vdp_set_vblank_hook(sky_vblank);
-}
-
-void                render_sky(void)
-{
-    s32             c = fcos(cam.pitch);
-
-    if (!lv.sky)
-        return;
-    /* the horizon's screen line: straight ahead at infinity */
-    sky_horizon = CY - (s32)(((s64)FOCAL * fsin(cam.pitch)) / (c ? c : 1));
-    sky_prepare(cam.yaw, sky_horizon + sky_h / 2, FOCAL);
-}
-
 /* A model: its two frames blended, turned by its yaw and placed, into view
    space and onto the screen; lit by its leaf's light and Quake's shading by
    normal; back faces dropped; its polygons sorted by depth among themselves
@@ -2619,4 +2555,72 @@ u32                 render_bench_grid(void)
         else
             grid_row(ctx[0].grid, 8, &p, &du, &du, &du, fmul(du.z, kx), fmul(du.z, ky));
     return (frt_read() - t) & 0xFFFF;
+}
+
+/* ---- the sky: a VDP2 layer behind everything, showing where VDP1 drew nothing ---- */
+
+static int          sky_h;
+static u16          sky_above, sky_below, sky_zenith;
+static volatile int sky_line = -9999;       /* the horizon the back colour table was last built for */
+static s32          sky_ring[4][2];         /* each frame's yaw and horizon, for when it's on screen */
+
+/* in the vblank a frame appears: its sky */
+static void         sky_vblank(void)
+{
+    volatile u16    *tab = (volatile u16 *)(VDP2_VRAM + 0x7F000);
+    const s32       *r = sky_ring[vdp_shown & 3];
+    int             y, sky_horizon = (int)r[1], top = sky_horizon - sky_h / 2;
+
+    sky_prepare((int)r[0], sky_horizon + sky_h / 2, FOCAL);
+    sky_commit();
+    if (sky_line == sky_horizon)
+        return;
+    /* above the strip: from its top edge's colour to the zenith's, over about
+       60 degrees; below it: its bottom edge's colour */
+    for (y = 0; y < SCREEN_H; ++y)
+    {
+        if (y >= top + 2)
+            tab[y] = sky_below;
+        else
+        {
+            int t = iclamp((top + 2 - y) * 256 / (FOCAL * 2), 0, 256), k;
+            u16 c = 0x8000;
+
+            for (k = 0; k < 15; k += 5)
+            {
+                int a = (sky_above >> k) & 31, b = (sky_zenith >> k) & 31;
+
+                c |= (u16)((a + ((b - a) * t >> 8)) << k);
+            }
+            tab[y] = c;
+        }
+    }
+    sky_line = sky_horizon;
+}
+
+void                render_sky_init(void)
+{
+    const u16       *s = lv.sky;
+
+    if (!s)
+        return;
+    sky_h = s[1];
+    sky_above = s[18];
+    sky_below = s[19];
+    sky_zenith = s[20];
+    REG16(VDP2_REG + 0x0E) = 0x0300;        /* RAMCTL: banks A and B split; the sky's in B1 */
+    sky_init((const u8 *)(s + 21), s[0], sky_h, s + 2);
+    sky_enable(true);
+    vdp_set_vblank_hook(sky_vblank);
+}
+
+void                render_sky(void)
+{
+    s32             c = fcos(cam.pitch), *r = sky_ring[vdp_frame_no() & 3];
+
+    if (!lv.sky)
+        return;
+    /* the horizon's screen line: straight ahead at infinity (put on screen with this frame) */
+    r[0] = cam.yaw;
+    r[1] = CY - (s32)(((s64)FOCAL * fsin(cam.pitch)) / (c ? c : 1));
 }

@@ -20,7 +20,7 @@
 #define LIST_B          ((LIST_A + LIST_BYTES + 0xFF) & ~0xFFu)
 #define FONT_VRAM       ((LIST_B + LIST_BYTES + 0xFF) & ~0xFFu)
 #define LUT_VRAM        (FONT_VRAM + 128 * 32)
-#define MAX_TEXT_COLORS (16)
+#define MAX_TEXT_COLORS (32)            /* kept from frame to frame: a list in flight may use any */
 #ifndef VDP_GOURAUD_MAX
 # define VDP_GOURAUD_MAX (1024)
 #endif
@@ -69,6 +69,93 @@ static volatile int erase_state;
 #define ERASE_LINE      (208)           /* NTSC: 224 visible lines, ~1ms before vblank */
 
 static void         (*field_hook)(void);
+
+/* Pipelined frames (vdp_set_pipelined): vdp_submit sends the list and returns
+   at once, and the CPUs start the next frame. The timer-0 interrupt near the
+   end of each field swaps to the waiting list once VDP1 has finished the one
+   before (FBCR=3 then takes effect at that vblank), and the vblank interrupt
+   runs the vblank hook for the picture now on screen. So three frames can be
+   in hand at once: VDP1 drawing one, one waiting for its swap, one being
+   built, and what a frame uses in VRAM (its textures) must stay put for two
+   frames after it. The next submit waits only if the last list hasn't been
+   swapped to yet (its slot is the one VDP1 may still be reading). */
+#define SWAP_LINE       (216)           /* 8 lines before the vblank */
+static bool         pipelined;
+static volatile int queued = -1;        /* the list waiting for its swap, or -1 */
+static volatile u32 queued_frame;
+static volatile bool hook_due;
+static u32          frames_sent;
+volatile u32        vdp_shown;          /* the frame (vdp_frame_no's count) whose picture is on screen */
+volatile u32        vdp_swap_fields[8]; /* pictures that stayed on screen 1, 2, ... 7+ fields (pipelined) */
+static int          fields;
+
+/* The interrupts' C runs as an ordinary function under the BIOS dispatcher;
+   these wrappers keep everything the interrupted code may be using that C
+   could change: r0-r7, PR, MACH/MACL (the renderer's MAC sums) and GBR
+   (grid.s reaches the divider through it) */
+#define ISR_WRAP(wrap, fn) \
+    __asm__("        .text\n        .align  2\n_" #wrap ":\n" \
+            "        sts.l   pr,@-r15\n        sts.l   mach,@-r15\n        sts.l   macl,@-r15\n" \
+            "        stc.l   gbr,@-r15\n        mov.l   r0,@-r15\n        mov.l   r1,@-r15\n" \
+            "        mov.l   r2,@-r15\n        mov.l   r3,@-r15\n        mov.l   r4,@-r15\n" \
+            "        mov.l   r5,@-r15\n        mov.l   r6,@-r15\n        mov.l   r7,@-r15\n" \
+            "        mov.l   1f,r0\n        jsr     @r0\n        nop\n" \
+            "        mov.l   @r15+,r7\n        mov.l   @r15+,r6\n        mov.l   @r15+,r5\n" \
+            "        mov.l   @r15+,r4\n        mov.l   @r15+,r3\n        mov.l   @r15+,r2\n" \
+            "        mov.l   @r15+,r1\n        mov.l   @r15+,r0\n        ldc.l   @r15+,gbr\n" \
+            "        lds.l   @r15+,macl\n        lds.l   @r15+,mach\n        lds.l   @r15+,pr\n" \
+            "        rts\n        nop\n        .align  2\n1:      .long   _" #fn "\n")
+
+void                swap_isr(void);
+void                vblank_isr(void);
+extern void         swap_isr_w(void);
+extern void         vblank_isr_w(void);
+ISR_WRAP(swap_isr_w, swap_isr);
+ISR_WRAP(vblank_isr_w, vblank_isr);
+
+void                swap_isr(void)
+{
+    ++fields;
+    if (queued >= 0 && (VDP1_EDSR & 2))
+    {
+        ++vdp_swap_fields[fields < 7 ? fields : 7];
+        fields = 0;
+        ((volatile u16 *)(VDP1_VRAM + HDR_JUMP * sizeof(vdp1_cmd)))[1] = (u16)((queued ? LIST_B : LIST_A) >> 3);
+        VDP1_FBCR = 3;
+        vdp_shown = queued_frame - 1;   /* VDP1 starts on that one; the one before it appears */
+        hook_due = true;
+        queued = -1;
+    }
+    if (field_hook)
+        field_hook();
+}
+
+void                vblank_isr(void)
+{
+    if (hook_due)
+    {
+        hook_due = false;
+        if (vblank_hook)
+            vblank_hook();
+    }
+}
+
+void                vdp_set_pipelined(bool on)
+{
+    if (hw_erase)
+        return;                         /* (the erase's timing needs the swap where it is) */
+    pipelined = on;
+    if (on)
+    {
+        scu_timer0_start(SWAP_LINE, swap_isr_w);
+        scu_vblank_in_start(vblank_isr_w);
+    }
+}
+
+u32                 vdp_frame_no(void)
+{
+    return frames_sent;
+}
 
 /* called by the BIOS interrupt dispatcher: an ordinary function */
 static void         erase_isr(void)
@@ -270,7 +357,6 @@ void                vdp_begin(void)
         wr->gst = &gstage[w * GOURAUD_MAX];
     }
     overlay_count = 0;
-    lut_count = 0;
     /* slot 0: clear (part of) the draw buffer to transparent - VDP2's back
        screen shows through. It costs VDP1 fill time, so scenes that cover the
        screen can shrink it with vdp_set_clear(). */
@@ -541,6 +627,18 @@ int                 vdp_submit(void)
     staging[OVL_FIRST + overlay_count].ctrl = CMD_END;
     prev->link = link_to(OVL_FIRST + overlay_count);
 
+    if (pipelined)
+    {
+        /* the last list swapped to (VDP1 was done with this slot's then) */
+        t = frt_read();
+        while (queued >= 0)
+            if (VDP2_TVSTAT & 8)
+            {
+                ++waited;
+                wait_vblank_out();
+            }
+        vdp_us_wait = frt_to_us((frt_read() - t) & 0xFFFF);
+    }
     /* this list slot was last drawn two frames ago, so it's free to overwrite */
     t = frt_read();
     dma_range(0, 1 + writers[0].count);
@@ -554,6 +652,13 @@ int                 vdp_submit(void)
                 ;
         }
     vdp_us_dma = frt_to_us((frt_read() - t) & 0xFFFF);
+    if (pipelined)
+    {
+        queued_frame = frames_sent++;
+        queued = list;                  /* (last: the interrupt may take it from here) */
+        list ^= 1;
+        return waited;
+    }
     t = frt_read();
 
     /* wait for VDP1 to finish the frame in flight, then swap at the next vblank */
@@ -600,6 +705,7 @@ int                 vdp_submit(void)
     VDP1_FBCR = 3;
     wait_vblank_in();
     last_swap = frt_read();
+    vdp_shown = frames_sent++ - 1;
     if (vblank_hook)
         vblank_hook();                  /* e.g. VDP2 tables matching the frame now shown */
     erase_state = hw_erase ? ERASE_ARMED : ERASE_IDLE;

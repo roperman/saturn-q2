@@ -601,9 +601,10 @@ void                main(void)
             u32 n = fight_n ? fight_n : 1;
 #ifdef MODEL_CHECK
             {
-                extern u32 model_checks[3], model_diffs[2];
+                extern u32 model_checks[4], model_diffs[3];
 
-                vdp_printf(8, 30, RGB(255, 255, 120), "VERTS %d DIFF %d", model_checks[0], model_diffs[0]);
+                vdp_printf(8, 30, RGB(255, 255, 120), "VERTS %d DIFF %d CMDS %d DIFF %d", model_checks[0], model_diffs[0],
+                           model_checks[3], model_diffs[2]);
                 vdp_printf(8, 39, RGB(255, 255, 120), "BUCKETS %d DIFF %d QUADS %d", model_checks[1], model_diffs[1],
                            model_checks[2]);
             }

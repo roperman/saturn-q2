@@ -503,7 +503,9 @@ void                render_init(void)
 }
 
 /* a texture into this CPU's part of the cache: -1 if no slot is free */
-static __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
+s32                 tex_load(r_ctx *x, int t);      /* (src/mdraw.s calls it) */
+
+__attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
 {
     int             s = 0, n;
     const q_tex     *tx;
@@ -2065,7 +2067,7 @@ static void         models_to_dsp(void)
 }
 
 #ifdef MODEL_CHECK
-u32                 model_checks[3], model_diffs[2];   /* vertices, buckets (and quads by their other half) */
+u32                 model_checks[4], model_diffs[3];   /* vertices, buckets (and quads by their other half), models' commands */
 #endif
 #ifdef COMPARE_MODELS
 bool                r_model_ref;            /* (tools/compare.sh with COMPARE=models: UP, draw_model's old loops) */
@@ -2096,6 +2098,31 @@ typedef struct
 }                   mpolys_args;
 
 void                mpolys_asm(mpolys_args *a);
+
+/* ...and those into commands; the offsets are mdraw.s's M_ */
+typedef struct
+{
+    const q_mpoly   *polys;
+    const q_mtex    *tex;
+    const s16       *mnext;
+    const u32       *mxy;
+    const u16       *mg;
+    const u16       *tslot;
+    u16             *sframe;
+    u32             *cmds, *gst;
+    s32             tid0;
+    u32             frame, svram, sbytes, lb, dw1, luts4;
+    s32             gmax;
+    u32             gb, fifo;
+    r_ctx           *x;
+    s32             cnt, head, tail, gc, drop;
+    const s16       *mhead;
+    s32             wcmds;
+}                   mcmds_args;
+
+void                mcmds_asm(mcmds_args *a);
+_Static_assert(__builtin_offsetof(mcmds_args, luts4) == 60 && __builtin_offsetof(mcmds_args, cnt) == 80
+               && __builtin_offsetof(mcmds_args, wcmds) == 104, "mdraw.s: mcmds_args");
 _Static_assert(__builtin_offsetof(r_ctx, mnext) == __builtin_offsetof(r_ctx, mhead) + MBUCKETS * 2, "mdraw.s: mnext after mhead");
 
 static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
@@ -2109,7 +2136,10 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     model_xform     xf;
     s32             (*A0)[3] = xf.A0, (*A1)[3] = xf.A1, *C0 = xf.C0, *C1 = xf.C1;
     const u16       *gt;
-    int             i, b, bi, nv = imin(m->nverts, MAX_MVERTS), np = imin(m->npolys, MAX_MPOLYS);
+    int             i, b, nv = imin(m->nverts, MAX_MVERTS), np = imin(m->npolys, MAX_MPOLYS);
+#if defined(COMPARE_MODELS) || defined(MODEL_CHECK)
+    int             bi;                     /* (the C command passes) */
+#endif
     const q_mpoly   *polys = m->polys;
     const u16       *vlist = NULL;          /* far: only the vertices the coarse mesh uses */
     int             nvl = nv, vi;
@@ -2488,9 +2518,67 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     else
 #endif
     {
-        /* cmd_alloc's, tex_vram's and vdp_gouraud_fast's work with what they
-           keep in the writer and the model held in locals: stores through
-           dw could be to anything, so the compiler reloads fields otherwise */
+        /* in assembly (src/mdraw.s) */
+        mcmds_args  a;
+        u32         colr0 = lut_vram + (u32)(m->lut0 + e->skin * m->nluts) * 32;
+#ifdef MODEL_CHECK
+        s32         cnt0 = w->count, head0 = w->head[x->bucket], tail0 = w->tail[x->bucket], gc0 = w->gcount;
+        u16         link0 = x->fifo && head0 >= 0 ? w->cmds[tail0].link : 0;
+        u32         h_asm = 0, h_c = 0;
+        int         k;
+#endif
+
+        a.polys = polys;
+        a.tex = m->tex;
+        a.mnext = x->mnext;
+        a.mxy = x->mxy;
+        a.mg = x->mg;
+        a.tslot = x->tex_slot;
+        a.sframe = slot_frame;
+        a.cmds = (u32 *)w->cmds;
+        a.gst = w->gst;
+        a.tid0 = m->tex_id0 + e->skin * m->ntex;
+        a.frame = frame;
+        a.svram = slot_vram;
+        a.sbytes = slot_bytes;
+        a.lb = w->link_base;
+        a.dw1 = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | colr0 >> 3;
+        a.luts4 = m->nluts > 1 ? 4 : 0;         /* (colr0 is a multiple of 32) */
+        a.gmax = w->gmax;
+        a.gb = w->gbase >> 3;
+        a.fifo = x->fifo;
+        a.x = x;
+        a.cnt = w->count;
+        a.head = w->head[x->bucket];
+        a.tail = w->tail[x->bucket];
+        a.gc = w->gcount;
+        a.drop = 0;
+        a.mhead = x->mhead;
+        a.wcmds = WRITER_CMDS;
+        mcmds_asm(&a);
+        x->st.mpolys += a.cnt - w->count;
+        x->st.dropped += a.drop;
+        w->count = a.cnt;
+        w->head[x->bucket] = (s16)a.head;
+        w->tail[x->bucket] = (s16)a.tail;
+        w->gcount = a.gc;
+#ifdef MODEL_CHECK
+        /* (the C again from the same start, compared by a hash of all it wrote) */
+        for (k = cnt0 * 8; k < a.cnt * 8; ++k)
+            h_asm = h_asm * 31 + ((u32 *)w->cmds)[k];
+        for (k = gc0 * 2; k < a.gc * 2; ++k)
+            h_asm = h_asm * 31 + w->gst[k];
+        h_asm = h_asm * 31 + (u32)(a.head ^ a.tail << 16) + (x->fifo && head0 >= 0 ? w->cmds[tail0].link : 0);
+        x->st.mpolys -= a.cnt - cnt0;
+        x->st.dropped -= a.drop;
+        w->count = cnt0;
+        w->head[x->bucket] = (s16)head0;
+        w->tail[x->bucket] = (s16)tail0;
+        w->gcount = gc0;
+        if (x->fifo && head0 >= 0)
+            w->cmds[tail0].link = link0;
+    {
+        /* (the C: draw_model's command pass before mdraw.s) */
         u32         *cmds = (u32 *)w->cmds, *gst = w->gst, gb = w->gbase >> 3;
         int         bk = x->bucket, cnt = w->count, head = w->head[bk], tail = w->tail[bk], gc = w->gcount;
         int         gmax = w->gmax, tid0 = m->tex_id0 + e->skin * m->ntex, n = 0;
@@ -2561,6 +2649,16 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         w->tail[bk] = (s16)tail;
         w->gcount = gc;
         x->st.mpolys += n;
+        for (i = cnt0 * 8; i < cnt * 8; ++i)
+            h_c = h_c * 31 + cmds[i];
+        for (i = gc0 * 2; i < gc * 2; ++i)
+            h_c = h_c * 31 + gst[i];
+        h_c = h_c * 31 + (u32)(head ^ tail << 16) + (fifo && head0 >= 0 ? w->cmds[tail0].link : 0);
+        ++model_checks[3];
+        if (h_c != h_asm)
+            ++model_diffs[2];
+    }
+#endif
     }
     x->st.t_models += (frt_read() - t0) & 0xFFFF;
 #ifdef R_PROFILE

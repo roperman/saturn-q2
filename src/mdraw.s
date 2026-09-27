@@ -8,8 +8,9 @@
 !   void mverts_asm(mverts_args *a)
 !
 ! The DSP's results come in blocks of 16 vertices: 16 x, then 16 y, then 16
-! z. The divide (FOCAL << 32 / z, through GBR) runs while the depth is
-! stored and compared. Everything stays in registers: the compiler's
+! z. A vertex's divide (FOCAL << 32 / z, through GBR) is started as soon as
+! the one before has its quotient, and runs while that one's screen position
+! and outcode are worked out. Everything stays in registers: the compiler's
 ! version spilled to the stack, and with the cache writing through, every
 ! spill is a bus write (with the other CPU and the DSP on the bus too).
 
@@ -17,6 +18,7 @@
         .align  2
         .global _mverts_asm
         .global _mpolys_asm
+        .global _mcmds_asm
 
 A_OUT   = 0                             ! the DSP's results for the model
 A_MXY   = 4                             ! screen positions (x << 16 | y)
@@ -27,6 +29,40 @@ A_ZMIN  = 20                            ! in and out
 A_ZMAX  = 24
 
 OC_NEAR = 16
+
+! start FOCAL << 32 / \reg on the divider (at GBR). Uses r0
+.macro  DIVSTART reg
+        mov     \reg,r0
+        mov.l   r0,@(0,gbr)             ! DVSR
+        mov.w   .Lfocal,r0
+        mov.l   r0,@(16,gbr)            ! DVDNTH
+        mov     #0,r0
+        mov.l   r0,@(20,gbr)            ! DVDNTL: starts it
+.endm
+
+! on to the next vertex (past the block's y and z after its 16th); if
+! there is one, its z into r3 and, in front of the near plane, its divide
+! started. Uses r0 r1
+.macro  ADVANCE
+        add     #4,r6
+        dt      r7
+        bf      31f
+        mov     #16,r7
+        add     #127,r6
+        add     #1,r6
+31:     mov     #1,r0
+        cmp/gt  r0,r5
+        bf      32f                     ! that was the last
+        mov     r6,r1
+        add     #127,r1
+        add     #1,r1
+        mov.l   @r1,r3                  ! its z
+        mov.l   .Lnear,r1
+        cmp/ge  r1,r3
+        bf      32f
+        DIVSTART r3
+32:
+.endm
 
 _mverts_asm:
         mov.l   r8,@-r15
@@ -42,60 +78,63 @@ _mverts_asm:
         mov.l   @(A_MXY,r4),r8
         mov.l   @(A_MZ,r4),r9
         mov.l   @(A_MOC,r4),r10
-        mov.l   @(A_N,r4),r5
+        mov.l   @(A_N,r4),r5            ! vertices left, this one included
         mov.l   @(A_ZMIN,r4),r11
         mov.l   @(A_ZMAX,r4),r12
         mov     #16,r7                  ! vertices left in the block
         mov.l   .Ldiv,r0
         ldc     r0,gbr                  ! the divider
         tst     r5,r5
-        bt      .Ldone
-.Lloop:
-        mov.l   @r6,r13                 ! x
+        bf      0f
+        bra     .Ldone
+        nop
+0:      mov.l   @r6,r13                 ! the first vertex: x y z, its divide started
         mov     r6,r1
         add     #64,r1
-        mov.l   @r1,r14                 ! y
+        mov.l   @r1,r14
         add     #64,r1
-        mov.l   @r1,r3                  ! z
+        mov.l   @r1,r3
         mov.l   .Lnear,r1
-        mov.l   r3,@r9                  ! its depth
         cmp/ge  r1,r3
-        bf      .Lnear_v                ! behind the near plane
-        mov     r3,r0
-        mov.l   r0,@(0,gbr)             ! DVSR: z
-        mov.w   .Lfocal,r0
-        mov.l   r0,@(16,gbr)            ! DVDNTH: FOCAL
-        mov     #0,r0
-        mov.l   r0,@(20,gbr)            ! DVDNTL: 0, and it starts
-        cmp/gt  r3,r11                  ! meanwhile the depths
+        bf      .Lloop
+        DIVSTART r3
+.Lloop:
+        ! x r13, y r14, z r3; its divide running if it's in front of the near plane
+        mov.l   r3,@r9                  ! its depth
+        mov.l   .Lnear,r1
+        cmp/ge  r1,r3
+        bf      .Lnear_v
+        cmp/gt  r3,r11                  ! the depths
         bf      1f
         mov     r3,r11
 1:      cmp/gt  r12,r3
         bf      2f
         mov     r3,r12
-2:      mov.l   @(20,gbr),r0            ! FOCAL / z, 16.16 (waits if need be)
-        dmuls.l r0,r13
+2:      mov.l   @(20,gbr),r0            ! FOCAL / z, 16.16
+        mov     r0,r4
+        ADVANCE                         ! the next one's divide starts now
+        dmuls.l r4,r13
         mov.w   .Lclamp,r2
         sts     mach,r1
-        dmuls.l r0,r14
+        dmuls.l r4,r14
         mov.w   .Lcx,r0
         add     r0,r1                   ! sx = CX + x r
-        neg     r2,r3
+        neg     r2,r4
         cmp/gt  r2,r1                   ! clamped to +-CLAMP_XY
         bf      3f
         mov     r2,r1
-3:      cmp/ge  r3,r1
+3:      cmp/ge  r4,r1
         bt      4f
-        mov     r3,r1
+        mov     r4,r1
 4:      sts     mach,r0
         neg     r0,r0
         add     #112,r0                 ! sy = CY - y r
         cmp/gt  r2,r0
         bf      5f
         mov     r2,r0
-5:      cmp/ge  r3,r0
+5:      cmp/ge  r4,r0
         bt      6f
-        mov     r3,r0
+        mov     r4,r0
 6:      extu.w  r0,r13
         mov     r1,r14
         shll16  r14
@@ -120,17 +159,16 @@ _mverts_asm:
         add     #8,r13
 .Loc:   mov.b   r13,@r10
 .Lnext:
+        ! the next one's x and y (its z's in r3 already)
+        mov.l   @r6,r13
+        mov     r6,r1
+        add     #64,r1
+        mov.l   @r1,r14
         add     #4,r8
         add     #4,r9
+        dt      r5
+        bf.s    .Lloop
         add     #1,r10
-        dt      r7
-        bf.s    10f
-        add     #4,r6
-        mov     #16,r7                  ! the next block: past this one's y and z
-        add     #127,r6
-        add     #1,r6
-10:     dt      r5
-        bf      .Lloop
 .Ldone:
         mov.l   @r15+,r4
         mov.l   r11,@(A_ZMIN,r4)
@@ -147,8 +185,10 @@ _mverts_asm:
 
 .Lnear_v:
         mov     #OC_NEAR,r0
-        bra     .Lnext
         mov.b   r0,@r10
+        ADVANCE
+        bra     .Lnext
+        nop
 
         .align  1
 .Lfocal:
@@ -344,3 +384,319 @@ _mpolys_asm:
         sts     macl,r2
         bra     .Lpside
         sub     r2,r1
+
+! mcmds_asm: the polygons kept, bucket by bucket, into VDP1 commands in this
+! CPU's list (draw_model's last pass, which it replaces, command for command):
+!
+!   void mcmds_asm(mcmds_args *a)
+!
+! A textured, Gouraud-shaded distorted sprite a polygon: its texture's slot
+! in the VRAM cache (tex_load, in C, if it's not there; skipped if there's no
+! room), linked into this CPU's current bucket the way cmd_alloc does it,
+! its Gouraud table after the others. What's read for every polygon is in
+! the first 16 words (@(disp,Rn) reaches 60 bytes); the rest is by R0. The
+! list's count, the bucket's ends and the Gouraud count stay in registers.
+
+M_POLYS  = 0
+M_TEX    = 4                            ! q_mtex: ofs, w, h (8 bytes)
+M_NEXT   = 8                            ! mnext
+M_MXY    = 12
+M_MG     = 16
+M_TSLOT  = 20                           ! texture -> slot (0xFFFF: none)
+M_SFRAME = 24                           ! slot -> the frame it was last used
+M_CMDS   = 28                           ! this CPU's commands (32 bytes)
+M_GST    = 32                           ! its Gouraud tables (8 bytes)
+M_TID0   = 36                           ! the model's first texture id, this skin's
+M_FRAME  = 40
+M_SVRAM  = 44                           ! the slots' VRAM
+M_SBYTES = 48                           ! a slot's size
+M_LB     = 52                           ! the list's LINK for command 0
+M_DW1    = 56                           ! the command's second word, for texture 0
+M_LUTS4  = 60                           ! 4 if each texture has its own colour table (the colr step), else 0
+M_GMAX   = 64
+M_GB     = 68                           ! the Gouraud tables' VRAM / 8
+M_FIFO   = 72                           ! appended (in order) rather than pushed
+M_X      = 76                           ! the r_ctx, for tex_load
+M_CNT    = 80                           ! in and out
+M_HEAD   = 84
+M_TAIL   = 88
+M_GC     = 92
+M_DROP   = 96                           ! out: none left in the list
+M_HEADS  = 100                          ! mhead
+M_WCMDS  = 104                          ! WRITER_CMDS
+
+_mcmds_asm:
+        mov.l   r8,@-r15
+        mov.l   r9,@-r15
+        mov.l   r10,@-r15
+        mov.l   r11,@-r15
+        mov.l   r12,@-r15
+        mov.l   r13,@-r15
+        mov.l   r14,@-r15
+        sts.l   pr,@-r15
+        mov     r4,r14
+        mov     #M_CNT,r0
+        mov.l   @(r0,r14),r12           ! the list's count
+        mov     #M_HEAD,r0
+        mov.l   @(r0,r14),r11           ! the bucket's first
+        mov     #M_TAIL,r0
+        mov.l   @(r0,r14),r10           ! ... and last
+        mov     #M_GC,r0
+        mov.l   @(r0,r14),r9            ! Gouraud tables used
+        mov     #0,r8                   ! the depth bucket, 0 to 31 (far to near appended, near to far pushed)
+.Lcbucket:
+        mov     #M_HEADS,r0
+        mov.l   @(r0,r14),r1
+        mov     #M_FIFO,r0
+        mov.l   @(r0,r14),r0
+        tst     r0,r0
+        bt.s    1f
+        mov     r8,r0
+        mov     #31,r0
+        sub     r8,r0
+1:      add     r0,r0
+        mov.w   @(r0,r1),r13            ! the bucket's first polygon
+.Lcpoly:
+        cmp/pz  r13
+        bt      2f
+        bra     .Lcnextb
+        nop
+2:      mov     r13,r0                  ! the polygon: polys + i * 12
+        shll2   r0
+        mov     r0,r1
+        add     r0,r0
+        add     r1,r0
+        mov.l   @(M_POLYS,r14),r5
+        add     r0,r5
+        mov.w   @(8,r5),r0
+        extu.w  r0,r6                   ! its texture
+        mov.l   @(M_TID0,r14),r1
+        add     r6,r1                   ! ... its id
+        mov     r1,r0
+        add     r0,r0
+        mov.l   @(M_TSLOT,r14),r2
+        mov.w   @(r0,r2),r0
+        cmp/eq  #-1,r0
+        bf      13f
+        bra     .Lcmiss                 ! not in the cache
+        nop
+13:     extu.w  r0,r2                   ! the slot
+        mov.l   @(M_SFRAME,r14),r1
+        add     r0,r0
+        mov.l   @(M_FRAME,r14),r3
+        mov.w   r3,@(r0,r1)             ! used this frame
+        mov.l   @(M_SBYTES,r14),r3
+        mulu.w  r2,r3
+        mov.l   @(M_SVRAM,r14),r1
+        sts     macl,r3
+        add     r1,r3                   ! its VRAM
+.Lchave:
+        mov     #M_WCMDS,r0
+        mov.l   @(r0,r14),r0
+        cmp/ge  r0,r12
+        bf      14f
+        bra     .Lcdrop                 ! the list's full
+        nop
+14:     mov     #0,r4                   ! the new command's LINK
+        mov     #M_FIFO,r0
+        mov.l   @(r0,r14),r0
+        tst     r0,r0
+        bt      .Lcpush
+        ! appended: the last one links to it
+        cmp/pz  r11
+        bt      3f
+        bra     4f
+        mov     r12,r11                 ! (the first in the bucket)
+3:      mov     r10,r0
+        shll2   r0
+        shll2   r0
+        shll    r0
+        add     #2,r0                   ! the last one's LINK
+        mov.l   @(M_LB,r14),r1
+        mov     r12,r2
+        shll2   r2
+        add     r2,r1
+        mov.l   @(M_CMDS,r14),r2
+        mov.w   r1,@(r0,r2)
+4:      bra     .Lcemit
+        mov     r12,r10
+.Lcpush:
+        ! pushed: it links to the first
+        cmp/pz  r11
+        bt      5f
+        bra     6f
+        mov     r12,r10                 ! (the first in the bucket: also its last)
+5:      mov.l   @(M_LB,r14),r4
+        mov     r11,r0
+        shll2   r0
+        add     r0,r4
+6:      mov     r12,r11
+.Lcemit:
+        mov     r12,r0
+        shll2   r0
+        shll2   r0
+        shll    r0
+        mov.l   @(M_CMDS,r14),r2
+        add     r0,r2                   ! the command
+        add     #1,r12
+        mov.l   .Lctrl,r0
+        or      r4,r0
+        mov.l   r0,@r2                  ! jump-assign, distorted sprite; LINK
+        mov.l   @(M_LUTS4,r14),r0
+        mulu.w  r6,r0
+        mov.l   @(M_DW1,r14),r1
+        sts     macl,r0
+        add     r1,r0
+        mov.l   r0,@(4,r2)              ! PMOD, COLR
+        mov.l   @(M_TEX,r14),r1
+        mov     r6,r0
+        shll2   r0
+        add     r0,r0
+        add     r0,r1
+        add     #4,r1
+        mov.b   @r1+,r4                 ! w
+        mov.b   @r1,r1                  ! h
+        extu.b  r4,r4
+        extu.b  r1,r1
+        shlr2   r4
+        shlr    r4
+        shll8   r4
+        or      r1,r4                   ! SIZE: w / 8, h
+        mov     r3,r0
+        shlr2   r0
+        shlr    r0
+        shll16  r0
+        or      r4,r0
+        mov.l   r0,@(8,r2)              ! SRCA, SIZE
+        mov.l   @(M_MXY,r14),r1
+        mov.w   @r5,r0
+        extu.w  r0,r0
+        shll2   r0
+        mov.l   @(r0,r1),r0
+        mov.l   r0,@(12,r2)             ! A
+        mov.w   @(2,r5),r0
+        extu.w  r0,r0
+        shll2   r0
+        mov.l   @(r0,r1),r0
+        mov.l   r0,@(16,r2)             ! B
+        mov.w   @(4,r5),r0
+        extu.w  r0,r0
+        shll2   r0
+        mov.l   @(r0,r1),r0
+        mov.l   r0,@(20,r2)             ! C
+        mov.w   @(6,r5),r0
+        extu.w  r0,r0
+        shll2   r0
+        mov.l   @(r0,r1),r0
+        mov.l   r0,@(24,r2)             ! D
+        ! its Gouraud table (the last one over again if they've run out)
+        mov     r9,r3
+        mov     #M_GMAX,r0
+        mov.l   @(r0,r14),r0
+        cmp/ge  r0,r3
+        bf.s    7f
+        add     #1,r9
+        add     #-1,r9
+        add     #-1,r0
+        mov     r0,r3
+7:      mov.l   @(M_MG,r14),r1
+        mov.w   @r5,r0
+        extu.w  r0,r0
+        add     r0,r0
+        mov.w   @(r0,r1),r4
+        shll16  r4
+        mov.w   @(2,r5),r0
+        extu.w  r0,r0
+        add     r0,r0
+        mov.w   @(r0,r1),r0
+        extu.w  r0,r0
+        or      r0,r4
+        mov.l   @(M_GST,r14),r6
+        mov     r3,r0
+        shll2   r0
+        add     r0,r0
+        add     r0,r6
+        mov.l   r4,@r6
+        mov.w   @(4,r5),r0
+        extu.w  r0,r0
+        add     r0,r0
+        mov.w   @(r0,r1),r4
+        shll16  r4
+        mov.w   @(6,r5),r0
+        extu.w  r0,r0
+        add     r0,r0
+        mov.w   @(r0,r1),r0
+        extu.w  r0,r0
+        or      r0,r4
+        mov.l   r4,@(4,r6)
+        mov     #M_GB,r0
+        mov.l   @(r0,r14),r0
+        add     r3,r0
+        shll16  r0
+        mov.l   r0,@(28,r2)             ! GRDA
+.Lcnext:
+        mov     r13,r0
+        add     r0,r0
+        mov.l   @(M_NEXT,r14),r1
+        bra     .Lcpoly
+        mov.w   @(r0,r1),r13
+
+.Lcnextb:
+        add     #1,r8
+        mov     #32,r0
+        cmp/ge  r0,r8
+        bt      8f
+        bra     .Lcbucket
+        nop
+8:      mov     #M_CNT,r0
+        mov.l   r12,@(r0,r14)
+        mov     #M_HEAD,r0
+        mov.l   r11,@(r0,r14)
+        mov     #M_TAIL,r0
+        mov.l   r10,@(r0,r14)
+        mov     #M_GC,r0
+        mov.l   r9,@(r0,r14)
+        lds.l   @r15+,pr
+        mov.l   @r15+,r14
+        mov.l   @r15+,r13
+        mov.l   @r15+,r12
+        mov.l   @r15+,r11
+        mov.l   @r15+,r10
+        mov.l   @r15+,r9
+        rts
+        mov.l   @r15+,r8
+
+.Lcmiss:
+        ! the texture into the cache (C: tex_load(x, id)); none free: skip it
+        mov     #M_X,r0
+        mov.l   @(r0,r14),r4
+        mov     r1,r5
+        mov.l   .Ltexload,r0
+        jsr     @r0
+        nop
+        cmp/pz  r0
+        bf      .Lcnext
+        mov     r0,r3                   ! its VRAM
+        mov     r13,r0                  ! the polygon again (the call used r5 r6)
+        shll2   r0
+        mov     r0,r1
+        add     r0,r0
+        add     r1,r0
+        mov.l   @(M_POLYS,r14),r5
+        add     r0,r5
+        mov.w   @(8,r5),r0
+        bra     .Lchave
+        extu.w  r0,r6
+
+.Lcdrop:
+        mov     #M_DROP,r0
+        mov.l   @(r0,r14),r1
+        add     #1,r1
+        bra     .Lcnext
+        mov.l   r1,@(r0,r14)
+
+        .align  2
+.Lctrl:
+        .long   0x10020000              ! jump-assign, distorted sprite
+.Ltexload:
+        .long   _tex_load

@@ -1,0 +1,288 @@
+/*
+** Quake 2 on the Saturn: shared types.
+**
+** World: Quake units in 16.16 fixed point, Quake's axes (x forward/east,
+** y left/north, z up). Angles are 16-bit (0x10000 a full turn); yaw 0 looks
+** down +x, 0x4000 down +y; pitch is positive looking down, as in Quake.
+*/
+#ifndef Q2_H
+#define Q2_H
+
+#include "sat.h"
+#include "vdp.h"
+
+#define FIX(x)          ((s32)((x) * 65536))
+
+static inline s32   imin(s32 a, s32 b) { return a < b ? a : b; }
+static inline s32   imax(s32 a, s32 b) { return a > b ? a : b; }
+static inline s32   iclamp(s32 v, s32 lo, s32 hi) { return v < lo ? lo : v > hi ? hi : v; }
+static inline s32   iabs(s32 v) { return v < 0 ? -v : v; }
+
+/* math.c */
+s32                 fsin(int a);
+s32                 fcos(int a);
+int                 fatan2(s32 x, s32 z);
+u32                 isqrt(u32 v);
+u32                 rng(void);
+void                rng_seed(u32 s);
+s32                 fdiv(s32 a, s32 b);                     /* 16.16 a / b */
+void                cycles_measure(void);                   /* src/cycles.c: what things cost */
+
+/* ---- the baked level (tools/bake_map.py writes it; big-endian, so these overlay it) ---- */
+
+typedef struct { s32 n[3]; s32 dist; u8 type, signbits; u16 pad; } q_plane;
+typedef struct { u16 plane; s16 child[2]; u16 firstface, numfaces; s16 mins[3], maxs[3]; u16 pad; } q_node;
+typedef struct { s16 cluster, area; s16 mins[3], maxs[3]; u16 firstmark, nummark, firstbrush, numbrushes;
+                 s32 contents; } q_leaf;
+/* a face: a grid of nu x nv cells from origin, du and dv apart (world, 16.16). Its outer lines
+   are on the face's edges, not its tiles': the first column starts eu0 stored texels into its
+   tile and the last ends eu1 into its own (the rows: ev0, ev1), so origin is the face's corner.
+   firstlight's top byte is ev1. */
+typedef struct { s32 origin[3], du[3], dv[3]; u16 plane; u8 flags, nu, nv, eu0, eu1, ev0;
+                 u32 firstcell, firstlight; } q_face;
+/* a cell: its texture, the rows of it drawn (ty0, th), and the part of the
+   cell they cover (u0..u1, v0..v1, in stored texels: 0..N). A whole tile
+   (CELL_FULL in tex) has its colour table instead of ty0/th: q_cell_full. */
+typedef struct { u16 tex; u8 ty0, th, u0, u1, v0, v1; } q_cell;
+typedef struct { u16 tex, lut; u8 u0, u1, v0, v1; } q_cell_full;
+#define CELL_FULL       (0x8000)
+typedef struct { u32 ofs; u16 lut; u8 w, h; } q_tex;
+typedef struct { s32 mins[3], maxs[3], origin[3]; s32 headnode, firstface, numfaces; } q_model;
+typedef struct { s32 contents; u16 firstside, numsides; } q_brush;
+typedef struct { u16 plane, flags; } q_brushside;
+/* a brush model's behaviour (tools/bake_map.py movers()): offset = move * frac */
+typedef struct { u8 kind, flags; s16 team_next; u16 targetname, target; s32 move[3], tmin[3], tmax[3], speed, wait; } q_mover;
+#define MV_NONE         (0)                 /* triggers and the like: not drawn, not solid */
+#define MV_STATIC       (1)
+#define MV_DOOR         (2)
+#define MV_PLAT         (3)
+#define MV_BUTTON       (4)
+#define MF_START_OPEN   (1)                 /* rests at the far end (a plat: at the bottom) */
+#define MF_PROXIMITY    (2)                 /* goes when the player's in its trigger box */
+#define MF_SHOOT        (4)
+/* things placed in the map (tools/bake_map.py spawns()) */
+typedef struct { u16 kind, angle; u32 spawnflags; s32 origin[3]; } q_spawn;
+#define SPAWN_SOLDIER_LIGHT (1)
+#define SPAWN_SOLDIER   (2)
+#define SPAWN_SOLDIER_SS (3)
+#define SPAWN_INFANTRY  (4)
+
+#define FF_SKY          (1)
+#define FF_WARP         (2)
+#define FF_TRANS33      (4)
+#define FF_TRANS66      (8)
+#define FF_FLOWING      (16)
+#define FF_NODRAW       (32)
+#define FF_BACK         (64)                    /* on its plane's back */
+#define TEX_TRANSPOSED  (0x8000)
+#define CELL_EMPTY      (0xFFFF)
+#define CONTENTS_SOLID  (1)
+#define CONTENTS_WINDOW (2)
+#define CONTENTS_LAVA   (8)
+#define CONTENTS_SLIME  (16)
+#define CONTENTS_WATER  (32)
+#define CONTENTS_PLAYERCLIP (0x10000)
+#define CONTENTS_MONSTER (0x2000000)
+#define CONTENTS_LADDER (0x20000000)
+#define MASK_PLAYERSOLID (CONTENTS_SOLID | CONTENTS_PLAYERCLIP | CONTENTS_WINDOW | CONTENTS_MONSTER)
+#define MASK_WATER      (CONTENTS_WATER | CONTENTS_LAVA | CONTENTS_SLIME)
+#define SURF_SLICK      (2)
+
+typedef struct
+{
+    const q_plane   *planes;
+    const q_node    *nodes;
+    const q_leaf    *leafs;
+    const u16       *marks;
+    const q_face    *faces;
+    const q_cell    *cells;
+    const u16       *lights;
+    const q_tex     *textures;
+    const u8        *texdata;
+    const u16       *luts;
+    const u8        *vis;
+    const q_model   *models;
+    const q_brush   *brushes;
+    const q_brushside *brushsides;
+    const u16       *leafbrushes;
+    const q_mover   *movers;
+    const u8        *facevis;               /* per cluster: the faces really visible (bits, Quake's RLE) */
+    const u16       *sky;                   /* w, h, palette[16], above, below, zenith, then 4bpp pixels */
+    const q_spawn   *spawns;
+    int             nspawns;
+    const u16       *leaflight;             /* per leaf: r g b brightness (8.8), pad */
+    const void      *erecs;                 /* the map's entities (game.h q_erec) */
+    int             nerecs;
+    const char      *strings;
+    int             nplanes, nnodes, nleafs, nfaces, ntextures, nluts, nclusters, nmodels, nbrushes;
+    int             T, N, nshift;           /* cell size in texels; stored texels a side, log2 */
+    s32             start[3];
+    int             start_yaw;
+}                   q_level;
+
+extern q_level      lv;
+extern int          cart_mb;
+
+/* level.c */
+bool                level_load(const char *name);          /* onto the RAM cart */
+int                 level_leaf(const s32 *p);               /* the leaf a point is in */
+const u8            *level_pvs(int cluster);                /* decompressed PVS row (static buffer) */
+void                level_facevis(int cluster, u8 *bits);   /* the faces a cluster can see */
+void                *level_alloc(u32 bytes);                /* high work RAM, for the level's life */
+const u8            *cart_load(const char *name);           /* another file onto the cart, after the level */
+const void          *level_hot(const void *src, u32 bytes);  /* a copy in high work RAM if there's room */
+
+/* trace.c: Quake 2's box traces against the brushes (qcommon/cmodel.c), in 16.16 */
+typedef struct
+{
+    bool            allsolid, startsolid;
+    s32             fraction;               /* 0..1 (16.16) */
+    s32             endpos[3];
+    const q_plane   *plane;                 /* the plane hit, or NULL */
+    int             contents, surf_flags;
+    int             ent;                    /* what was hit: 0 the world, else a brush model */
+}                   q_trace;
+
+void                trace_init(void);
+q_trace             trace_box(const s32 *start, const s32 *end, const s32 *mins, const s32 *maxs, int headnode,
+                              int mask);
+int                 point_contents(const s32 *p, int headnode);
+q_trace             trace_line(const s32 *start, const s32 *end, int headnode, int mask);   /* a point: much cheaper */
+
+/* pmove.c */
+typedef struct
+{
+    int             yaw, pitch;             /* where the player looks */
+    s32             forward, side, up;      /* units a second (16.16) */
+}                   q_usercmd;
+
+typedef struct
+{
+    s32             origin[3], velocity[3];
+    bool            on_ground, jump_held, noclip;
+    int             ground_ent;             /* what it's standing on (a brush model, or 0) */
+    int             ground_flags, land_time, waterlevel, watertype;
+}                   q_player;
+
+extern q_player     pl;
+void                pmove(const q_usercmd *cmd, s32 dt);    /* dt: seconds, 16.16 */
+void                pmove_spawn(const s32 *origin);
+q_trace             pm_trace(const s32 *start, const s32 *end);    /* the player's box: world, movers, monsters */
+q_trace             trace_world(const s32 *start, const s32 *mins, const s32 *maxs, const s32 *end, int mask);  /* + movers */
+extern const s32    p_mins[3], p_maxs[3];
+
+/* movers.c: doors, lifts, buttons */
+extern s32          (*mover_ofs)[3];        /* each brush model's offset now */
+void                movers_init(void);
+void                movers_update(s32 dt);
+void                movers_use(int name);                  /* set going everything with this targetname */
+void                mover_hide(int model);                 /* gone (a func_explosive, blown up) */
+bool                mover_live(int model);                 /* drawn and solid */
+void                g_mover_fired(int target);             /* (the game) a button's targets */
+
+/* the camera */
+typedef struct
+{
+    s32             pos[3];
+    int             yaw, pitch;
+    s32             fwd[3], right[3], up[3];
+}                   q_cam;
+
+extern q_cam        cam;
+void                cam_update(void);                       /* the axes from yaw and pitch */
+
+/* dynamic lights and sprites: fx.c fills these each frame, render.c draws them */
+typedef struct { s32 pos[3]; s32 radius; u8 r, g, b, pad; } q_dlight;  /* r g b: 5-bit units at the centre */
+typedef struct { s32 pos[3]; s32 size; u16 color, halo; } q_sprite;     /* a glowing blob, size in units */
+#define MAX_DLIGHTS     (8)
+#define MAX_SPRITES     (64)
+extern q_dlight     r_dlights[MAX_DLIGHTS];
+extern int          r_ndlights;
+extern q_sprite     r_sprites[MAX_SPRITES];
+extern int          r_nsprites;
+
+/* fx.c: blaster bolts, flashes, sparks */
+struct g_ent_s;
+void                fx_fire(const s32 *eye, int yaw, int pitch);   /* the player's blaster */
+void                fx_bolt(struct g_ent_s *owner, const s32 *start, const s32 *dir, int damage, s32 speed);
+void                fx_flash(const s32 *p, s32 radius, s32 dur, u8 r, u8 g, u8 b);
+void                fx_spark(const s32 *p);
+void                fx_explosion(const s32 *p);
+void                fx_grenade(struct g_ent_s *owner, const s32 *start, const s32 *dir, int damage, s32 speed);
+void                fx_rocket(struct g_ent_s *owner, const s32 *start, const s32 *dir, int damage, int radius_damage);
+void                fx_render(void);                       /* rockets and grenades into the renderer's entities */
+void                fx_update(s32 dt);                      /* moves things, then fills the lights and sprites */
+
+/* model.c: MD2 models (tools/bake_md2.py) */
+typedef struct { u16 v[4], tex, flags; } q_mpoly;           /* flags 1: a triangle (v[3] == v[2]) */
+typedef struct { u32 ofs; u8 w, h; u16 pad; } q_mtex;
+typedef struct { char name[12]; u16 first, count; } q_manim;
+typedef struct
+{
+    int             nverts, npolys, nframes, nanims, nskins, ntex;
+    const q_mpoly   *polys;
+    const q_mtex    *tex;
+    const u8        *texdata;               /* nskins blocks of per_skin bytes */
+    const u16       *luts;                  /* nskins x ntex tables of 16 */
+    const u8        *frames;                /* per frame: s32 scale[3], translate[3] (16.16), nverts x (x y z normal) */
+    const q_manim   *anims;
+    const u8        *shade;                 /* 16 yaw steps x 162 normals, 128 = 1.0 */
+    const s16       *normals;               /* 162 x (x y z), 2.14 */
+    u32             per_skin, frame_bytes;
+    int             nluts;                  /* colour tables a skin: one a polygon, or one for all */
+    int             tex_id0, lut0;          /* where its textures and colour tables start in the renderer's */
+    bool            loaded;
+}                   q_mdl;
+
+typedef struct
+{
+    s32             origin[3];
+    int             yaw, pitch;
+    const q_mdl     *mdl;
+    int             skin;
+    int             frame, oldframe;        /* model frames (anims' first + n) */
+    s32             lerp;                   /* 0..1 from oldframe to frame (16.16) */
+    int             anim;                   /* the q_manim playing */
+    s32             anim_time;
+    bool            live;
+    /* its light by normal, as Gouraud colours: the leaf's light and Quake's
+       shading, remade when it changes leaf or turns (ents_light) */
+    u16             gbase[162];
+    int             g_leaf, g_yaw;
+}                   q_entity;
+
+#define MAX_ENTITIES    (96)                /* 0..63: the game's entities; then projectiles */
+#include "q2models.h"
+extern q_mdl        models[MDL_COUNT];
+extern int          nmodels_loaded;
+void                models_load_all(void);                  /* tools/models.txt's, onto the cart */
+extern q_entity     ents[MAX_ENTITIES];
+extern int          nents;
+bool                model_load(q_mdl *m, const char *file);
+int                 model_anim(const q_mdl *m, const char *name);
+void                ents_light(void);                       /* their base lighting, before drawing (master) */
+
+/* hud.c */
+void                hud_init(void);                         /* before render_init: its pictures stay in VRAM */
+void                hud_draw(void);
+
+/* render.c */
+typedef struct
+{
+    int             faces, cells, culled, near, uploads, nocache, dropped, leaf, cluster, nodes, proj, gverts, seen;
+    int             models, mpolys, nfast, nslow, nexact;
+    u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys;
+    u32             p_setup, p_grid, p_cells, p_slow, p_corners;   /* R_PROFILE: FRT ticks */
+}                   r_stats;
+extern r_stats      rs;
+extern int          r_debug;
+extern bool         r_two_cpus;                             /* the slave draws the far half */
+extern bool         r_use_dsp;                              /* model vertices on the SCU DSP */
+void                render_init(void);                      /* after level_load: colour tables, the cache */
+void                render_world(vdp_writer *w0, vdp_writer *w1);
+void                render_slave(void);                     /* the slave's part, when signalled */
+void                render_sky_init(void);                  /* the skybox's horizon on a VDP2 layer */
+void                render_sky(void);                       /* per frame, after cam_update() */
+bool                r_leaf_in_pvs(int leaf);                /* in the camera's PVS */
+
+#endif

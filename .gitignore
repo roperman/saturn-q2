@@ -1,0 +1,10 @@
+data/
+obj/
+cd/
+*.iso
+*.cue
+*.elf
+*.map
+__pycache__/
+vendor/quake2/
+vendor/slavedriver/

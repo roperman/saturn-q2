@@ -1,0 +1,110 @@
+/*
+** MD2 models (tools/bake_md2.py) and the things that use them.
+**
+** A model is loaded onto the RAM cart and used in place. Its polygon
+** textures go through the renderer's texture cache like the walls'
+** (render_init() gives them ids after the level's), and its colour tables
+** are uploaded for good.
+**
+** Animation is Quake's: 10 frames a second, drawn in between (oldframe to
+** frame by lerp).
+*/
+#include "q2.h"
+
+q_mdl               models[MDL_COUNT];
+int                 nmodels_loaded;
+static const char   *model_files[MDL_COUNT] = { MDL_FILES };
+q_entity            ents[MAX_ENTITIES];
+int                 nents;
+
+bool                model_load(q_mdl *m, const char *file)
+{
+    const u8        *b = cart_load(file);
+    const u16       *h16;
+    const u32       *h32;
+
+    if (!b || memcmp(b, "Q2MD", 4))
+        return false;
+    h16 = (const u16 *)(b + 4);
+    h32 = (const u32 *)(b + 16);
+    m->nverts = h16[0];
+    m->npolys = h16[1];
+    m->nframes = h16[2];
+    m->nanims = h16[3];
+    m->nskins = h16[4];
+    m->ntex = h16[5];
+    m->polys = (const q_mpoly *)(b + h32[0]);
+    m->tex = (const q_mtex *)(b + h32[1]);
+    m->texdata = b + h32[2];
+    m->luts = (const u16 *)(b + h32[3]);
+    m->frames = b + h32[4];
+    m->anims = (const q_manim *)(b + h32[5]);
+    m->shade = b + h32[6];
+    m->normals = (const s16 *)(b + h32[7]);
+    m->per_skin = h32[8];
+    m->nluts = (int)h32[9];
+    m->frame_bytes = 24 + (u32)m->nverts * 4;
+    /* the frames are read every time it's drawn: into fast RAM if they fit */
+    m->loaded = true;
+    return true;
+}
+
+void                models_load_all(void)
+{
+    int             i;
+
+    for (i = 0; i < MDL_COUNT; ++i)
+        if (model_load(&models[i], model_files[i]))
+            nmodels_loaded = i + 1;
+}
+
+int                 model_anim(const q_mdl *m, const char *name)
+{
+    int             i, k;
+
+    for (i = 0; i < m->nanims; ++i)
+    {
+        for (k = 0; k < 12 && name[k] && m->anims[i].name[k] == name[k]; ++k)
+            ;
+        if (k == 12 || (!name[k] && !m->anims[i].name[k]))
+            return i;
+    }
+    return 0;
+}
+
+/* Gouraud by normal: the leaf's light times Quake's shading for this yaw.
+   VDP1 adds the Gouraud value to the texel, so a light f (1 = as drawn) is
+   16 + (f - 1) * MODEL_K, sized for the skins' brightness. */
+#define MODEL_K         (12)
+
+void                ents_light(void)
+{
+    int             i, n, k;
+
+    for (i = 0; i < nents; ++i)
+    {
+        q_entity    *e = &ents[i];
+        int         leaf, ys;
+        const u16   *ll;
+        const u8    *sh;
+
+        if (!e->live)
+            continue;
+        leaf = level_leaf(e->origin);
+        ys = (e->yaw >> 12) & 15;
+        if (leaf == e->g_leaf && ys == e->g_yaw)
+            continue;
+        e->g_leaf = leaf;
+        e->g_yaw = ys;
+        ll = &lv.leaflight[leaf * 4];
+        sh = e->mdl->shade + ys * 162;
+        for (n = 0; n < 162; ++n)
+        {
+            int g[3];
+
+            for (k = 0; k < 3; ++k)
+                g[k] = iclamp(16 + (((((s32)ll[k] * sh[n]) >> 7) - 256) * MODEL_K >> 8), 0, 31);
+            e->gbase[n] = (u16)(0x8000 | g[2] << 10 | g[1] << 5 | g[0]);
+        }
+    }
+}

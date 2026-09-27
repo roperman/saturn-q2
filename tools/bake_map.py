@@ -35,6 +35,7 @@ EPS = 1e-4
 FF_SKY, FF_WARP, FF_TRANS33, FF_TRANS66, FF_FLOWING, FF_NODRAW, FF_BACK = 1, 2, 4, 8, 16, 32, 64
 TEX_TRANSPOSED = 0x8000
 CELL_FULL = 0x8000          # a cell's tex: a whole tile; then its colour table, not ty0/th
+CELL_EXACT = 0x4000         # a cropped cell that's exactly its grid cell (the face's edge is the grid's)
 # movers (src/q2.h)
 MV_NONE, MV_STATIC, MV_DOOR, MV_PLAT, MV_BUTTON = 0, 1, 2, 3, 4
 MF_START_OPEN, MF_PROXIMITY, MF_SHOOT = 1, 2, 4
@@ -401,23 +402,44 @@ class Baker:
                                            l["contents"]) for l in b.leafs))
         lump("marks", struct.pack(">%dH" % len(b.leaffaces), *b.leaffaces))
         fdata, cdata, ldata = [], [], []
+        axes = {}
         ncells = nlights = 0
         for f in faces:
             eu0, eu1, ev0, ev1 = f["edges"]
-            assert nlights < 1 << 24
-            fdata.append(struct.pack(">9iHBBBBBBII", *[fx(x) for x in f["origin"]], *[fx(x) for x in f["du"]],
-                                     *[fx(x) for x in f["dv"]], f["plane"], f["flags"], f["nu"], f["nv"],
-                                     eu0, eu1, ev0, ncells, ev1 << 24 | nlights))
-            for c in f["cells"]:
+            # the grid's axes: 575 pairs among 7,500 faces, so a table (in high work RAM)
+            key = tuple(fx(x) for x in f["du"]) + tuple(fx(x) for x in f["dv"])
+            if key not in axes:
+                axes[key] = len(axes)
+            fdata.append(struct.pack(">3iHHBBBBBBBBII", *[fx(x) for x in f["origin"]], axes[key], f["plane"],
+                                     f["flags"], f["nu"], f["nv"], eu0, eu1, ev0, ev1, 0, ncells, nlights))
+            nu = f["nu"]
+            for k, c in enumerate(f["cells"]):
                 if c[0] == "full":
-                    # a whole tile: the colour table where the rows would be (src/q2.h q_cell)
-                    cdata.append(struct.pack(">2H4B", CELL_FULL | c[1], c[2], 0, self.N, 0, self.N))
-                else:
+                    # a whole tile (src/q2.h q_cell_fast): its colour table, all its rows
+                    assert c[1] < CELL_EXACT
+                    cdata.append(struct.pack(">2H4B", CELL_FULL | c[1], c[2], 0, 0, self.N >> 3, self.N))
+                elif c[0] == 0xFFFF:
                     cdata.append(struct.pack(">H6B", *c))
+                else:
+                    i, j = k % nu, k // nu
+                    edge = (eu0 if i == 0 else 0, eu1 if i == nu - 1 else self.N,
+                            ev0 if j == 0 else 0, ev1 if j == f["nv"] - 1 else self.N)
+                    assert c[0] < CELL_EXACT
+                    if tuple(c[3:7]) == edge:
+                        # cropped, but exactly its grid cell: as a whole tile's, with the texture's
+                        # colour table (and whether it's transposed), where its rows start (in 8
+                        # bytes), its width / 8 and how many rows (q_cell_fast)
+                        lt, w, h, data, tr = self.textures[c[0]]
+                        assert (c[1] * w) % 16 == 0
+                        cdata.append(struct.pack(">2H4B", c[0] | CELL_EXACT, lt | (TEX_TRANSPOSED if tr else 0),
+                                                 c[1], c[1] * w // 16, w >> 3, c[2]))
+                    else:
+                        cdata.append(struct.pack(">H6B", *c))
             ldata.append(struct.pack(">%dH" % len(f["lights"]), *f["lights"]))
             ncells += len(f["cells"])
             nlights += len(f["lights"])
-        lump("faces", b"".join(fdata))
+        lump("faces", b"".join(fdata))                          # 32 bytes a face
+        lump("axes", b"".join(struct.pack(">6i", *k) for k in axes))
         lump("cells", b"".join(cdata))                          # 8 bytes a cell
         lump("lights", b"".join(ldata))
         # textures: 4bpp, rows of w/2 bytes; each starts on 8 bytes (srca)
@@ -483,14 +505,14 @@ class Baker:
         lump("leafbrushes", struct.pack(">%dH" % len(b.leafbrushes), *b.leafbrushes))
         order = ["planes", "nodes", "leafs", "marks", "faces", "cells", "lights", "textures", "texdata", "luts",
                  "vis", "models", "start", "brushes", "brushsides", "leafbrushes", "movers", "facevis", "sky", "spawns",
-                 "leaflight", "entities2", "strings"]
+                 "leaflight", "entities2", "strings", "axes"]
         counts = {"planes": len(b.planes), "nodes": len(b.nodes), "leafs": len(b.leafs), "marks": len(b.leaffaces),
                   "faces": len(faces), "cells": ncells, "lights": nlights, "textures": len(self.textures),
                   "texdata": len(tex_blob), "luts": len(self.tile_data), "vis": b.numclusters,
                   "models": len(b.models), "start": 1, "brushes": len(b.brushes),
                   "brushsides": len(b.brushsides), "leafbrushes": len(b.leafbrushes), "movers": len(movers),
                   "facevis": len(rows), "sky": 1, "spawns": len(spawns), "leaflight": len(b.leafs),
-                  "entities2": len(erecs), "strings": len(estrings)}
+                  "entities2": len(erecs), "strings": len(estrings), "axes": len(axes)}
         hsize = (12 + 8 * len(order) + 31) & ~31
         final = bytearray(b"Q2SL" + struct.pack(">IHH", 1, T, self.N))
         for n in order:

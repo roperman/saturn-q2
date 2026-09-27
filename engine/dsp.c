@@ -5,6 +5,7 @@
 #include "xform.h"
 #include "xformb.h"
 #include "xformp.h"
+#include "xformm.h"
 
 void                dsp_init(void)
 {
@@ -35,6 +36,28 @@ void                dsp_init_packed(void)
     DSP_PPAF = 1u << 15;
     for (i = 0; i < XFORMP_PROG_LEN; ++i)
         DSP_PPD = xformp_prog[i];
+}
+
+/* xformm.dsp: models' vertices, both frames blended at once */
+void                dsp_init_models(void)
+{
+    int             i;
+
+    DSP_PPAF = 0;
+    DSP_PPAF = 1u << 15;
+    for (i = 0; i < XFORMM_PROG_LEN; ++i)
+        DSP_PPD = xformm_prog[i];
+}
+
+void                dsp_models(const u32 *stream, s32 *out, int models, volatile u32 *count)
+{
+    DSP_PDA = 32;                           /* RAM0[32..36]: headers, out, models, the count's address, 0 */
+    DSP_PDD = ((u32)stream & 0x07FFFFFF) >> 2;
+    DSP_PDD = ((u32)out & 0x07FFFFFF) >> 2;
+    DSP_PDD = (u32)models;
+    DSP_PDD = ((u32)count & 0x07FFFFFF) >> 2;
+    DSP_PDD = 0;
+    DSP_PPAF = (1u << 16) | (1u << 15);     /* run from PC = 0 */
 }
 
 void                dsp_blocks(const u32 *stream, s32 *out, int blocks)

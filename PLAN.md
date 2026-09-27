@@ -90,21 +90,22 @@ what hurt, VRAM writes are very slow, and code size matters: the cache is
 the frame went 2% faster).
 
 Where a frame goes (`OPT=-DR_PROFILE`, both CPUs, averaged over the
-benchmark's views): face setup 10 ms, the grid 24, cells 35 (of which the
-cropped cells' corners 3 and cell_emit 11), models 12, the walk 9 (the
-master only). The profile build is about 10% slower than the real one.
+benchmark's views, before the cells and models work): face setup 9 ms, the
+grid 25, cells 29, models 12, the walk 9 (the master only). The profile
+build is about 10% slower than the real one.
 
-1. **The cells loop in assembly** (the biggest part now): the fast path and
-   cell_emit, the command as 8 stores from registers
-2. **Data layout**: faces, cells and lights are in LWRAM (59 cycles a miss),
-   texture records on the cart. HWRAM is full: find room (the command
-   staging is 96 KB; the model frames), or copy each face's cells and
-   lights to HWRAM ahead of time with the SH-2's own DMA
-3. **The DSP, running alongside**: model vertices started before the walk
-   (both frames blended by the matrices), so the CPUs only divide; later
-   perhaps each face's setup, as a pipeline ahead of the CPUs
-4. **LOD**: a second grid at 64-texel cells for distant faces
-5. **The walk**: 5 to 15 ms on the master; assembly, or cheaper tests
+Done: the grid and cells in assembly, faces 32 bytes, the models' vertices
+on the DSP alongside. Next, roughly by what they'd save:
+
+1. **The grid's memory**: 20 bytes a point, of which the cells only need 6
+   (the screen position and outcode); x y z are only for the near plane and
+   dynamic lights, which could work them out again. Half the cache misses
+2. **Face setup** (9 ms): the view-space axes once a frame for each of the
+   575 (not per face), or the whole setup on the DSP ahead of the CPUs
+3. **LWRAM**: cells and lights are still there (59 cycles a miss); copy each
+   face's ahead of time with the SH-2's own DMA, or 8-bit lights (a palette)
+4. **The walk** (9 ms on the master): assembly
+5. **LOD**: a second grid at 64-texel cells for distant faces
 
 ## Notes
 

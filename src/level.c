@@ -15,7 +15,7 @@
 
 #define LWRAM_BASE      ((u8 *)0x00200000)
 #define LWRAM_END       ((u8 *)0x00300000)
-#define HWRAM_END       ((u8 *)0x060F0000)      /* the stacks are above */
+#define HWRAM_END       ((u8 *)0x060F8000)      /* the stacks are above (engine/link.ld) */
 
 q_level             lv;
 int                 cart_mb;
@@ -60,11 +60,37 @@ u32                 level_heap(void)
     return (u32)hw_next;
 }
 
+/* out of memory: say so and stop (going on would write over the stacks) */
+static void         out_of_ram(const char *what, u32 bytes)
+{
+    for (;;)
+    {
+        vdp_begin();
+        vdp_printf(16, 100, RGB(255, 80, 60), "OUT OF %s: %d BYTES MORE", what, (int)bytes);
+        vdp_submit();
+    }
+}
+
+/* low work RAM, for what's not read every frame (after the level's data) */
+void                *level_alloc_low(u32 bytes)
+{
+    u8              *p = lw_next;
+
+    bytes = (bytes + 15) & ~15u;
+    if (p + bytes > LWRAM_END)
+        out_of_ram("LOW WORK RAM", (u32)(p + bytes - LWRAM_END));
+    lw_next += bytes;
+    return p;
+}
+
 void                *level_alloc(u32 bytes)
 {
     u8              *p = hw_next;
 
-    hw_next += (bytes + 15) & ~15u;
+    bytes = (bytes + 15) & ~15u;
+    if (p + bytes > HWRAM_END)
+        out_of_ram("HIGH WORK RAM", (u32)(p + bytes - HWRAM_END));
+    hw_next += bytes;
     return p;
 }
 
@@ -120,6 +146,7 @@ bool                level_load(const char *name)
     lv.leaflight = (const u16 *)(b + h[40]);
     lv.erecs = b + h[42];                       lv.nerecs = (int)h[43];
     lv.strings = (const char *)(b + h[44]);
+    lv.axes = (const s32 *)(b + h[46]);
     cart_next = CART_BASE + (((u32)size + 2047) & ~2047u);
     hw_next = (u8 *)(((u32)_bss_end + 15) & ~15u);
     lw_next = LWRAM_BASE;
@@ -127,6 +154,7 @@ bool                level_load(const char *name)
     lv.planes = hot(lv.planes, (u32)lv.nplanes * sizeof(q_plane), true);
     lv.leafs = hot(lv.leafs, (u32)lv.nleafs * sizeof(q_leaf), true);
     lv.marks = hot(lv.marks, h[7] * 2, true);
+    lv.axes = hot(lv.axes, h[47] * 24, true);
     lv.faces = hot(lv.faces, (u32)lv.nfaces * sizeof(q_face), false);
     lv.cells = hot(lv.cells, h[11] * sizeof(q_cell), false);
     lv.lights = hot(lv.lights, h[13] * 2, false);

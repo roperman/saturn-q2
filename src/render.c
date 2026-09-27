@@ -35,7 +35,7 @@
 #define FOCAL           (160)               /* 90 degrees across */
 #define NEAR_Z          FIX(8)
 #define MAX_ROW         (257)
-#define MAX_SLOTS       (4096)
+#define MAX_SLOTS       (3072)              /* (VRAM has room for about 2,800) */
 #define MAX_VIS         (4096)
 #define CLAMP_XY        (2000)
 
@@ -80,6 +80,31 @@ static s32          grid_k[8];              /* NEAR_Z, FOCAL, CX, CY, SCREEN_W, 
 static bool         r_grid_asm;             /* it passed its test (grid_selftest) */
 static void         grid_selftest(void);
 
+/* src/cells.s: a row of cells, the common ones (whole tiles and exact crops,
+   in front, their textures in VRAM); the rest it lists for the C. The first
+   words are what it reads for each cell (offsets up to 60: SH-2 addressing),
+   then the row, in and out. */
+typedef struct
+{
+    const u16       *tex_slot;
+    u16             *slot_frame;
+    u32             frame, sb8, base8, lut8, pmod, ctrl, fifo, stride2, fast, near24, n;
+    u16             *defp;
+    u32             rows;
+    const gv        *top, *bot;
+    const q_cell    *cell;
+    const u16       *light;
+    vdp1_cmd        *cmd;
+    u32             link, prev;
+    u32             *gst;
+    u32             grda;
+    const q_cell    *cell0;                 /* the deferred cells' numbers count from here */
+    u16             def[2 * MAX_ROW];
+}                   cell_args;
+void                cells_asm(cell_args *a);
+bool                r_cells_asm = true;
+static u16          cell_all[MAX_ROW];      /* the cells' numbers, for the C doing a whole row */
+
 /* each CPU's own: its writer, scratch, statistics and half of the texture cache */
 typedef struct
 {
@@ -89,6 +114,7 @@ typedef struct
     gv              grid[2 * MAX_ROW];      /* a face's grid, or two rows of a big one's */
     s32             gk[20];                 /* grid_k, and grid_face_asm's */
     grid_args       ga;
+    cell_args       ca;
     v3              dut, dvt;               /* the face's axes, one stored texel apart (view space) */
     u8              dmask;                  /* the dynamic lights reaching this face */
     /* a model being drawn: its vertices (screen xy, view z, outcodes, Gouraud) and polygons by depth */
@@ -150,73 +176,72 @@ static int          ntex_all;               /* the level's textures, then the mo
 static u32          glow_vram, glow_lut;    /* the sprites' texture and its colours */
 static s32          rcp_n, wscale;          /* 1/N (16.16); 65536 / N^2 (interpolation weights) */
 
-/* Model vertices on the SCU DSP (engine/xformp.dsp): per CPU, the block
-   headers it reads and the view-space results it writes. One DSP, two CPUs:
-   a lock, taken with TAS.B (an atomic read-modify-write on the bus). */
-#define DSP_MAXBLK      (32)                /* two frames of up to 256 vertices */
-static u32          dsp_stream[2][DSP_MAXBLK * 13] __attribute__((aligned(16)));
-static s32          dsp_out[2][DSP_MAXBLK * 48] __attribute__((aligned(16)));
-static u8           dsp_lock_byte;
+/* Model vertices on the SCU DSP (engine/xformm.dsp), alongside the CPUs: at
+   the start of a frame the master lists the models that may be seen (both
+   frames' matrices, weighted for the blend) and starts the DSP; it works
+   through them while the CPUs walk and draw, counting each one off in work
+   RAM, and draw_model waits only if its own isn't done yet. Its results come
+   in behind the CPU's cache, so draw_model forgets those lines first. */
+#define DSPM_MODELS     (32)
+#define DSPM_BLOCKS     (64)                /* 16 vertices each */
+static u32          dspm_stream[DSPM_MODELS * 24] __attribute__((aligned(16)));
+static s32          dspm_out[DSPM_BLOCKS * 48] __attribute__((aligned(16)));
+static u32          dspm_count __attribute__((aligned(16)));
+static s16          ent_dsp[MAX_ENTITIES], ent_blk[MAX_ENTITIES];  /* its place in the DSP's list (or -1), its first block */
 bool                r_use_dsp, r_dsp_ok;
-
-static inline void  dsp_acquire(void)
-{
-    volatile u8     *p = (volatile u8 *)UNCACHED(&dsp_lock_byte);
-    int             got;
-
-    do
-        __asm__ volatile ("tas.b @%1\n\tmovt %0" : "=r" (got) : "r" (p) : "t", "memory");
-    while (!got);
-}
-
-static inline void  dsp_release(void)
-{
-    *(volatile u8 *)UNCACHED(&dsp_lock_byte) = 0;
-}
 
 /* the DSP self-test's findings (shown by main.c) */
 s32                 dsp_test[8];
 
-/* identity plus (100, 200, 300) on vertices (k, 2k, 3k): from work RAM, then from the cart */
+/* two frames, (k, 2k, 3k) and 2 more, half each, plus (100, 200, 300): from
+   work RAM, then from the cart (where the models are) */
 static void         dsp_selftest(void)
 {
-    static u32      in[16] __attribute__((aligned(16)));
+    static u32      in[32] __attribute__((aligned(16)));
     u32             *cart_in = (u32 *)(0x02400000 + 0x3F0000);     /* near the cart's end */
+    volatile u32    *count = (volatile u32 *)UNCACHED(&dspm_count);
     int             k, pass;
 
     for (k = 0; k < 16; ++k)
+    {
         in[k] = (u32)(k << 24 | (2 * k) << 16 | (3 * k) << 8);
-    for (k = 0; k < 16; ++k)
+        in[16 + k] = (u32)((k + 2) << 24 | (2 * k + 2) << 16 | (3 * k + 2) << 8);
+    }
+    for (k = 0; k < 32; ++k)
         cart_in[k] = in[k];
+    dsp_init_models();
     for (pass = 0; pass < 2; ++pass)
     {
-        u32         *st = dsp_stream[0];
-        const s32   *out = (const s32 *)UNCACHED(dsp_out[0]);
+        u32         *st = dspm_stream, *v = pass ? cart_in : in;
+        const s32   *out = (const s32 *)UNCACHED(dspm_out);
         u32         t;
 
-        memset(dsp_out[0], 0xEE, 48 * 4);
-        st[0] = FIX(100); st[1] = FIX(1); st[2] = 0; st[3] = 0;
-        st[4] = FIX(200); st[5] = 0; st[6] = FIX(1); st[7] = 0;
-        st[8] = FIX(300); st[9] = 0; st[10] = 0; st[11] = FIX(1);
-        st[12] = ((u32)(pass ? cart_in : in) & 0x07FFFFFF) >> 2;
-        dsp_blocks(dsp_stream[0], dsp_out[0], 1);
+        memset(dspm_out, 0xEE, 48 * 4);
+        *count = 0;
+        for (k = 0; k < 3; ++k, st += 7)
+        {
+            st[0] = (u32)FIX(100 * (k + 1));
+            st[1] = st[2] = st[3] = st[4] = st[5] = st[6] = 0;
+            st[1 + k] = st[4 + k] = FIX(0.5);
+        }
+        st[0] = ((u32)v & 0x07FFFFFF) >> 2;
+        st[1] = ((u32)(v + 16) & 0x07FFFFFF) >> 2;
+        st[2] = 1;
+        dsp_models(dspm_stream, dspm_out, 1, &dspm_count);
         for (t = 0; t < 2000000 && dsp_busy(); ++t)
             ;
-        dsp_test[pass * 4 + 0] = dsp_busy() ? -1 : 1;                /* finished? */
-        dsp_test[pass * 4 + 1] = out[5] >> 16;                       /* x of vertex 5: 105 */
-        dsp_test[pass * 4 + 2] = out[16 + 5] >> 16;                  /* y: 210 */
-        dsp_test[pass * 4 + 3] = out[32 + 5] >> 16;                  /* z: 315 */
+        dsp_test[pass * 4 + 0] = dsp_busy() ? -1 : (s32)*count;      /* finished, and counted? 1 */
+        dsp_test[pass * 4 + 1] = out[5] >> 16;                       /* x of vertex 5: 106 */
+        dsp_test[pass * 4 + 2] = out[16 + 5] >> 16;                  /* y: 211 */
+        dsp_test[pass * 4 + 3] = out[32 + 5] >> 16;                  /* z: 316 */
         if (dsp_busy())
-            dsp_init_packed();              /* stuck: reload (stops it) */
+            dsp_init_models();              /* stuck: reload (stops it) */
     }
-    r_dsp_ok = dsp_test[0] == 1 && dsp_test[1] == 105 && dsp_test[2] == 210 && dsp_test[3] == 315
-            && dsp_test[4] == 1 && dsp_test[5] == 105 && dsp_test[6] == 210 && dsp_test[7] == 315;
-    /* It works, but used like this (the CPU waiting for it) it's slower than the
-       CPU doing it: on only when asked (OPT=-DDSP_MODELS), until it runs alongside */
-#ifdef DSP_MODELS
+    r_dsp_ok = dsp_test[0] == 1 && dsp_test[1] == 106 && dsp_test[2] == 211 && dsp_test[3] == 316
+            && dsp_test[4] == 1 && dsp_test[5] == 106 && dsp_test[6] == 211 && dsp_test[7] == 316;
     r_use_dsp = r_dsp_ok;
-#else
-    r_use_dsp = false;
+#ifdef NO_DSP
+    r_use_dsp = false;                      /* (OPT=-DNO_DSP: the CPUs do the models' vertices) */
 #endif
 }
 
@@ -288,12 +313,13 @@ void                render_init(void)
 
     kx = CX * 65536 / FOCAL;
     ky = CY * 65536 / FOCAL;
+    for (i = 0; i < MAX_ROW; ++i)
+        cell_all[i] = (u8)i;
     grid_k[0] = NEAR_Z; grid_k[1] = FOCAL; grid_k[2] = CX; grid_k[3] = CY;
     grid_k[4] = SCREEN_W; grid_k[5] = SCREEN_H; grid_k[6] = ky; grid_k[7] = CLAMP_XY;
     for (i = 0; i < 8; ++i)
         ctx[0].gk[i] = ctx[1].gk[i] = grid_k[i];
     grid_selftest();
-    dsp_init_packed();
     dsp_selftest();
     rcp_n = 65536 / lv.N;
     wscale = 65536 / (lv.N * lv.N);
@@ -732,7 +758,7 @@ static u16          dlight_add(u8 mask, const gv *v, u16 c)
 static __attribute__((noinline)) void cell_emit(r_ctx *x, const q_cell *cell, int ty0, int th,
                                                 const u32 *xy, const u16 *light, int stride, gv **g)
 {
-    int             t = cell->tex & 0x7FFF, s = x->tex_slot[t], tw;
+    int             t = cell->tex & CELL_TEX, s = x->tex_slot[t], tw;
     vdp_writer      *w = x->w;
     s32             vram;
     u32             lut, *d, link;
@@ -755,7 +781,7 @@ static __attribute__((noinline)) void cell_emit(r_ctx *x, const q_cell *cell, in
         return;
     tl = slot_lut[s];
     tw = slot_w[s];
-    lut = cell->tex & CELL_FULL ? ((const q_cell_full *)cell)->lut : (u32)(tl & 0x7FFF);
+    lut = cell->tex & CELL_FULL ? ((const q_cell_fast *)cell)->lut : (u32)(tl & 0x7FFF);
     /* the command goes out in 32-bit stores */
     if (!(d = cmd_alloc(x, &link)))
         return;
@@ -854,7 +880,7 @@ static __attribute__((noinline)) bool cell_corners(r_ctx *x, const q_cell *cell,
         return false;
     if (q[0].z < NEAR_Z || q[1].z < NEAR_Z || q[2].z < NEAR_Z || q[3].z < NEAR_Z)
     {
-        const q_tex *tx = &lv.textures[cell->tex & 0x7FFF];
+        const q_tex *tx = &lv.textures[cell->tex & CELL_TEX];
 
         PROF(++x->st.near);
         if (!near_clip(q, ty0, th, (tx->lut & TEX_TRANSPOSED) != 0, tx->w < 16 ? 2 : 1))
@@ -924,6 +950,73 @@ static __attribute__((noinline)) void grid_row(gv *row, int n, const v3 *p, cons
     grid_point(row + 1, px, py, pz, fmul(pz, kx), fmul(pz, ky));
 }
 
+/* src/cells.s: what it needs for this face (and this frame's texture cache) */
+static void         cells_face(r_ctx *x, int stride, const q_cell *cell0)
+{
+    cell_args       *a = &x->ca;
+
+    a->cell0 = cell0;
+    a->tex_slot = x->tex_slot;
+    a->slot_frame = slot_frame;
+    a->frame = frame;
+    a->sb8 = slot_bytes >> 3;
+    a->base8 = slot_vram >> 3;
+    a->lut8 = lut_vram >> 3;
+    a->pmod = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16;
+    a->ctrl = 0x10020000u;                  /* jump assign, distorted sprite */
+    a->fifo = x->fifo;
+    a->stride2 = (u32)stride * 2;
+    a->fast = CELL_FULL | CELL_EXACT;
+    a->near24 = (u32)OC_NEAR << 24;
+}
+
+/* rows of cells in assembly (a whole face's, or one), the writer's lists
+   passed in and brought up to date after: returns how many it left for the C
+   (their numbers, from a->cell0, in x->ca.def) */
+static int          cells_run(r_ctx *x, const gv *top, const gv *bot, const q_cell *cell, const u16 *light, int n,
+                              int rows)
+{
+    cell_args       *a = &x->ca;
+    vdp_writer      *w = x->w;
+    int             b = x->bucket, c0 = w->count, made;
+
+    a->n = (u32)n;
+    a->rows = (u32)rows;
+    a->defp = a->def;
+    a->top = top;
+    a->bot = bot;
+    a->cell = cell;
+    a->light = light;
+    a->cmd = &w->cmds[c0];
+    a->link = w->link_base + (u32)c0 * (sizeof(vdp1_cmd) >> 3);
+    if (x->fifo)
+        a->prev = w->tail[b] >= 0 ? (u32)&w->cmds[w->tail[b]] : 0;
+    else
+        a->prev = w->head[b] >= 0 ? (u32)(w->link_base + w->head[b] * (sizeof(vdp1_cmd) >> 3)) : 0;
+    a->gst = w->gst + w->gcount * 2;
+    a->grda = (w->gbase >> 3) + (u32)w->gcount;
+    cells_asm(a);
+    made = (int)(a->cmd - &w->cmds[c0]);
+    if (made)
+    {
+        if (x->fifo)
+        {
+            if (w->head[b] < 0)
+                w->head[b] = (s16)c0;
+            w->tail[b] = (s16)(c0 + made - 1);
+        }
+        else
+        {
+            if (w->head[b] < 0)
+                w->tail[b] = (s16)c0;
+            w->head[b] = (s16)(c0 + made - 1);
+        }
+        w->count = c0 + made;
+        w->gcount += made;
+    }
+    return (int)(a->defp - a->def);
+}
+
 /* The assembly row against the C one (the reference): rows across the view,
    off its edges, and into the near plane. Any difference and the C one's used. */
 int                 grid_bad;
@@ -989,18 +1082,122 @@ static void         grid_selftest(void)
     r_grid_asm = grid_bad == 0;
 }
 
+/* One cell, the C way: what the assembly leaves (near the camera, cropped
+   inside its grid cell, its texture to load), and every cell when there's a
+   dynamic light near (or the assembly's off). top, bot: its grid rows;
+   light: the top row's lights; cl..cr, ct..cb: its grid cell in its tile. */
+static __attribute__((noinline)) void cell_c(r_ctx *x, const q_cell *cell, gv *top, gv *bot, const u16 *light,
+                                             int stride, int i, int cl, int cr, int ct, int cb)
+{
+    u32             xy[4];
+    int             ty0, th, tex = cell->tex, N = lv.N;
+    u32             size_full = (u32)(((N >> 3) << 8) | N);
+    gv              *g[4];
+    u8              oa, oo;
+    bool            exact;
+
+    if (tex == CELL_EMPTY)
+        return;
+    g[0] = &top[i]; g[1] = &top[i + 1]; g[2] = &bot[i + 1]; g[3] = &bot[i];
+    oa = g[0]->oc & g[1]->oc & g[2]->oc & g[3]->oc;
+    if (oa)
+    {
+        PROF(++x->st.culled);       /* the whole cell's outside a plane: so is any crop of it */
+        return;
+    }
+    oo = g[0]->oc | g[1]->oc | g[2]->oc | g[3]->oc;
+    if (tex & CELL_FULL && !(oo & OC_NEAR) && !x->dmask)
+    {
+        /* the common case, all here: a whole tile, in front, no dynamic light */
+        int         t = tex & CELL_TEX, s = x->tex_slot[t];
+        s32         vram;
+        u32         *dw, link;
+        const u16   *l = light + i;
+
+        if (r_debug == 1)
+            return;
+        if (s == 0xFFFF)
+        {
+            if ((vram = tex_load(x, t)) < 0)
+                return;
+        }
+        else
+        {
+            slot_frame[s] = frame;
+            vram = (s32)(slot_vram + (u32)s * slot_bytes);
+        }
+        if (!(dw = cmd_alloc(x, &link)))
+            return;
+        PROF(++x->st.nfast);
+        dw[0] = 0x10020000u | link;
+        dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16
+              | ((lut_vram + (u32)((const q_cell_fast *)cell)->lut * 32) >> 3);
+        dw[2] = ((u32)vram >> 3) << 16 | size_full;
+        dw[3] = gv_xy(x, g[0]);
+        dw[4] = gv_xy(x, g[1]);
+        dw[5] = gv_xy(x, g[2]);
+        dw[6] = gv_xy(x, g[3]);
+        dw[7] = (u32)vdp_gouraud_fast(x->w, (u32)l[0] << 16 | l[1], (u32)l[stride + 1] << 16 | l[stride]) << 16;
+        return;
+    }
+    PROF(++x->st.nslow);
+    if (tex & (CELL_FULL | CELL_EXACT))
+    {
+        ty0 = ((const q_cell_fast *)cell)->ty0;
+        th = ((const q_cell_fast *)cell)->th;
+    }
+    else
+    {
+        ty0 = cell->ty0;
+        th = cell->th;
+    }
+    /* exact: the crop's the grid cell (the face's edge is the grid's; the baker says) */
+    exact = (tex & (CELL_FULL | CELL_EXACT)) != 0;
+    if (exact && !(oo & OC_NEAR))
+    {
+        xy[0] = gv_xy(x, g[0]);
+        xy[1] = gv_xy(x, g[1]);
+        xy[2] = gv_xy(x, g[2]);
+        xy[3] = gv_xy(x, g[3]);
+    }
+    else
+    {
+#ifdef R_PROFILE
+        u32 ps = frt_read();
+        bool ok = cell_corners(x, cell, g, xy, &ty0, &th, cl, cr, ct, cb, exact);
+
+        x->st.p_corners += (frt_read() - ps) & 0xFFFF;
+        if (!ok)
+            return;
+#else
+        if (!cell_corners(x, cell, g, xy, &ty0, &th, cl, cr, ct, cb, exact))
+            return;
+#endif
+    }
+#ifdef R_PROFILE
+    {
+        u32 ps = frt_read();
+
+        cell_emit(x, cell, ty0, th, xy, light + i, stride, g);
+        x->st.p_slow += (frt_read() - ps) & 0xFFFF;
+    }
+#else
+    cell_emit(x, cell, ty0, th, xy, light + i, stride, g);
+#endif
+}
+
 static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
 {
     const q_face    *f = &lv.faces[fi];
     v3              o, du, dv, rowp, e0, e1, f0, f1;
     s32             d[3], dtx, dty;
     gv              *top = x->grid, *bot = x->grid + MAX_ROW, *tmp;
-    const q_cell    *cell;
     const u16       *light;
     int             i, j, nu = f->nu, nv = f->nv, N = lv.N, stride = nu + 1;
-    int             eu0 = f->eu0, eu1 = f->eu1, ev0 = f->ev0, ev1 = (int)(f->firstlight >> 24), ct, cb, k;
-    bool            whole;
-    u32             size_full;
+    int             eu0 = f->eu0, eu1 = f->eu1, ev0 = f->ev0, ev1 = f->ev1, ct, cb, k;
+    bool            whole, fast_ok;
+    const q_cell    *row_cells;
+    vdp_writer      *w = x->w;
 
     int             count0 = x->w->count;
 #ifdef R_PROFILE
@@ -1014,8 +1211,8 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
     d[1] = f->origin[1] + mover_ofs[model][1] - cam.pos[1];
     d[2] = f->origin[2] + mover_ofs[model][2] - cam.pos[2];
     to_view(d, &o);
-    to_view(f->du, &du);
-    to_view(f->dv, &dv);
+    to_view(&lv.axes[f->axes * 6], &du);
+    to_view(&lv.axes[f->axes * 6 + 3], &dv);
     /* the dynamic lights close enough to its plane (and in front of it) */
     x->dmask = 0;
     for (i = 0; i < r_ndlights; ++i)
@@ -1035,7 +1232,6 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
     x->dvt.x = fmul(dv.x, rcp_n); x->dvt.y = fmul(dv.y, rcp_n); x->dvt.z = fmul(dv.z, rcp_n);
     dtx = fmul(du.z, kx);
     dty = fmul(du.z, ky);
-    size_full = (u32)(((N >> 3) << 8) | N);
     /* the steps into and out of the face's edge columns and rows (a whole tile's if it isn't cropped) */
     k = (nu == 1 ? eu1 : N) - eu0;
     e0.x = x->dut.x * k; e0.y = x->dut.y * k; e0.z = x->dut.z * k;
@@ -1067,11 +1263,34 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
     else
         grid_row(top, nu + 1, &o, &du, &e0, &e1, dtx, dty);
     rowp = o;
-    cell = &lv.cells[f->firstcell];
-    light = &lv.lights[f->firstlight & 0xFFFFFF];
-    for (j = 0; j < nv; ++j, light += stride)
+    row_cells = &lv.cells[f->firstcell];
+    light = &lv.lights[f->firstlight];
+    PROF((x->st.gverts += (nu + 1) * (nv + 1), x->st.seen += nu * nv));
+    PROF((pt2 = frt_read(), x->st.p_grid += (pt2 - pt) & 0xFFFF, pt = pt2));
+    fast_ok = r_cells_asm && !x->dmask && !r_debug;
+    if (fast_ok)
+        cells_face(x, stride, row_cells);
+    if (whole && fast_ok && w->count + nu * nv <= WRITER_CMDS && w->gcount + nu * nv <= w->gmax)
     {
-        const v3 *step = j == 0 ? &f0 : j == nv - 1 ? &f1 : &dv;
+        /* the common cells of the whole face in assembly, then the C for what it left */
+        int n = cells_run(x, top, top + stride, row_cells, light, nu, nv), li;
+
+        PROF((x->st.nexact += n));          /* (profile: X counts the cells the assembly left) */
+        for (li = 0; li < n; ++li)
+        {
+            int c = x->ca.def[li], jj = c / nu;
+
+            i = c - jj * nu;
+            cell_c(x, row_cells + c, top + jj * stride, top + (jj + 1) * stride, light + jj * stride, stride, i,
+                   i == 0 ? eu0 : 0, i == nu - 1 ? eu1 : N, jj == 0 ? ev0 : 0, jj == nv - 1 ? ev1 : N);
+        }
+        PROF((pt2 = frt_read(), x->st.p_cells += (pt2 - pt) & 0xFFFF, pt = pt2));
+    }
+    else for (j = 0; j < nv; ++j, light += stride, row_cells += nu)
+    {
+        const v3    *step = j == 0 ? &f0 : j == nv - 1 ? &f1 : &dv;
+        int         n = nu, li;
+        const u16   *list = cell_all;
 
         ct = j == 0 ? ev0 : 0;
         cb = j == nv - 1 ? ev1 : N;
@@ -1086,107 +1305,18 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
             else
                 grid_row(bot, nu + 1, &rowp, &du, &e0, &e1, dtx, dty);
         }
-        PROF((x->st.gverts += nu + 1, x->st.seen += nu));
-        PROF((pt2 = frt_read(), x->st.p_grid += (pt2 - pt) & 0xFFFF, pt = pt2));
-        for (i = 0; i < nu; ++i, ++cell)
+        /* a row at a time: the common cells in assembly if there's room in the lists */
+        if (fast_ok && w->count + nu <= WRITER_CMDS && w->gcount + nu <= w->gmax)
         {
-            u32     xy[4];
-            int     ty0, th, tex = cell->tex, cl, cr;
-            gv      *g[4];
-            u8      oa, oo;
-            bool    exact;
-
-            if (tex == CELL_EMPTY)
-                continue;
-            g[0] = &top[i]; g[1] = &top[i + 1]; g[2] = &bot[i + 1]; g[3] = &bot[i];
-            oa = g[0]->oc & g[1]->oc & g[2]->oc & g[3]->oc;
-            if (oa)
-            {
-                PROF(++x->st.culled);       /* the whole cell's outside a plane: so is any crop of it */
-                continue;
-            }
-            oo = g[0]->oc | g[1]->oc | g[2]->oc | g[3]->oc;
-            if (tex & CELL_FULL && !(oo & OC_NEAR) && !x->dmask)
-            {
-                /* the common case, all here: a whole tile, in front, no dynamic light */
-                int         t = tex & 0x7FFF, s = x->tex_slot[t];
-                s32         vram;
-                u32         *dw, link;
-                const u16   *l = light + i;
-
-                if (r_debug == 1)
-                    continue;
-                if (s == 0xFFFF)
-                {
-                    if ((vram = tex_load(x, t)) < 0)
-                        continue;
-                }
-                else
-                {
-                    slot_frame[s] = frame;
-                    vram = (s32)(slot_vram + (u32)s * slot_bytes);
-                }
-                if (!(dw = cmd_alloc(x, &link)))
-                    continue;
-                PROF(++x->st.nfast);
-                dw[0] = 0x10020000u | link;
-                dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16
-                      | ((lut_vram + (u32)((const q_cell_full *)cell)->lut * 32) >> 3);
-                dw[2] = ((u32)vram >> 3) << 16 | size_full;
-                dw[3] = gv_xy(x, g[0]);
-                dw[4] = gv_xy(x, g[1]);
-                dw[5] = gv_xy(x, g[2]);
-                dw[6] = gv_xy(x, g[3]);
-                dw[7] = (u32)vdp_gouraud_fast(x->w, (u32)l[0] << 16 | l[1], (u32)l[stride + 1] << 16 | l[stride]) << 16;
-                continue;
-            }
-            PROF(++x->st.nslow);
-            if (tex & CELL_FULL)
-            {
-                ty0 = 0;
-                th = N;
-            }
-            else
-            {
-                ty0 = cell->ty0;
-                th = cell->th;
-            }
-            /* exact: the crop's the grid cell (the face's edge is the grid's) */
-            cl = i == 0 ? eu0 : 0;
-            cr = i == nu - 1 ? eu1 : N;
-            exact = cell->u0 == cl && cell->u1 == cr && cell->v0 == ct && cell->v1 == cb;
-            if (exact && !(oo & OC_NEAR))
-            {
-                PROF(++x->st.nexact);
-                xy[0] = gv_xy(x, g[0]);
-                xy[1] = gv_xy(x, g[1]);
-                xy[2] = gv_xy(x, g[2]);
-                xy[3] = gv_xy(x, g[3]);
-            }
-            else
-            {
-#ifdef R_PROFILE
-                u32 ps = frt_read();
-                bool ok = cell_corners(x, cell, g, xy, &ty0, &th, cl, cr, ct, cb, exact);
-
-                x->st.p_corners += (frt_read() - ps) & 0xFFFF;
-                if (!ok)
-                    continue;
-#else
-                if (!cell_corners(x, cell, g, xy, &ty0, &th, cl, cr, ct, cb, exact))
-                    continue;
-#endif
-            }
-#ifdef R_PROFILE
-            {
-                u32 ps = frt_read();
-
-                cell_emit(x, cell, ty0, th, xy, light + i, stride, g);
-                x->st.p_slow += (frt_read() - ps) & 0xFFFF;
-            }
-#else
-            cell_emit(x, cell, ty0, th, xy, light + i, stride, g);
-#endif
+            x->ca.cell0 = row_cells;
+            n = cells_run(x, top, bot, row_cells, light, nu, 1);
+            list = x->ca.def;
+            PROF((x->st.nexact += n));
+        }
+        for (li = 0; li < n; ++li)
+        {
+            i = list[li];
+            cell_c(x, row_cells + i, top, bot, light, stride, i, i == 0 ? eu0 : 0, i == nu - 1 ? eu1 : N, ct, cb);
         }
         PROF((pt2 = frt_read(), x->st.p_cells += (pt2 - pt) & 0xFFFF, pt = pt2));
         if (whole)
@@ -1467,20 +1597,19 @@ void                render_sky(void)
    normal; back faces dropped; its polygons sorted by depth among themselves
    (32 buckets over its own depth range) and put in nearest first, so the
    bucket's last-in-first-drawn order paints them back to front. */
-static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
+/* a model's two frames into view space: view = A b + C for each (b its packed
+   bytes). false: all of it's off the screen */
+typedef struct { s32 A0[3][3], A1[3][3], C0[3], C1[3]; } model_xform;
+
+static bool         model_xf(const q_entity *e, model_xform *o)
 {
-    const q_entity  *e = &ents[ei];
     const q_mdl     *m = e->mdl;
     const s32       *ax[3];
-    s32             M[3][3], T[3], d[3], c = fcos(e->yaw), sn = fsin(e->yaw), zmin = 0x7FFFFFFF, zmax = -0x7FFFFFFF;
-    const u8        *f0 = m->frames + (u32)e->oldframe * m->frame_bytes, *f1 = m->frames + (u32)e->frame * m->frame_bytes;
-    const s32       *h0 = (const s32 *)f0, *h1 = (const s32 *)f1;
-    const u8        *v0 = f0 + 24, *v1 = f1 + 24, *vn = e->lerp < FIX(0.5) ? v0 : v1;
-    s32             lerp = e->lerp, inv, A0[3][3], A1[3][3], C0[3], C1[3];
-    const u16       *gt;
-    int             i, k, b, bi, nv = imin(m->nverts, MAX_MVERTS), np = imin(m->npolys, MAX_MPOLYS);
-    vdp_writer      *w = x->w;
-    u32             t0 = frt_read();
+    s32             M[3][3], T[3], d[3], c = fcos(e->yaw), sn = fsin(e->yaw);
+    const s32       *h0 = (const s32 *)(m->frames + (u32)e->oldframe * m->frame_bytes);
+    const s32       *h1 = (const s32 *)(m->frames + (u32)e->frame * m->frame_bytes);
+    s32             (*A0)[3] = o->A0, (*A1)[3] = o->A1, *C0 = o->C0, *C1 = o->C1;
+    int             i, k;
 
     ax[0] = cam.right;
     ax[1] = cam.up;
@@ -1522,8 +1651,74 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         C1[k] = fmul(M[k][0], h1[3]) + fmul(M[k][1], h1[4]) + fmul(M[k][2], h1[5]) + T[k];
     }
     /* all of it (within 48 units of its origin) off screen? */
-    if (T[2] < -FIX(48) || T[0] - FIX(48) > fmul(T[2] + FIX(48), kx) || T[0] + FIX(48) < -fmul(T[2] + FIX(48), kx)
-        || T[1] - FIX(48) > fmul(T[2] + FIX(48), ky) || T[1] + FIX(48) < -fmul(T[2] + FIX(48), ky))
+    return !(T[2] < -FIX(48) || T[0] - FIX(48) > fmul(T[2] + FIX(48), kx) || T[0] + FIX(48) < -fmul(T[2] + FIX(48), kx)
+             || T[1] - FIX(48) > fmul(T[2] + FIX(48), ky) || T[1] + FIX(48) < -fmul(T[2] + FIX(48), ky));
+}
+
+/* the frame's models for the DSP: those in leaves the view can see, and not
+   all off the screen, weighted for their blends; started at once */
+static void         models_to_dsp(void)
+{
+    u32             *st = dspm_stream;
+    int             i, k, nm = 0, nb = 0;
+
+    for (i = 0; i < nents; ++i)
+        ent_dsp[i] = -1;
+    if (!r_use_dsp)
+        return;
+    dsp_wait();                             /* (last frame's list, if a model it had wasn't drawn) */
+    for (i = 0; i < nents; ++i)
+    {
+        const q_entity  *e = &ents[i];
+        const q_mdl     *m = e->mdl;
+        model_xform     xf;
+        s32             w1 = e->lerp, w0 = FIX(1) - w1;
+        int             blocks;
+
+        if (ent_leaf[i] < 0 || leaf_vis[ent_leaf[i]] != visframe || !m)
+            continue;
+        blocks = (imin(m->nverts, MAX_MVERTS) + 15) >> 4;
+        if (nm == DSPM_MODELS || nb + blocks > DSPM_BLOCKS)
+            break;
+        if (!model_xf(e, &xf))
+            continue;
+        for (k = 0; k < 3; ++k, st += 7)
+        {
+            st[0] = (u32)(fmul(xf.C0[k], w0) + fmul(xf.C1[k], w1));
+            st[1] = (u32)fmul(xf.A0[k][0], w0); st[2] = (u32)fmul(xf.A0[k][1], w0); st[3] = (u32)fmul(xf.A0[k][2], w0);
+            st[4] = (u32)fmul(xf.A1[k][0], w1); st[5] = (u32)fmul(xf.A1[k][1], w1); st[6] = (u32)fmul(xf.A1[k][2], w1);
+        }
+        st[0] = ((u32)(m->frames + (u32)e->oldframe * m->frame_bytes + 24) & 0x07FFFFFF) >> 2;
+        st[1] = ((u32)(m->frames + (u32)e->frame * m->frame_bytes + 24) & 0x07FFFFFF) >> 2;
+        st[2] = (u32)blocks;
+        st += 3;
+        ent_dsp[i] = (s16)nm++;
+        ent_blk[i] = (s16)nb;
+        nb += blocks;
+    }
+    if (nm)
+    {
+        *(volatile u32 *)UNCACHED(&dspm_count) = 0;
+        dsp_models(dspm_stream, dspm_out, nm, &dspm_count);
+    }
+}
+
+static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
+{
+    const q_entity  *e = &ents[ei];
+    const q_mdl     *m = e->mdl;
+    s32             c = fcos(e->yaw), sn = fsin(e->yaw), zmin = 0x7FFFFFFF, zmax = -0x7FFFFFFF;
+    const u8        *f0 = m->frames + (u32)e->oldframe * m->frame_bytes, *f1 = m->frames + (u32)e->frame * m->frame_bytes;
+    const u8        *v0 = f0 + 24, *v1 = f1 + 24, *vn = e->lerp < FIX(0.5) ? v0 : v1;
+    s32             lerp = e->lerp, inv;
+    model_xform     xf;
+    s32             (*A0)[3] = xf.A0, (*A1)[3] = xf.A1, *C0 = xf.C0, *C1 = xf.C1;
+    const u16       *gt;
+    int             i, b, bi, nv = imin(m->nverts, MAX_MVERTS), np = imin(m->npolys, MAX_MPOLYS);
+    vdp_writer      *w = x->w;
+    u32             t0 = frt_read();
+
+    if (ent_dsp[ei] < 0 && !model_xf(e, &xf))
         return;
     ++x->st.models;
     /* its light by normal: the base (ents_light), plus any dynamic lights
@@ -1565,43 +1760,23 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     /* the vertices: on the DSP (both frames, 16 at a time, straight into view space), the CPU just
        blends and projects; or all on the CPU */
     x->st.t_mlight += (frt_read() - t0) & 0xFFFF;
-    if (r_use_dsp && nv <= DSP_MAXBLK * 8)
+    if (ent_dsp[ei] >= 0)
     {
-        int         cpu = x == &ctx[1], nb = (nv + 15) >> 4, nf = lerp ? 2 : 1, f, bl;
-        u32         *st = dsp_stream[cpu];
-        const s32   *out = (const s32 *)UNCACHED(dsp_out[cpu]);
+        /* on the DSP (models_to_dsp): wait if it's not there yet, have the cache
+           forget what it had where the DSP wrote, and read them, blended already */
+        const s32   *out = dspm_out + ent_blk[ei] * 48;
+        u32         a, end = (u32)(out + ((nv + 15) >> 4) * 48);
 
-        for (f = 0; f < nf; ++f)
-        {
-            s32 (*A)[3] = f ? A1 : A0, *C = f ? C1 : C0;
-            u32 va = ((u32)(f ? v1 : v0) & 0x07FFFFFF) >> 2;
-
-            for (bl = 0; bl < nb; ++bl, st += 13)
-            {
-                st[0] = (u32)C[0]; st[1] = (u32)A[0][0]; st[2] = (u32)A[0][1]; st[3] = (u32)A[0][2];
-                st[4] = (u32)C[1]; st[5] = (u32)A[1][0]; st[6] = (u32)A[1][1]; st[7] = (u32)A[1][2];
-                st[8] = (u32)C[2]; st[9] = (u32)A[2][0]; st[10] = (u32)A[2][1]; st[11] = (u32)A[2][2];
-                st[12] = va + (u32)bl * 16;
-            }
-        }
-        dsp_acquire();
-        dsp_blocks(dsp_stream[cpu], dsp_out[cpu], nb * nf);
-        dsp_wait();
-        dsp_release();
+        while (*(volatile u32 *)UNCACHED(&dspm_count) <= (u32)ent_dsp[ei])
+            ;
+        for (a = (u32)out; a < end; a += 16)
+            *(volatile u32 *)(0x40000000 | (a & 0x1FFFFFFF)) = 0;      /* the cache's associative purge */
         for (i = 0; i < nv; ++i)
         {
             const s32   *o = out + (i >> 4) * 48 + (i & 15);
             s32         vx = o[0], vy = o[16], vz = o[32];
             u8          oc = 0;
 
-            if (lerp)
-            {
-                const s32 *o1 = o + nb * 48;
-
-                vx += fmul(o1[0] - vx, lerp);
-                vy += fmul(o1[16] - vy, lerp);
-                vz += fmul(o1[32] - vz, lerp);
-            }
             x->mz[i] = vz;
             x->mg[i] = gt[vn[i * 4 + 3] < 162 ? vn[i * 4 + 3] : 0];
             if (vz < NEAR_Z)
@@ -1856,6 +2031,8 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         ent_next[i] = leaf_ent[l];
         leaf_ent[l] = (s16)i;
     }
+    /* the models' vertices: the DSP starts on them now */
+    models_to_dsp();
     /* the slave starts on the list as the walk fills it */
     ctx[0].w = w0;
     ctx[1].w = w1;

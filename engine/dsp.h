@@ -18,6 +18,11 @@
 void                dsp_init(void);                     /* loads the transform program */
 void                dsp_init_blocks(void);              /* ...or the one with a matrix per block (xformb.dsp) */
 void                dsp_init_packed(void);              /* ...or that with packed byte vertices (xformp.dsp) */
+void                dsp_init_models(void);              /* ...or models' vertices, two frames blended (xformm.dsp) */
+/* xformm: a 24-word header a model (rows t a0 a1 a2 b0 b1 b2, then the two
+   frames' packed vertices >> 2 and its blocks of 16); out gets 16 x' 16 y'
+   16 z' a block; *count goes up by one as each model's finished */
+void                dsp_models(const u32 *stream, s32 *out, int models, volatile u32 *count);
 /* xformb: blocks of 16 vertices, each with its own matrix; stream holds a
    13-word header per block (t0 m00 m01 m02 t1 .. m22, vertices >> 2) */
 void                dsp_blocks(const u32 *stream, s32 *out, int blocks);    /* starts it */

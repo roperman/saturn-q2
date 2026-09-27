@@ -18,6 +18,10 @@
 */
 #include "game.h"
 
+#ifndef MAP_FILE
+# define MAP_FILE       "DEMO1.MAP"             /* (build.sh: MAP=demo2 ./build.sh for another) */
+#endif
+
 static u16          pad_now, pad_prev;
 static bool         show_stats = true;
 
@@ -194,9 +198,9 @@ void                main(void)
     vdp_set_hw_erase(false);
     vdp_set_min_frame(1);
     message("QUAKE II", "LOADING DEMO1 ONTO THE RAM CART");
-    if (!level_load("DEMO1.MAP"))
+    if (!level_load(MAP_FILE))
         for (;;)
-            message(cart_mb < 4 ? "THIS NEEDS THE 4MB RAM CART" : "DEMO1.MAP WON'T LOAD", NULL);
+            message(cart_mb < 4 ? "THIS NEEDS THE 4MB RAM CART" : MAP_FILE " WON'T LOAD", NULL);
     message("QUAKE II", "LOADING THE MODELS");
     models_load_all();
     hud_init();
@@ -345,7 +349,22 @@ void                main(void)
         if (bench_view >= 0)
         {
             /* the benchmark: the camera where the table says, the game paused */
-            const s32 *bv = bench_views[bench_view];
+            const s32 *bv;
+
+#ifdef BENCH_HOLD
+            /* (OPT=-DBENCH_HOLD: a view held, DOWN for the next, UP to switch the cells'
+               assembly on and off: the two should be identical, pixel for pixel) */
+            {
+                extern bool r_cells_asm;
+
+                if (pressed(PAD_DOWN))
+                    bench_view = (bench_view + 1) % NBENCH;
+                if (pressed(PAD_UP))
+                    r_cells_asm = !r_cells_asm;
+                bench_frame = 0;
+            }
+#endif
+            bv = bench_views[bench_view];
 
             cam.pos[0] = FIX(bv[0]);
             cam.pos[1] = FIX(bv[1]);
@@ -511,8 +530,8 @@ void                main(void)
 
                 extern bool r_dsp_ok;
 
-                vdp_printf(8, 108, c, "GRID PT%d BAD%d DSP %s%s", cyc[0], grid_bad, r_dsp_ok ? "OK" : "BAD",
-                           r_use_dsp ? " ON" : "");
+                vdp_printf(8, 108, c, "GRID PT%d BAD%d DSP %s%s HEAP %x", cyc[0], grid_bad, r_dsp_ok ? "OK" : "BAD",
+                           r_use_dsp ? " ON" : "", level_heap());
 
             }
             vdp_printf(8, 48, c, "%d %d %d%s%s%s W%d M%d G%d", pl.origin[0] >> 16, pl.origin[1] >> 16, pl.origin[2] >> 16,

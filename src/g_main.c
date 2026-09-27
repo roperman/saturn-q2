@@ -8,8 +8,8 @@
 #include "game.h"
 
 g_level             level;
-g_ent               g_edicts[MAX_EDICTS];
-g_ent               *g_player = &g_edicts[0];
+g_ent               *g_edicts;              /* low work RAM: high's for the renderer */
+g_ent               *g_player;              /* g_edicts[0] (g_init) */
 g_ent               goal_marker;
 
 extern g_ent        *sound_entity;
@@ -368,7 +368,10 @@ void                g_init(void)
     const q_erec    *r = (const q_erec *)lv.erecs;
     int             i, k;
 
-    memset(g_edicts, 0, sizeof(g_edicts));
+    if (!g_edicts)
+        g_edicts = level_alloc_low(MAX_EDICTS * sizeof(g_ent));
+    g_player = &g_edicts[0];
+    memset(g_edicts, 0, MAX_EDICTS * sizeof(g_ent));
     memset(&level, 0, sizeof(level));
     kills = total_monsters = found_secrets = total_secrets = found_goals = total_goals = 0;
     level_complete = false;

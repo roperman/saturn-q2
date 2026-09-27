@@ -27,6 +27,8 @@ u32                 rng(void);
 void                rng_seed(u32 s);
 s32                 fdiv(s32 a, s32 b);                     /* 16.16 a / b */
 void                cycles_measure(void);                   /* src/cycles.c: what things cost */
+void                *level_alloc_low(u32 bytes);            /* low work RAM, for what isn't hot */
+u32                 level_heap(void);                       /* src/level.c: the top of what the level took of work RAM (high) */
 
 /* ---- the baked level (tools/bake_map.py writes it; big-endian, so these overlay it) ---- */
 
@@ -34,18 +36,24 @@ typedef struct { s32 n[3]; s32 dist; u8 type, signbits; u16 pad; } q_plane;
 typedef struct { u16 plane; s16 child[2]; u16 firstface, numfaces; s16 mins[3], maxs[3]; u16 pad; } q_node;
 typedef struct { s16 cluster, area; s16 mins[3], maxs[3]; u16 firstmark, nummark, firstbrush, numbrushes;
                  s32 contents; } q_leaf;
-/* a face: a grid of nu x nv cells from origin, du and dv apart (world, 16.16). Its outer lines
-   are on the face's edges, not its tiles': the first column starts eu0 stored texels into its
-   tile and the last ends eu1 into its own (the rows: ev0, ev1), so origin is the face's corner.
-   firstlight's top byte is ev1. */
-typedef struct { s32 origin[3], du[3], dv[3]; u16 plane; u8 flags, nu, nv, eu0, eu1, ev0;
+/* a face: a grid of nu x nv cells from origin, du and dv apart (world, 16.16: the axes table's
+   entry, du then dv; 575 pairs among 7,500 faces). Its outer lines are on the face's edges, not
+   its tiles': the first column starts eu0 stored texels into its tile and the last ends eu1 into
+   its own (the rows: ev0, ev1), so origin is the face's corner. 32 bytes: two cache lines. */
+typedef struct { s32 origin[3]; u16 axes, plane; u8 flags, nu, nv, eu0, eu1, ev0, ev1, pad;
                  u32 firstcell, firstlight; } q_face;
 /* a cell: its texture, the rows of it drawn (ty0, th), and the part of the
    cell they cover (u0..u1, v0..v1, in stored texels: 0..N). A whole tile
-   (CELL_FULL in tex) has its colour table instead of ty0/th: q_cell_full. */
+   (CELL_FULL in tex), or a crop that's exactly its grid cell (CELL_EXACT),
+   is a q_cell_fast instead: the texture's colour table (TEX_TRANSPOSED in
+   it for a transposed one), its first row drawn, that row's offset in 8
+   bytes, its width / 8 and the rows drawn, all ready for the command
+   (src/cells.s). */
 typedef struct { u16 tex; u8 ty0, th, u0, u1, v0, v1; } q_cell;
-typedef struct { u16 tex, lut; u8 u0, u1, v0, v1; } q_cell_full;
+typedef struct { u16 tex, lut; u8 ty0, off8, wsz, th; } q_cell_fast;
 #define CELL_FULL       (0x8000)
+#define CELL_EXACT      (0x4000)                /* cropped, but exactly its grid cell (so no corners to find) */
+#define CELL_TEX        (0x3FFF)
 typedef struct { u32 ofs; u16 lut; u8 w, h; } q_tex;
 typedef struct { s32 mins[3], maxs[3], origin[3]; s32 headnode, firstface, numfaces; } q_model;
 typedef struct { s32 contents; u16 firstside, numsides; } q_brush;
@@ -95,6 +103,7 @@ typedef struct
     const q_leaf    *leafs;
     const u16       *marks;
     const q_face    *faces;
+    const s32       *axes;                      /* du, dv: 6 words an entry */
     const q_cell    *cells;
     const u16       *lights;
     const q_tex     *textures;

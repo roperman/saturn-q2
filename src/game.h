@@ -160,7 +160,7 @@ typedef struct
 }                   g_level;
 
 extern g_level      level;
-extern g_ent        g_edicts[MAX_EDICTS];
+extern g_ent        *g_edicts;                  /* MAX_EDICTS of them, in low work RAM (g_init) */
 extern g_ent        *g_player;
 extern g_ent        goal_marker;            /* a stand-in goal: a point (ai_run's tempgoal) */
 

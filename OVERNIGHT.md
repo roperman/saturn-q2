@@ -68,9 +68,12 @@ frame time, summed over them (ms).
 | the grid rows in assembly (`src/grid.s`) | 298 | 359 |
 | a whole face's grid in one call; texture records kept by the slots | 292 | 359 |
 | grid points always projected, so gv_xy is a load (draw_face 6.3 KB to 2.8 KB); the DSP models off | 279 | 359 |
+| faces 52 to 32 bytes (a shared axes table), cells' exactness baked in | 274 | 359 |
+| the cells in assembly (`src/cells.s`), a whole face a call | 263 | 359 |
+| the models' vertices on the DSP, alongside the CPUs (`engine/xformm.dsp`) | 253 | 339 |
 
-Per view the frames are now 60, 80, 20, 60, 60 and 80 ms (PAL: 50 Hz
-steps); views 1 and 5 need 44 and 42 ms of CPU, close to 40 (25 fps).
+Per view the frames are now 60, 80, 20, 60, 60 and 60 ms (PAL: 50 Hz
+steps); views 1 and 5 need 41 and 40 ms of CPU, right at 40 (25 fps).
 
 What changed:
 - **Faces' edges.** Quake 2's faces rarely end on a tile boundary, so the
@@ -96,5 +99,27 @@ What changed:
 - `OPT=-DR_PROFILE` builds the per-part profile (the benchmark's green
   lines); `OPT=-DONE_CPU` runs everything on the master.
 
-Next (PLAN.md): the cells loop in assembly, the level data out of LWRAM, and
-the DSP running alongside.
+Then, in this order:
+- **The data.** Faces are 32 bytes (two cache lines, not four): their grid
+  axes are a table in HWRAM (575 pairs for 7,500 faces). Whole tiles and
+  crops that are exactly their grid cell share one cell layout with
+  everything the command needs baked in. HWRAM's end is checked now: running
+  out stops with a message instead of writing over the slave's stack (it
+  had been 22 KB into the space below it). The game's entities moved to
+  LWRAM for room.
+- **`src/cells.s`**: the cells in assembly, a whole face a call (a row a
+  call was slower: the call cost more than it saved). It does the whole
+  tiles and exact crops in front of the camera with their textures in VRAM,
+  and lists the rest for the C (`cell_c`). `tools/compare.sh` renders the
+  benchmark's views with it on and off: the only differences are single
+  pixels on cells' shared edges (which of two cells draws them).
+- **The DSP alongside.** At the start of a frame the master lists the
+  models that may be seen, both animation frames' matrices weighted for the
+  blend, and starts the DSP (`engine/xformm.dsp`: the blend is six
+  multiply-adds a coordinate). It counts each model off in work RAM; a CPU
+  drawing a model waits only if that one isn't done, then invalidates just
+  the lines the DSP wrote. `OPT=-DNO_DSP` has the CPUs do it.
+
+All three demo levels run: `MAP=demo2 ./build.sh` (or demo3). demo2 leaves
+115 KB of HWRAM free and demo3 38 KB; the cart holds any one of them with
+the models (demo3, the biggest, is 2.8 MB, the models 0.8).

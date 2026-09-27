@@ -15,6 +15,7 @@ engine_build()
     python3 "$REPO/tools/dspasm.py" "$ENGINE/xform.dsp" "$gen/xform.h" xform_prog >/dev/null
     python3 "$REPO/tools/dspasm.py" "$ENGINE/xformb.dsp" "$gen/xformb.h" xformb_prog >/dev/null
     python3 "$REPO/tools/dspasm.py" "$ENGINE/xformp.dsp" "$gen/xformp.h" xformp_prog >/dev/null
+    python3 "$REPO/tools/dspasm.py" "$ENGINE/xformm.dsp" "$gen/xformm.h" xformm_prog >/dev/null
     python3 - "$gen/sintab.h" <<'PY'
 import math, sys
 v = [min(65536, round(math.sin(i * 2 * math.pi / 4096) * 65536)) for i in range(4096)]

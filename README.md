@@ -123,3 +123,10 @@ and 25 ms of slave time. It's CPU-bound, and memory is as much the cost as
 arithmetic: the SH-2 cache writes through, so every store goes to RAM at
 about 12 cycles, and a low work RAM cache miss costs about 70. VDP1 keeps
 up so far. See PLAN.md for what's next.
+
+## Licence
+
+GPL v2 or later (`LICENSE`), as Quake 2's source is: much of `src/` is
+ported from it (the game code, the traces, the player's movement). The
+Quake 2 data isn't in this repository and isn't covered by it: it has id's
+own licence (see Building).

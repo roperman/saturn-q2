@@ -38,13 +38,46 @@ static s32          len3(const s32 *v)
     return (s32)(isqrt(x * x + y * y + z * z) << 11);
 }
 
+/* the brush models that can be solid (not triggers), their bounds and BSP
+   in HWRAM: every trace looks at them all, and lv.models is on the cart */
+typedef struct { s32 mins[3], maxs[3]; s32 headnode; int m; } t_mover;
+static t_mover      *tmov;
+static int          ntmov;
+
+void                trace_world_init(void)
+{
+    int             m, k;
+
+    for (m = 1, ntmov = 0; m < lv.nmodels; ++m)
+        ntmov += lv.movers[m].kind != MV_NONE;
+    tmov = level_alloc((u32)(ntmov ? ntmov : 1) * sizeof(t_mover));
+    for (m = 1, ntmov = 0; m < lv.nmodels; ++m)
+        if (lv.movers[m].kind != MV_NONE)
+        {
+            t_mover *t = &tmov[ntmov++];
+
+            for (k = 0; k < 3; ++k)
+            {
+                t->mins[k] = lv.models[m].mins[k];
+                t->maxs[k] = lv.models[m].maxs[k];
+            }
+            t->headnode = lv.models[m].headnode;
+            t->m = m;
+        }
+}
+
 /* the world, then each solid brush model where it is now (Quake 2's SV_Trace) */
 q_trace             trace_world(const s32 *start, const s32 *p_mins, const s32 *p_maxs, const s32 *end, int mask)
 {
     bool            point = !p_mins[0] && !p_mins[1] && !p_mins[2] && !p_maxs[0] && !p_maxs[1] && !p_maxs[2];
     q_trace         t = point ? trace_line(start, end, 0, mask) : trace_box(start, end, p_mins, p_maxs, 0, mask);
     s32             lo[3], hi[3], ls[3], le[3];
-    int             m, k;
+    int             i, m, k;
+
+#ifdef FIGHT_BENCH
+    extern u32      tr_ticks[4];
+    u32             tt0 = frt_read();
+#endif
 
     t.ent = 0;
     for (k = 0; k < 3; ++k)
@@ -52,24 +85,31 @@ q_trace             trace_world(const s32 *start, const s32 *p_mins, const s32 *
         lo[k] = imin(start[k], end[k]) + p_mins[k] - FIX(1);
         hi[k] = imax(start[k], end[k]) + p_maxs[k] + FIX(1);
     }
-    for (m = 1; m < lv.nmodels; ++m)
+    for (i = 0; i < ntmov; ++i)
     {
-        const q_model   *mo = &lv.models[m];
-        const s32       *o = mover_ofs[m];
+        const t_mover   *mo = &tmov[i];
+        const s32       *o;
         q_trace         mt;
 
-        if (!mover_live(m))
-            continue;
+        m = mo->m;
+        o = mover_ofs[m];
         for (k = 0; k < 3; ++k)
             if (mo->maxs[k] + o[k] < lo[k] || mo->mins[k] + o[k] > hi[k])
                 break;
-        if (k < 3)
+        if (k < 3 || mover_gone[m])
             continue;
         for (k = 0; k < 3; ++k)
         {
             ls[k] = start[k] - o[k];
             le[k] = end[k] - o[k];
         }
+#ifdef FIGHT_BENCH
+        {
+            extern u32 tr_count[6];
+
+            ++tr_count[5];
+        }
+#endif
         mt = point ? trace_line(ls, le, mo->headnode, mask) : trace_box(ls, le, p_mins, p_maxs, mo->headnode, mask);
         if (mt.allsolid || mt.startsolid || mt.fraction < t.fraction)
         {
@@ -83,6 +123,10 @@ q_trace             trace_world(const s32 *start, const s32 *p_mins, const s32 *
                 t.startsolid = true;
         }
     }
+#ifdef FIGHT_BENCH
+    if (!point)
+        tr_ticks[2] += (frt_read() - tt0) & 0xFFFF;
+#endif
     return t;
 }
 

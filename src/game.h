@@ -169,6 +169,9 @@ typedef struct
 }                   g_level;
 
 extern g_level      level;
+
+typedef struct { u32 at, n, us; } g_trace_site;
+extern g_trace_site g_trace_sites[16];
 extern g_ent        *g_edicts;                  /* MAX_EDICTS of them, in low work RAM (g_init) */
 extern g_ent        *g_player;
 extern g_ent        goal_marker;            /* a stand-in goal: a point (ai_run's tempgoal) */

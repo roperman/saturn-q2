@@ -100,10 +100,11 @@ culling, 8-byte grid points, per-frame view-space axes, the walk in
 assembly, coarse grids for distant faces and cut-down distant models: the
 benchmark's CPU 254 to 190 ms, frames 339 to 259. Next:
 
-1. **The AI's traces**: in a fight they're 26-31 ms of a frame (31 of them,
-   about 1 ms each; OVERNIGHT.md section 4). Cheaper line traces (the node
-   walk in assembly like the render's, the data in HWRAM), and fewer: the
-   PVS before a sight line, a monster's sight result kept for a tick
+1. **Fights**: after the trace work (OVERNIGHT.md section 5) a 20-second
+   fight in the round room runs at 57 ms a frame: the game 13 ms, the rest
+   the drawing, with many soldiers on screen (a close one is ~7 ms of a
+   CPU). The models are next; then the traces' brush clipping (320 us of a
+   step's 550) in assembly, or brushes' boxes baked into their records
 2. **VDP1**: demo2's lighter views wait for it (CPU 20-30 ms, frames 40)
 3. **LWRAM**: cells and lights are still there (59 cycles a miss); copy each
    face's ahead of time with the SH-2's own DMA, or 8-bit lights (a palette)

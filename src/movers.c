@@ -23,7 +23,7 @@ typedef struct
 
 s32                 (*mover_ofs)[3];
 static m_state      *ms;
-static u8           *mover_gone;            /* blown up (func_explosive): not drawn, not solid */
+u8                  *mover_gone;            /* blown up (func_explosive): not drawn, not solid */
 
 static s32          len_units(const s32 *v)
 {
@@ -51,7 +51,8 @@ void                movers_init(void)
     int             m;
 
     mover_ofs = level_alloc((u32)lv.nmodels * 12);
-    mover_gone = level_alloc((u32)lv.nmodels);
+    if (!mover_gone)
+        mover_gone = level_alloc((u32)lv.nmodels);
     memset(mover_gone, 0, (u32)lv.nmodels);
     ms = level_alloc((u32)lv.nmodels * sizeof(m_state));
     for (m = 0; m < lv.nmodels; ++m)

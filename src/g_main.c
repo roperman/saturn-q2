@@ -119,19 +119,81 @@ static bool         box_sweep(const s32 *start, const s32 *end, const s32 *mins,
     return true;
 }
 
+/* The solid entities' boxes, grown by SOLID_MARGIN, in HWRAM: a trace that
+   can hit monsters looks through all of them, and the edicts are in LWRAM
+   (a couple of misses each). Rebuilt once a frame; a monster's own box is
+   refreshed after its tick; the margin covers the rest (the player's move
+   in a frame, a lift's carry). A box that passes is tested on the edict. */
+#define SOLID_MARGIN    FIX(32)
+
+typedef struct { s32 lo[3], hi[3]; g_ent *e; } g_solidbox;
+static g_solidbox   g_solids[MAX_EDICTS];
+static u8           g_solid_slot[MAX_EDICTS];   /* an edict's box, or 0xFF */
+static int          g_nsolids;
+
+static void         solid_box(g_solidbox *b, const g_ent *e)
+{
+    int             k;
+
+    for (k = 0; k < 3; ++k)
+    {
+        b->lo[k] = e->origin[k] + e->mins[k] - SOLID_MARGIN;
+        b->hi[k] = e->origin[k] + e->maxs[k] + SOLID_MARGIN;
+    }
+}
+
+static void         g_solids_update(void)
+{
+    int             i;
+
+    g_nsolids = 0;
+    for (i = 0; i < MAX_EDICTS; ++i)
+    {
+        g_ent       *e = &g_edicts[i];
+
+        g_solid_slot[i] = 0xFF;
+        if (e->kind == EK_FREE || !e->solid)
+            continue;
+        g_solid_slot[i] = (u8)g_nsolids;
+        g_solids[g_nsolids].e = e;
+        solid_box(&g_solids[g_nsolids++], e);
+    }
+}
+
 int                 g_ntraces;
 u32                 g_trace_ticks;
+#ifdef FIGHT_BENCH
+g_trace_site        g_trace_sites[16];      /* (the fight benchmark: where the traces come from) */
+#endif
 
 q_trace             g_trace(const s32 *start, const s32 *mins, const s32 *maxs, const s32 *end, const g_ent *pass,
                             int mask, g_ent **hit)
 {
-    u32             t0 = frt_read();
+    u32             t0 = frt_read(), dt;
     q_trace         t = trace_world(start, mins, maxs, end, mask);
 
     ++g_ntraces;
-    g_trace_ticks += (frt_read() - t0) & 0xFFFF;
+    dt = (frt_read() - t0) & 0xFFFF;
+    g_trace_ticks += dt;
+#ifdef FIGHT_BENCH
+    {
+        u32         at = (u32)__builtin_return_address(0);
+        int         j;
+
+        for (j = 0; j < 15 && g_trace_sites[j].at && g_trace_sites[j].at != at; ++j)
+            ;
+        g_trace_sites[j].at = at;
+        ++g_trace_sites[j].n;
+        g_trace_sites[j].us += frt_to_us(dt);
+    }
+#endif
     int             i, k;
     s32             lo[3], hi[3];
+
+#ifdef FIGHT_BENCH
+    extern u32      tr_ticks[4];
+    u32             tt0 = frt_read();
+#endif
 
     if (hit)
         *hit = NULL;
@@ -142,11 +204,15 @@ q_trace             g_trace(const s32 *start, const s32 *mins, const s32 *maxs, 
         lo[k] = imin(start[k], end[k]) + mins[k];
         hi[k] = imax(start[k], end[k]) + maxs[k];
     }
-    for (i = 0; i < MAX_EDICTS; ++i)
+    for (i = 0; i < g_nsolids; ++i)
     {
-        g_ent   *e = &g_edicts[i];
+        const g_solidbox *sb = &g_solids[i];
+        g_ent   *e = sb->e;
         s32     bmin[3], bmax[3];
 
+        if (sb->hi[0] < lo[0] || sb->lo[0] > hi[0] || sb->hi[1] < lo[1] || sb->lo[1] > hi[1]
+            || sb->hi[2] < lo[2] || sb->lo[2] > hi[2])
+            continue;
         if (e == pass || e->kind == EK_FREE || !e->solid)
             continue;
         if (e->kind == EK_PLAYER && (pl.noclip || e->dead))
@@ -169,6 +235,9 @@ q_trace             g_trace(const s32 *start, const s32 *mins, const s32 *maxs, 
     }
     for (k = 0; k < 3; ++k)
         t.endpos[k] = t.fraction == FIX(1) ? end[k] : start[k] + fmul(t.fraction, end[k] - start[k]);
+#ifdef FIGHT_BENCH
+    tr_ticks[3] += (frt_read() - tt0) & 0xFFFF;
+#endif
     return t;
 }
 
@@ -511,6 +580,8 @@ static void         g_tick_monsters(int g)
         if (!e->on_ground || e->origin[0] != e->old_origin[0] || e->origin[1] != e->old_origin[1]
             || e->origin[2] != e->old_origin[2])
             monster_physics(e);
+        if (g_solid_slot[i] != 0xFF)
+            solid_box(&g_solids[g_solid_slot[i]], e);
     }
     level.time = now;
 }
@@ -524,6 +595,7 @@ void                g_frame(s32 dt)
         g_player->origin[k] = pl.origin[k];
     if (player_flash)
         player_flash = imax(player_flash - fmul(dt, FIX(400)), 0);
+    g_solids_update();
     level.acc += dt;
     while (level.acc >= FRAMETIME && n++ < 3)
     {

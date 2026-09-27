@@ -228,3 +228,52 @@ frames instead of all landing on one every 100 ms. Twice each:
 | pictures up 80 ms | 84-87 | 148-154 |
 
 With the old swap the same fight's frames are 102 ms.
+
+## 5. The traces
+
+The fight benchmark now also shows where the traces come from (call sites by
+time) and what a box trace costs in parts. Nearly all the trace time was one
+call: `SV_movestep`, a monster's step (its box, 36 units down at the new
+spot), 20-25 a frame at about 1 ms each. Step by step, the fight's game time
+a frame (ms; the fight varies a few ms run to run):
+
+| | game | traces | frame |
+|---|---|---|---|
+| start | 30-36 | 26-31 | 77-83 |
+| sides on an axis without multiplies | 21.5 | 19.3 | 69 |
+| the movers' bounds in HWRAM (the loop over all 35 read the cart) | 17.6 | 15.2 | 64.5 |
+| short moves by the leaves their box touches | 15.2 | 11.4 | 60 |
+| the entities' boxes in HWRAM (the edicts are in LWRAM) | 12.2-13.5 | 10.9-11.9 | 56-58 |
+
+- **Axial sides** (`clip_box_brush`, `test_box_brush`): every brush's first
+  six sides are its box, on the axes, and 74-90% of all sides are: the
+  normal's +-1 along one axis, so the three dot products are a compare
+  (the same sums exactly).
+- **Movers**: every trace checked all 35 brush models, calling `mover_live`
+  and reading their records off the cart; now a list of the solid ones with
+  their bounds in HWRAM (`trace_world_init`).
+- **Short moves** (up to 64 units on each axis): the leaves the whole move's
+  box touches, then their brushes, instead of walking the tree along the
+  move (which splits at nearly every node the box straddles: two divides
+  and a recursion each). `OPT=-DTRACE_CHECK` runs both and compares: of
+  about 73,000 traces, 3 stopped at a different point (all in one fight;
+  not seen again in four more runs) and 269 (the same 269 on the same walk)
+  hit a different plane at the same point: two brushes entered at once (a
+  corner), each way keeping the first it met. The old way pads the box to
+  its largest extent on every side, so it also clips brushes just outside
+  the move; the likely cause of the 3.
+  The boot stats' SHORT test (the player's box stepping at the start) went
+  from 11 to 53 us: there the old way hit the floor at once. The steps in
+  the fight went from 0.68 to 0.55 ms, the player's ground checks from 0.7
+  to 0.45.
+- **Entities** (`g_trace`): the trace against monsters looked at all 64
+  edicts, in LWRAM: 233 us a trace. Now the solid ones' boxes, 32 units
+  bigger, in HWRAM, rebuilt once a frame and each monster's refreshed
+  after its tick; only a box that passes is tested on the edict: 25-30 us.
+
+Where a step trace's 0.55 ms goes now: 134 us gathering the leaves, 320
+clipping (about 8 leaves, 14 brushes, 8 of them out by their box sides), 35
+the movers, 30 the entities. In the fight the drawing is now most of the
+frame: CPU 56 ms, of which the game is 13.
+
+HWRAM free: demo1 8 KB, demo2 113 KB, demo3 40 KB.

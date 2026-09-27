@@ -63,6 +63,9 @@ static bool         slave_ok, start_used;
 static int          fight_frames = -1;          /* -1: not running */
 static u32          fight_us, fight_cpu, fight_game, fight_gmax, fight_n, fight_swaps[8], fight_ntr, fight_ttr;
 static bool         fight_done;
+static g_trace_site fight_sites[16];            /* the traces' call sites, most time first */
+static u32          fight_tr[6];                /* trace.c's counts */
+static u32          fight_tt[4];                /* a box trace's parts, 0.1 us */
 #endif
 static u32          us_game, bench_us[5];
 
@@ -581,6 +584,17 @@ void                main(void)
         if (fight_done)
         {
             u32 n = fight_n ? fight_n : 1;
+#ifdef TRACE_CHECK
+            {
+                extern u32 trace_checks, trace_diffs, trace_dkind[4], trace_later;
+                extern s32 trace_worst;
+
+                vdp_printf(8, 30, RGB(255, 255, 120), "CHECKED %d DIFF %d LATER %d WORST %d", trace_checks,
+                           trace_diffs, trace_later, trace_worst);
+                vdp_printf(8, 39, RGB(255, 255, 120), "START %d ALL %d PLANE %d NORMAL %d", trace_dkind[0],
+                           trace_dkind[1], trace_dkind[2], trace_dkind[3]);
+            }
+#endif
 
             vdp_printf(8, 96, RGB(255, 220, 120), "FIGHT: %d FRAMES", fight_n);
             vdp_printf(8, 106, RGB(255, 255, 255), "FRAME %d.%d CPU %d.%d MS", fight_us / n / 1000,
@@ -589,7 +603,21 @@ void                main(void)
                        fight_game / n / 100 % 10, fight_gmax / 1000, fight_gmax / 100 % 10);
             vdp_printf(8, 133, RGB(255, 255, 255), "TRACES %d A FRAME, %d.%d MS", fight_ntr / n,
                        fight_ttr / n / 1000, fight_ttr / n / 100 % 10);
-            vdp_printf(8, 124, RGB(255, 255, 255), "UP 20:%d 40:%d 60:%d 80:%d 100+:%d", fight_swaps[1],
+            {
+                int j;
+
+                vdp_printf(8, 124, RGB(255, 200, 160), "BOX %d: BOXOUT%d L%d B%d S%d MOV%d", fight_tr[4] / n,
+                           fight_tr[0] / imax(fight_tr[4], 1), fight_tr[1] / imax(fight_tr[4], 1),
+                           fight_tr[2] / imax(fight_tr[4], 1), fight_tr[3] / imax(fight_tr[4], 1), fight_tr[5] / n);
+                vdp_printf(8, 181, RGB(255, 200, 160), "US G%d C%d M%d E%d", fight_tt[0] / 10,
+                           fight_tt[1] / 10, fight_tt[2] / 10, fight_tt[3] / 10);
+                for (j = 0; j < 4 && fight_sites[j].n; ++j)
+                    vdp_printf(8, 145 + 9 * j, RGB(160, 255, 160), "%X %d.%d A FRAME %d.%dMS",
+                               fight_sites[j].at & 0xFFFFF, fight_sites[j].n * 10 / n / 10,
+                               fight_sites[j].n * 10 / n % 10, fight_sites[j].us / n / 1000,
+                               fight_sites[j].us / n / 100 % 10);
+            }
+            vdp_printf(8, 190, RGB(255, 255, 255), "UP 20:%d 40:%d 60:%d 80:%d 100+:%d", fight_swaps[1],
                        fight_swaps[2], fight_swaps[3], fight_swaps[4], fight_swaps[5] + fight_swaps[6] + fight_swaps[7]);
         }
 #endif
@@ -686,8 +714,17 @@ void                main(void)
             g_ntraces = 0;
             g_trace_ticks = 0;
             if (++fight_frames == FIGHT_SKIP)
+            {
                 for (k = 0; k < 8; ++k)
                     fight_swaps[k] = vdp_swap_fields[k];
+                memset(g_trace_sites, 0, sizeof(g_trace_sites));
+                {
+                    extern u32 tr_count[6], tr_ticks[4];
+
+                    memset(tr_count, 0, sizeof(tr_count));
+                    memset(tr_ticks, 0, sizeof(tr_ticks));
+                }
+            }
             else if (fight_frames > FIGHT_SKIP)
             {
                 fight_us += us_frame;
@@ -699,6 +736,23 @@ void                main(void)
                 {
                     for (k = 0; k < 8; ++k)
                         fight_swaps[k] = vdp_swap_fields[k] - fight_swaps[k];
+                    memcpy(fight_sites, g_trace_sites, sizeof(fight_sites));
+                    {
+                        extern u32 tr_count[6], tr_ticks[4];
+
+                        memcpy(fight_tr, tr_count, sizeof(fight_tr));
+                        for (k = 0; k < 4; ++k)
+                            fight_tt[k] = frt_to_us(tr_ticks[k]) * 10 / imax(tr_count[4], 1);
+                    }
+                    for (k = 1; k < 16; ++k)
+                    {
+                        g_trace_site x = fight_sites[k];
+                        int          j = k;
+
+                        for (; j > 0 && fight_sites[j - 1].us < x.us; --j)
+                            fight_sites[j] = fight_sites[j - 1];
+                        fight_sites[j] = x;
+                    }
                     fight_frames = -1;
                     fight_done = true;
                 }

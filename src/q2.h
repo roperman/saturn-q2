@@ -190,6 +190,8 @@ void                pmove(const q_usercmd *cmd, s32 dt);    /* dt: seconds, 16.1
 void                pmove_spawn(const s32 *origin);
 q_trace             pm_trace(const s32 *start, const s32 *end);    /* the player's box: world, movers, monsters */
 q_trace             trace_world(const s32 *start, const s32 *mins, const s32 *maxs, const s32 *end, int mask);  /* + movers */
+void                trace_world_init(void);
+extern u8           *mover_gone;
 extern const s32    p_mins[3], p_maxs[3];
 
 /* movers.c: doors, lifts, buttons */

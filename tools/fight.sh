@@ -16,7 +16,7 @@ tools/emu.sh stop
 python3 - "$OUT" <<'PY'
 import sys
 from PIL import Image
-im = Image.open(sys.argv[1]).crop((0, 100, 330, 165))
-im.resize((660, 130)).save(sys.argv[1])
+im = Image.open(sys.argv[1]).crop((0, 100, 330, 240))
+im.resize((660, 280)).save(sys.argv[1])
 PY
 echo "$OUT"

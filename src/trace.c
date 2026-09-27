@@ -8,6 +8,12 @@
 
 #define DIST_EPSILON    (2048)              /* 1/32: keeps the box off the planes */
 #define MAX_BOX_LEAFS   (128)
+#define SHORT_MOVE      FIX(64)             /* a move no longer on any axis: by the leaves its box touches */
+#ifdef TRACE_CHECK
+u32                 trace_checks, trace_diffs, trace_dkind[4];     /* start, all solid, plane, plane's normal */
+s32                 trace_worst;
+u32                 trace_later;
+#endif
 
 static s32          t_start[3], t_end[3], t_mins[3], t_maxs[3], t_ext[3];
 static int          t_mask;
@@ -15,11 +21,23 @@ static bool         t_ispoint;
 static q_trace      tr;
 static u16          *brush_check, checkcount;
 static int          box_leafs[MAX_BOX_LEAFS], nbox_leafs;
+#ifdef FIGHT_BENCH
+u32                 tr_count[6];            /* (the fight benchmark: nodes, leaves, brushes, sides, box traces, movers') */
+u32                 tr_ticks[4];            /* gathering the leaves, clipping, the movers, the entities */
+# define TR_T0          u32 tt0 = frt_read()
+# define TR_TICKS(i)    (tr_ticks[i] += (frt_read() - tt0) & 0xFFFF, tt0 = frt_read())
+# define TR_COUNT(i, n) (tr_count[i] += (n))
+#else
+# define TR_COUNT(i, n) ((void)0)
+# define TR_T0          ((void)0)
+# define TR_TICKS(i)    ((void)0)
+#endif
 
 void                trace_init(void)
 {
     brush_check = level_alloc((u32)lv.nbrushes * 2);
     memset(brush_check, 0, (u32)lv.nbrushes * 2);
+    trace_world_init();
 }
 
 static inline s32   dot(const s32 *a, const s32 *n)
@@ -49,28 +67,55 @@ static void         clip_box_brush(const q_brush *b)
     int             i, j, leadflags = 0;
     bool            getout = false, startout = false;
 
+    TR_COUNT(2, 1);
+    TR_COUNT(3, b->numsides);
+
     for (i = 0; i < b->numsides; ++i)
     {
         const q_brushside   *side = &lv.brushsides[b->firstside + i];
         const q_plane       *pl = &lv.planes[side->plane];
+        int                 ty = pl->type;
 
-        if (!t_ispoint)
+        if (ty < 3)
         {
-            /* push the plane out for the box */
-            for (j = 0; j < 3; ++j)
-                ofs[j] = pl->n[j] < 0 ? t_maxs[j] : t_mins[j];
-            dist = pl->dist - dot(ofs, pl->n);
+            /* on an axis (every brush's first six sides, its box, and most of the
+               rest): the normal's +-1 along it, so no multiplies (the same sums) */
+            if (pl->n[ty] > 0)
+            {
+                dist = pl->dist - t_mins[ty];
+                d1 = t_start[ty] - dist;
+                d2 = t_end[ty] - dist;
+            }
+            else
+            {
+                dist = pl->dist + t_maxs[ty];
+                d1 = -t_start[ty] - dist;
+                d2 = -t_end[ty] - dist;
+            }
         }
         else
-            dist = pl->dist;
-        d1 = dot(t_start, pl->n) - dist;
-        d2 = dot(t_end, pl->n) - dist;
+        {
+            if (!t_ispoint)
+            {
+                /* push the plane out for the box */
+                for (j = 0; j < 3; ++j)
+                    ofs[j] = pl->n[j] < 0 ? t_maxs[j] : t_mins[j];
+                dist = pl->dist - dot(ofs, pl->n);
+            }
+            else
+                dist = pl->dist;
+            d1 = dot(t_start, pl->n) - dist;
+            d2 = dot(t_end, pl->n) - dist;
+        }
         if (d2 > 0)
             getout = true;                  /* the end isn't in the solid */
         if (d1 > 0)
             startout = true;
         if (d1 > 0 && d2 >= d1)
+        {
+            TR_COUNT(0, i < 6);             /* (the benchmark: out by its box) */
             return;                         /* completely in front of this side: no hit */
+        }
         if (d1 <= 0 && d2 <= 0)
             continue;
         if (d1 > d2)
@@ -120,7 +165,14 @@ static void         test_box_brush(const q_brush *b)
     for (i = 0; i < b->numsides; ++i)
     {
         const q_plane *pl = &lv.planes[lv.brushsides[b->firstside + i].plane];
+        int           ty = pl->type;
 
+        if (ty < 3)
+        {
+            if (pl->n[ty] > 0 ? t_start[ty] - pl->dist + t_mins[ty] > 0 : -t_start[ty] - pl->dist - t_maxs[ty] > 0)
+                return;
+            continue;
+        }
         for (j = 0; j < 3; ++j)
             ofs[j] = pl->n[j] < 0 ? t_maxs[j] : t_mins[j];
         dist = pl->dist - dot(ofs, pl->n);
@@ -137,6 +189,7 @@ static void         leaf_brushes(int leafnum, bool test)
     const q_leaf    *leaf = &lv.leafs[leafnum];
     int             k;
 
+    TR_COUNT(1, 1);
     if (!(leaf->contents & t_mask))
         return;
     for (k = 0; k < leaf->numbrushes; ++k)
@@ -307,7 +360,69 @@ q_trace             trace_box(const s32 *start, const s32 *end, const s32 *mins,
             tr.endpos[i] = start[i];
         return tr;
     }
+    TR_COUNT(4, 1);
     t_ispoint = !mins[0] && !mins[1] && !mins[2] && !maxs[0] && !maxs[1] && !maxs[2];
+    if (iabs(end[0] - start[0]) <= SHORT_MOVE && iabs(end[1] - start[1]) <= SHORT_MOVE
+        && iabs(end[2] - start[2]) <= SHORT_MOVE)
+    {
+        /* A short move (a monster's step, the player's): the leaves the whole
+           move's box touches, then their brushes. Walking the tree along the
+           move splits it at nearly every node the box straddles (two divides
+           and a recursion each); this is a plane-against-box test a node. The
+           same result: every brush the move meets is clipped exactly either way */
+        s32 c1[3], c2[3];
+        TR_T0;
+
+        for (i = 0; i < 3; ++i)
+        {
+            c1[i] = imin(start[i], end[i]) + mins[i] - FIX(1);
+            c2[i] = imax(start[i], end[i]) + maxs[i] + FIX(1);
+        }
+        nbox_leafs = 0;
+        box_leafs_r(headnode, c1, c2);
+        TR_TICKS(0);
+        if (nbox_leafs < MAX_BOX_LEAFS)
+        {
+            for (i = 0; i < nbox_leafs && tr.fraction; ++i)
+                leaf_brushes(box_leafs[i], false);
+            TR_TICKS(1);
+#ifdef TRACE_CHECK
+            {
+                /* (OPT=-DTRACE_CHECK: the long way too, and count where they differ) */
+                q_trace short_tr = tr;
+
+                memset(&tr, 0, sizeof(tr));
+                tr.fraction = FIX(1);
+                if (++checkcount == 0)
+                {
+                    memset(brush_check, 0, (u32)lv.nbrushes * 2);
+                    checkcount = 1;
+                }
+                for (i = 0; i < 3; ++i)
+                    t_ext[i] = imax(-mins[i], maxs[i]);
+                hull_check(headnode, 0, FIX(1), start, end);
+                ++trace_checks;
+                if (tr.fraction != short_tr.fraction)
+                {
+                    ++trace_diffs;
+                    if (iabs(tr.fraction - short_tr.fraction) > trace_worst)
+                        trace_worst = iabs(tr.fraction - short_tr.fraction);
+                    trace_later += short_tr.fraction > tr.fraction;     /* the short way stopped later */
+                }
+                trace_dkind[0] += tr.startsolid != short_tr.startsolid;
+                trace_dkind[1] += tr.allsolid != short_tr.allsolid;
+                trace_dkind[2] += tr.fraction < FIX(1) && tr.plane != short_tr.plane;
+                trace_dkind[3] += tr.fraction < FIX(1) && tr.plane != short_tr.plane && tr.plane && short_tr.plane
+                                  && (tr.plane->n[0] != short_tr.plane->n[0] || tr.plane->n[1] != short_tr.plane->n[1]
+                                      || tr.plane->n[2] != short_tr.plane->n[2]);
+                tr = short_tr;
+            }
+#endif
+            for (i = 0; i < 3; ++i)
+                tr.endpos[i] = tr.fraction == FIX(1) ? end[i] : start[i] + fmul(tr.fraction, end[i] - start[i]);
+            return tr;
+        }
+    }
     for (i = 0; i < 3; ++i)
         t_ext[i] = imax(-mins[i], maxs[i]);
     hull_check(headnode, 0, FIX(1), start, end);

@@ -1,8 +1,9 @@
 #!/bin/bash
 # Pixel-compare the benchmark's views with a renderer switch on and off (the
-# BENCH_HOLD build: DOWN steps to the next view, UP flips r_cells_asm, or with
-# COMPARE=models draw_model's old loops).
-#   [COMPARE=models] [CMP_EXTRA=-D...] tools/compare.sh [outdir]
+# BENCH_HOLD build: DOWN steps to the next view, UP flips r_cells_asm; with
+# COMPARE=models draw_model's old loops, with COMPARE=prefetch the faces'
+# prefetch).
+#   [COMPARE=models|prefetch] [CMP_EXTRA=-D...] tools/compare.sh [outdir]
 # Builds with OPT=-DBENCH_HOLD (rebuild normally afterwards), prints each
 # view's differing pixels, and saves a/b pairs plus diffN.png (differences
 # in magenta, doubled) in outdir.
@@ -10,7 +11,7 @@ cd "$(dirname "$0")/.."
 OUT=${1:-${TMPDIR:-/tmp}/compare}
 mkdir -p "$OUT"
 EXTRA=""
-[ "$COMPARE" = models ] && EXTRA="-DCOMPARE_MODELS $CMP_EXTRA"
+[ -n "$COMPARE" ] && EXTRA="-DCOMPARE_$(echo "$COMPARE" | tr a-z A-Z) $CMP_EXTRA"
 OPT="-DBENCH_HOLD $EXTRA" ./build.sh >/dev/null || exit 1
 tools/emu.sh start game.cue >/dev/null
 sleep 40

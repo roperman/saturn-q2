@@ -324,4 +324,4 @@ _walk_asm:
 
         .align  1
 .Lmaxvis:
-        .short  4096
+        .short  2048                    ! MAX_VIS

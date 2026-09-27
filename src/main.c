@@ -66,7 +66,10 @@ static bool         fight_done;
 static g_trace_site fight_sites[16];            /* the traces' call sites, most time first */
 static u32          fight_tr[6];                /* trace.c's counts */
 static u32          fight_tt[4];                /* a box trace's parts, 0.1 us */
-static u32          fight_r[14];                /* the drawing: master, slave; models, their polygons; the
+static u32          fight_r[14];
+#ifdef R_PROFILE
+static u32          fight_p[8];                 /* the world: setup, grid, cells, slow cells (us); faces, cells, C cells */
+#endif                /* the drawing: master, slave; models, their polygons; the
                                                    models' light, vertices, polygons, commands (cumulative), DSP wait */
 #endif
 static u32          us_game, bench_us[5];
@@ -382,6 +385,9 @@ void                main(void)
             fight_done = false;
             fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
             memset(fight_r, 0, sizeof(fight_r));
+#ifdef R_PROFILE
+            memset(fight_p, 0, sizeof(fight_p));
+#endif
         }
         if (fight_frames >= 0)
         {
@@ -451,7 +457,7 @@ void                main(void)
             {
                 if (pressed(PAD_DOWN))
                     bench_view = (bench_view + 1) % NBENCH;
-#ifdef COMPARE_MODELS
+#if defined(COMPARE_MODELS)
                 if (pressed(PAD_UP))
                 {
                     extern bool r_model_ref;
@@ -660,6 +666,11 @@ void                main(void)
             vdp_printf(8, 160, RGB(160, 255, 160), "L%d V%d(W%d A%d N%d) P%d C%d", MS10(fight_r[4]),
                        MS10(fight_r[5] - fight_r[4]), MS10(fight_r[8]), MS10(fight_r[12]), MS10(fight_r[13]),
                        MS10(fight_r[6] - fight_r[5]), MS10(fight_r[7] - fight_r[6]));
+#ifdef R_PROFILE
+            vdp_printf(8, 178, RGB(255, 200, 160), "S%d G%d C%d L%d F%d C%d X%d L%d", MS10(fight_p[0]),
+                       MS10(fight_p[1]), MS10(fight_p[2]), MS10(fight_p[3]), fight_p[4] / n, fight_p[5] / n,
+                       fight_p[6] / n, fight_p[7] / n);
+#endif
             vdp_printf(8, 169, RGB(160, 255, 160), "UPLOADS %d.%d, MODELS' %d.%d", fight_r[9] / 1000 * 10 / n / 10,
                        fight_r[9] / 1000 * 10 / n % 10, fight_r[9] % 1000 * 10 / n / 10, fight_r[9] % 1000 * 10 / n % 10);
 #undef MS10
@@ -804,6 +815,16 @@ void                main(void)
                 fight_r[9] += (u32)rs.uploads * 1000 + (u32)rs.muploads;
                 fight_r[10] += (u32)rs.mcpu;
                 fight_r[11] += (u32)rs.mdsp;
+#ifdef R_PROFILE
+                fight_p[0] += rs.p_setup;
+                fight_p[1] += rs.p_grid;
+                fight_p[2] += rs.p_cells;
+                fight_p[3] += rs.p_slow;
+                fight_p[4] += (u32)rs.faces;
+                fight_p[5] += (u32)rs.cells;
+                fight_p[6] += (u32)rs.nexact;
+                fight_p[7] += (u32)rs.nslow;
+#endif
                 fight_r[12] += rs.t_masm;
                 fight_r[13] += rs.t_mnorm;
                 fight_gmax = imax((s32)fight_gmax, (s32)us_game);

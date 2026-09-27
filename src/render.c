@@ -36,7 +36,7 @@
 #define NEAR_Z          FIX(8)
 #define MAX_ROW         (257)
 #define MAX_SLOTS       (3072)              /* (VRAM has room for about 2,800) */
-#define MAX_VIS         (4096)
+#define MAX_VIS         (2048)              /* (busy views list about 500) */
 #ifndef CLAMP_XY
 #define CLAMP_XY        (2000)
 #endif

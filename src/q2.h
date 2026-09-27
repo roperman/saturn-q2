@@ -40,8 +40,9 @@ typedef struct { s16 cluster, area; s16 mins[3], maxs[3]; u16 firstmark, nummark
    entry, du then dv; 575 pairs among 7,500 faces). Its outer lines are on the face's edges, not
    its tiles': the first column starts eu0 stored texels into its tile and the last ends eu1 into
    its own (the rows: ev0, ev1), so origin is the face's corner. 32 bytes: two cache lines. */
-typedef struct { s32 origin[3]; u16 axes, plane; u8 flags, nu, nv, eu0, eu1, ev0, ev1, pad;
-                 u32 firstcell, firstlight; } q_face;
+typedef struct { s32 origin[3]; u16 axes, plane; u8 flags, nu, nv, eu0, eu1, ev0, ev1, lodhi;
+                 u32 firstcell, firstlight; } q_face;  /* (firstlight: the low 24 bits; the top 8 and lodhi,
+                                                          its coarse grid's number in lv.lodfaces) */
 /* a cell: its texture, the rows of it drawn (ty0, th), and the part of the
    cell they cover (u0..u1, v0..v1, in stored texels: 0..N). A whole tile
    (CELL_FULL in tex), or a crop that's exactly its grid cell (CELL_EXACT),
@@ -50,6 +51,11 @@ typedef struct { s32 origin[3]; u16 axes, plane; u8 flags, nu, nv, eu0, eu1, ev0
    bytes, its width / 8 and the rows drawn, all ready for the command
    (src/cells.s). */
 typedef struct { u16 tex; u8 ty0, th, u0, u1, v0, v1; } q_cell;
+/* a face's coarse grid (FF_LOD in its flags), for when it's far: 64-texel cells, the textures at half
+   the resolution (the same N stored texels a cell). Its first point is offu, offv texels back from
+   the face's along u and v (its texels are twice the size, so it rounds differently); its axes are
+   the face's doubled. Its cells and lights are lv.lodcells', lv.lodlights'. (On the cart.) */
+typedef struct { u8 nu, nv, eu0, eu1, ev0, ev1; s8 offu, offv; u32 firstcell, firstlight; } q_lodface;
 typedef struct { u16 tex, lut; u8 ty0, off8, wsz, th; } q_cell_fast;
 #define CELL_FULL       (0x8000)
 #define CELL_EXACT      (0x4000)                /* cropped, but exactly its grid cell (so no corners to find) */
@@ -82,6 +88,7 @@ typedef struct { u16 kind, angle; u32 spawnflags; s32 origin[3]; } q_spawn;
 #define FF_FLOWING      (16)
 #define FF_NODRAW       (32)
 #define FF_BACK         (64)                    /* on its plane's back */
+#define FF_LOD          (128)                   /* it has a coarse grid (q_lodface) */
 #define TEX_TRANSPOSED  (0x8000)
 #define CELL_EMPTY      (0xFFFF)
 #define CONTENTS_SOLID  (1)
@@ -102,8 +109,13 @@ typedef struct
     const q_node    *nodes;
     const q_leaf    *leafs;
     const u16       *marks;
-    const q_face    *faces;
+    const q_face    *faces, *faces_cart;        /* (faces_cart: where they are on the cart, for the DSP) */
     const s32       *axes;                      /* du, dv: 6 words an entry */
+    int             naxes;
+    int             quart0;                     /* tile t quartered (8 x 32: its quarters one under another) is texture quart0 + t */
+    const q_lodface *lodfaces;                  /* a face's coarse grid, and its cells and lights (on the cart) */
+    const q_cell    *lodcells;
+    const u16       *lodlights;
     const q_cell    *cells;
     const u16       *lights;
     const q_tex     *textures;
@@ -229,7 +241,9 @@ typedef struct { char name[12]; u16 first, count; } q_manim;
 typedef struct
 {
     int             nverts, npolys, nframes, nanims, nskins, ntex;
-    const q_mpoly   *polys;
+    const q_mpoly   *polys, *fpolys;        /* (fpolys: the mesh merged on a coarse grid, for far away) */
+    int             nfpolys, nfverts;
+    const u16       *fverts;                /* the vertices fpolys use */
     const q_mtex    *tex;
     const u8        *texdata;               /* nskins blocks of per_skin bytes */
     const u16       *luts;                  /* nskins x ntex tables of 16 */
@@ -279,9 +293,12 @@ void                hud_draw(void);
 typedef struct
 {
     int             faces, cells, culled, near, uploads, nocache, dropped, leaf, cluster, nodes, proj, gverts, seen;
-    int             models, mpolys, nfast, nslow, nexact;
+    int             models, mpolys, nfast, nslow, nexact, pieces, faces_out, cells_all, cells_384, cells_512;
     u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys;
-    u32             p_setup, p_grid, p_cells, p_slow, p_corners;   /* R_PROFILE: FRT ticks */
+    u32             us_pre, us_mdsp, us_tree;   /* R_PROFILE: the walk's parts (the master's, us) */
+    u32             t_mfar;                     /* R_PROFILE: models beyond 400 units: their time, */
+    int             mfar;                       /* and how many */
+    u32             p_setup, p_grid, p_cells, p_slow, p_corners, p_xform;   /* R_PROFILE: FRT ticks */
 }                   r_stats;
 extern r_stats      rs;
 extern int          r_debug;

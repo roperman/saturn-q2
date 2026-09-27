@@ -127,6 +127,36 @@ def make_polys(m):
     return polys
 
 
+class Decimated:
+    """the model with its vertices merged on a coarse grid (in the first frame): for when it's far.
+    Each vertex goes to its cell's nearest to the cell's middle; triangles that close up go, and so
+    do repeats. The corners keep their own skin coordinates (a little out, at that distance)."""
+    def __init__(self, m, cells):
+        pts = [m.pos(0, v) for v in range(m.nverts)]
+        lo = [min(p[k] for p in pts) for k in range(3)]
+        hi = [max(p[k] for p in pts) for k in range(3)]
+        size = max(hi[k] - lo[k] for k in range(3)) / cells or 1.0
+        groups = {}
+        for v, p in enumerate(pts):
+            groups.setdefault(tuple(int((p[k] - lo[k]) / size) for k in range(3)), []).append(v)
+        rep = [0] * m.nverts
+        for key, vs in groups.items():
+            mid = [lo[k] + (key[k] + 0.5) * size for k in range(3)]
+            best = min(vs, key=lambda v: sum((pts[v][k] - mid[k]) ** 2 for k in range(3)))
+            for v in vs:
+                rep[v] = best
+        tris, seen = [], set()
+        for t in m.tris:
+            a, b, c = rep[t[0]], rep[t[1]], rep[t[2]]
+            if a == b or b == c or a == c or (a, b, c) in seen:
+                continue
+            seen.add((a, b, c))
+            tris.append((a, b, c, t[3], t[4], t[5]))
+        self.tris, self.st, self.frames, self.nverts = tris, m.st, m.frames, m.nverts
+        self.pos = m.pos
+        self.used = len(groups)
+
+
 def poly_texture(skin, st_uv, w, h):
     """the skin warped into a w x h rectangle: texel (s, t) samples bilinear(A, B, C, D)(s, t),
     which is where VDP1's quad mapping puts it"""
@@ -172,6 +202,12 @@ def main():
         frames.extend(range(a, b + 1))
 
     polys = make_polys(m)
+    # far away (src/render.c draw_model): the mesh on a coarse grid, its own polygons and textures
+    # after the full one's (--lod=cells across its size; 0: none)
+    lod_cells = int(opts.get("lod") or 0)
+    lpolys = make_polys(Decimated(m, lod_cells)) if lod_cells else []
+    npolys = len(polys)
+    polys = polys + lpolys
     # texture sizes: the polygon's extent in the skin, rounded (width a multiple of 8)
     sizes = []
     for xyz, st in polys:
@@ -226,29 +262,39 @@ def main():
         for n in norms:
             d = n[0] * L[0] + n[1] * L[1] + n[2] * L[2]
             shade.append(max(0, min(255, int(128 * (1.0 + 0.45 * d)))))
-    pdata = b"".join(struct.pack(">4HHH", *xyz, i, 1 if xyz[2] == xyz[3] else 0) for i, (xyz, st) in enumerate(polys))
+    pdata = b"".join(struct.pack(">4HHH", *xyz, i, 1 if xyz[2] == xyz[3] else 0)
+                     for i, (xyz, st) in enumerate(polys[:npolys]))
+    ldata = b"".join(struct.pack(">4HHH", *xyz, npolys + i, 1 if xyz[2] == xyz[3] else 0)
+                     for i, (xyz, st) in enumerate(lpolys))
+    if lpolys:
+        # and the vertices it uses (a count, then them): only those need working out
+        used = sorted({v for xyz, _ in lpolys for v in xyz})
+        ldata += struct.pack(">%dH" % (len(used) + 1), len(used), *used)
     adata = b"".join(struct.pack(">12sHH", n.encode()[:12], a, c) for n, a, c in anim_recs)
 
     ndata = b"".join(struct.pack(">3h", *[int(round(c * 16384)) for c in n]) for n in norms)   # 2.14
-    parts = [pdata, bytes(b"".join(tex_table)), bytes(texdata), bytes(luts), bytes(fdata), adata, bytes(shade), ndata]
+    parts = [pdata, bytes(b"".join(tex_table)), bytes(texdata), bytes(luts), bytes(fdata), adata, bytes(shade), ndata,
+             ldata]
     hdr_size = 64
     offs = []
     o = hdr_size
     for p in parts:
         offs.append(o)
         o += (len(p) + 15) & ~15
-    hdr = b"Q2MD" + struct.pack(">6H8I", m.nverts, len(polys), len(frames), len(anims), len(skins), len(polys),
-                                *offs) + struct.pack(">2I", per_skin, 1 if shared else len(polys))
+    hdr = b"Q2MD" + struct.pack(">6H8I", m.nverts, npolys, len(frames), len(anims), len(skins), len(polys),
+                                *offs[:8]) + struct.pack(">2I", per_skin, 1 if shared else len(polys)) \
+        + struct.pack(">2I", offs[8], len(lpolys))              # (at 56: the far mesh's polygons, how many)
     out = bytearray(hdr.ljust(hdr_size, b"\0"))
     for p in parts:
         out += p
         out += b"\0" * (((len(p) + 15) & ~15) - len(p))
     with open(args[2], "wb") as fo:
         fo.write(out)
-    ntri = sum(1 for xyz, _ in polys if xyz[2] == xyz[3])
-    print("%s: %d verts, %d triangles -> %d polygons (%d quads, %d triangles), %d frames, %d skins, "
-          "textures %d bytes a skin, total %dK" % (args[2], m.nverts, len(m.tris), len(polys), len(polys) - ntri,
-                                                   ntri, len(frames), len(skins), per_skin, len(out) // 1024))
+    ntri = sum(1 for xyz, _ in polys[:npolys] if xyz[2] == xyz[3])
+    print("%s: %d verts, %d triangles -> %d polygons (%d quads, %d triangles), far %d, %d frames, %d skins, "
+          "textures %d bytes a skin, total %dK" % (args[2], m.nverts, len(m.tris), npolys, npolys - ntri,
+                                                   ntri, len(lpolys), len(frames), len(skins), per_skin,
+                                                   len(out) // 1024))
 
 
 if __name__ == "__main__":

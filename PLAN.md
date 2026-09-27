@@ -95,17 +95,17 @@ grid 25, cells 29, models 12, the walk 9 (the master only). The profile
 build is about 10% slower than the real one.
 
 Done: the grid and cells in assembly, faces 32 bytes, the models' vertices
-on the DSP alongside. Next, roughly by what they'd save:
+on the DSP alongside; then (OVERNIGHT.md, section 3) the near split, face
+culling, 8-byte grid points, per-frame view-space axes, the walk in
+assembly, coarse grids for distant faces and cut-down distant models: the
+benchmark's CPU 254 to 190 ms, frames 339 to 259. Next:
 
-1. **The grid's memory**: 20 bytes a point, of which the cells only need 6
-   (the screen position and outcode); x y z are only for the near plane and
-   dynamic lights, which could work them out again. Half the cache misses
-2. **Face setup** (9 ms): the view-space axes once a frame for each of the
-   575 (not per face), or the whole setup on the DSP ahead of the CPUs
-3. **LWRAM**: cells and lights are still there (59 cycles a miss); copy each
+1. **Frame pacing**: an even 40 ms rather than 40 and 60 alternating
+2. **LWRAM**: cells and lights are still there (59 cycles a miss); copy each
    face's ahead of time with the SH-2's own DMA, or 8-bit lights (a palette)
-4. **The walk** (9 ms on the master): assembly
-5. **LOD**: a second grid at 64-texel cells for distant faces
+3. **Memory per level**: demo1 has 12 KB of HWRAM left; the three levels
+   could each have their own layout
+4. The AI's traces (see above): the node walk in assembly like the render's
 
 ## Notes
 

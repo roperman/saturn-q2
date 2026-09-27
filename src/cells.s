@@ -18,7 +18,7 @@
 ! at the one before; appended (the master's), the one before is pointed at
 ! this. a->prev is that one before: its LINK value, or its address.
 !
-! Registers: r4 r5 the grid's top and bottom rows (gv, 20 bytes), r6 the
+! Registers: r4 r5 the grid's top and bottom rows (gv, 8 bytes), r6 the
 ! cell, r7 the top row's lights, r8 the cells left, r9 where the command
 ! goes and r10 its LINK, r11 the one before, r12 where the Gouraud table
 ! goes and r13 its GRDA, r14 the args; r0-r3 as they come.
@@ -38,15 +38,15 @@ C_CTRL    = 28                          ! CTRL << 16
 C_FIFO    = 32                          ! appended?
 C_STRIDE2 = 36                          ! bytes from a light to the one below
 C_FAST    = 40                          ! CELL_FULL | CELL_EXACT
-C_NEAR    = 44                          ! OC_NEAR << 24
+C_NEAR    = 44                          ! (OC_NEAR | OC_FAR) << 24
 C_N       = 48                          ! cells in the row
 C_DEFP    = 52                          ! where the next deferred cell's number goes (u16)
 C_ROWS    = 56                          ! rows left
 C_ROW     = 60                          ! top bot cell light cmd link prev gst grda cell0
 
-G_XY    = 12                            ! (gv)
-G_OC    = 16                            ! the outcode: the top byte of the word here
-G_SIZE  = 20
+G_XY    = 0                             ! (gv)
+G_OC    = 4                             ! the outcode: the top byte of the word here
+G_SIZE  = 8
 
 _cells_asm:
         mov.l   r8,@-r15
@@ -85,9 +85,11 @@ _cells_asm:
         and     r1,r0
         shlr16  r0
         shlr8   r0
+        and     #31,r0                  ! (not OC_FAR: far isn't outside)
         tst     r0,r0
         bf      .Lnext
-        ! behind the near plane at any corner: the C clips it
+        ! behind the near plane, or far off the screen, at any corner: the C clips it or
+        ! splits it
         mov.l   @(G_OC,r4),r0
         mov.l   @(G_OC+G_SIZE,r4),r1
         or      r1,r0

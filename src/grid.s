@@ -4,10 +4,11 @@
 !
 !   void grid_row_asm(gv *row, int n, const grid_args *a, const s32 *k)
 !
-!   gv:        x y z (view, 16.16), xy (screen x << 16 | y), oc, done (bytes)   20 bytes
+!   gv:        xy (screen x << 16 | y), oc, done (bytes), pad                   8 bytes
 !   grid_args: p (the row's first point), e0 (the step out of the first
 !              column), d (a whole column), e1 (into the last)               12 words
-!   k:         NEAR_Z, FOCAL, CX, CY, SCREEN_W, SCREEN_H, ky, CLAMP_XY
+!   k:         NEAR_Z, FOCAL, CX, CY, SCREEN_W, SCREEN_H, ky, CLAMP_XY, and at
+!              [20] [21] the guard band (OC_FAR beyond it: 32)
 !
 ! n >= 2. The steps go e0, then d, d, ..., then e1 (for n = 2, just e0).
 !
@@ -41,6 +42,9 @@ K_W     = 16
 K_H     = 20
 K_KY    = 24
 K_LIM   = 28
+K_GX    = 80                            ! the guard band, from the middle (OC_FAR beyond it)
+K_GY    = 84
+OC_FAR  = 32
 
 A_E0    = 12
 A_E1    = 36
@@ -51,11 +55,9 @@ K_ROWS  = 36                            !   rows after this one
 K_RI    = 40                            !   this row's number
 K_F0    = 44                            !   the row steps: f0, dv, f1 (3 words each)
 
-G_Y     = 4
-G_Z     = 8
-G_XY    = 12
-G_OC    = 16
-G_SIZE  = 20
+G_XY    = 0
+G_OC    = 4
+G_SIZE  = 8
 
 DV_DVSR  = 0
 DV_DVDNTH = 16
@@ -94,11 +96,10 @@ DV_DVDNTL = 20
 ! one point (its divide under way), and the next's started unless kind is "last"
 .macro  POINT kind
         mov.l   @(K_NEAR,r14),r8
-        mov.l   r1,@r4
-        mov.l   r2,@(G_Y,r4)
-        mov.l   r3,@(G_Z,r4)
         cmp/gt  r3,r8                   ! z < NEAR_Z
-        movt    r8                      ! (kept for the outcode: rereading z would miss the cache)
+        bt      90f                     ! behind the near plane: its outcode now, while x y z are here
+        mov     #0,r8
+89:
         mov.l   @(DV_DVDNTL,gbr),r0     ! FOCAL / z, 16.16 (waits for the divider)
         dmuls.l r0,r1                   ! x times it
 .ifnc \kind,last
@@ -121,8 +122,10 @@ DV_DVDNTL = 20
         mov.l   @(K_H,r14),r7
         sts     mach,r0
         sub     r0,r10                  ! screen y
-        ! the outcode: NEAR, then BOTTOM, TOP, RIGHT, LEFT, rotated in
-        mov     r8,r0
+        tst     r8,r8
+        bf      91f                     ! behind the near plane: its outcode's in r8
+        ! the outcode: NEAR (not), then BOTTOM, TOP, RIGHT, LEFT, rotated in
+        mov     #0,r0
         cmp/gt  r7,r10                  ! below: y > H
         rotcl   r0
         mov     r10,r7
@@ -135,7 +138,7 @@ DV_DVDNTL = 20
         shll    r7                      ! left: x < 0
         rotcl   r0
         tst     r0,r0
-        bf      91f                     ! off the screen, or behind the near plane
+        bf      93f                     ! off the screen
 92:
         shll16  r9
         extu.w  r10,r10
@@ -147,32 +150,56 @@ DV_DVDNTL = 20
         bra     99f
         add     #G_SIZE,r4
 91:
-        tst     #16,r0
-        bt      93f
-        ! behind the near plane: the outcode from the planes (x = +-z, y = +-ky z)
-        mov.l   @(G_Z,r4),r9
+        bra     92b                     ! (its screen position's meaningless: nothing asks for it)
+        mov     r8,r0
+90:
+        ! behind the near plane: the outcode from the planes (x = +-z, y = +-ky z), into r8
         mov.l   @(K_KY,r14),r7
-        dmuls.l r7,r9
+        dmuls.l r7,r3
         sts     mach,r7
         sts     macl,r10
         xtrct   r7,r10                  ! ty
-        mov     #1,r0
-        mov.l   @(G_Y,r4),r7
+        mov     #1,r8                   ! NEAR
+        mov     r2,r7
         add     r10,r7
         shll    r7                      ! below: y < -ty
-        rotcl   r0
-        mov.l   @(G_Y,r4),r7
-        cmp/gt  r10,r7                  ! above: y > ty
-        rotcl   r0
-        mov.l   @r4,r7
-        cmp/gt  r9,r7                   ! right: x > z
-        rotcl   r0
-        mov.l   @r4,r7
-        add     r9,r7
+        rotcl   r8
+        cmp/gt  r10,r2                  ! above: y > ty
+        rotcl   r8
+        cmp/gt  r3,r1                   ! right: x > z
+        rotcl   r8
+        mov     r1,r7
+        add     r3,r7
         shll    r7                      ! left: x < -z
-        bra     92b
-        rotcl   r0
+        bra     89b
+        rotcl   r8
 93:
+        ! far beyond the screen (the guard band, from the middle): OC_FAR, for the cells
+        ! there to be split (src/render.c cell_split)
+        mov.l   @(K_CX,r14),r7
+        mov     r9,r8
+        sub     r7,r8
+        mov     r14,r7
+        add     #K_GX,r7
+        mov.l   @r7,r7
+        cmp/gt  r7,r8
+        bt      94f
+        neg     r7,r7
+        cmp/gt  r8,r7
+        bt      94f
+        mov.l   @(K_CY,r14),r7
+        mov     r10,r8
+        sub     r7,r8
+        mov     r14,r7
+        add     #K_GY,r7
+        mov.l   @r7,r7
+        cmp/gt  r7,r8
+        bt      94f
+        neg     r7,r7
+        cmp/gt  r8,r7
+        bf      95f
+94:     or      #OC_FAR,r0
+95:
         ! off the screen: keep the position within CLAMP_XY of the middle
         mov.l   @(K_LIM,r14),r7
         cmp/gt  r7,r9

@@ -43,6 +43,15 @@ bool                model_load(q_mdl *m, const char *file)
     m->normals = (const s16 *)(b + h32[7]);
     m->per_skin = h32[8];
     m->nluts = (int)h32[9];
+    m->fpolys = (const q_mpoly *)(b + h32[10]);
+    m->nfpolys = (int)h32[11];
+    if (m->nfpolys)
+    {
+        const u16 *u = (const u16 *)(m->fpolys + m->nfpolys);   /* a count, then the vertices */
+
+        m->nfverts = u[0];
+        m->fverts = u + 1;
+    }
     m->frame_bytes = 24 + (u32)m->nverts * 4;
     /* the frames are read every time it's drawn: into fast RAM if they fit */
     m->loaded = true;

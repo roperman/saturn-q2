@@ -123,3 +123,62 @@ Then, in this order:
 All three demo levels run: `MAP=demo2 ./build.sh` (or demo3). demo2 leaves
 115 KB of HWRAM free and demo3 38 KB; the cart holds any one of them with
 the models (demo3, the biggest, is 2.8 MB, the models 0.8).
+
+## 3. Speed, second round
+
+Each step measured on its own with the benchmark (ms, summed over the six
+views; demo2 has six views of its own now, picked by the map's name):
+
+| | demo1 CPU | demo1 frame | demo2 CPU | demo2 frame |
+|---|---|---|---|---|
+| before | 254 | 339 | 211 | 339 |
+| near cells split before VDP1 gets them | 259 | 359 | 215 | 259 |
+| 1. faces outside the view skipped before their grid | 233 | 282 | 195 | 259 |
+| 3. grid points 8 bytes (x y z worked out again when needed) | 230 | 279 | 192 | 259 |
+| 4. the grid axes into view space once a frame, not once a face | 224 | | 188 | |
+| 5. the walk: bit tables, the PVS test before the call | 218 | | 185 | |
+| 5. the walk in assembly (`src/walk.s`) | 201 | 259 | 172 | |
+| 2. coarse grids for distant faces | 200 | | 171 | |
+| 6. cut-down meshes for distant models | 190 | 259 | 171 | 259 |
+
+demo1's views are now 40, 60, 20, 40, 40 and 60 ms (they were 60, 80, 20,
+60, 60, 60); demo2's 60, 40, 40, 40, 40, 40.
+
+- **The near split.** VDP1 draws a distorted sprite whole, including what's
+  off the screen, so a cell right in front of the camera could cost it
+  more than the rest of the frame. Whole tiles that reach well off the
+  screen (or behind the near plane) are cut into quarters with quartered
+  textures first. It costs the CPU a little and saved demo2's heaviest
+  views 20-60 ms each.
+- **1. Face culling.** A face's four corners against the view before any of
+  its grid is worked out.
+- **3. Smaller grid points**: the screen position and outcode only; the few
+  cells that need a point's view-space position (the near plane, dynamic
+  lights) rebuild it from the face's axes.
+- **4. Face setup.** Faces share 575 grid axes; each is turned into view
+  space once a frame (on first use). The DSP doing the whole face setup
+  (`engine/xformf.dsp`, kept) was tried against it: no faster (230 against
+  230), so the DSP stays on the models.
+- **5. The walk** in SH-2 assembly: the child's PVS test before the call,
+  only what's needed saved, the far child a jump, the view planes unrolled.
+  Its time summed over the views went from 78 to 48 ms. `OPT="-DWALK_CHECK -DONE_CPU"` runs the C
+  walk alongside and counts differences: none in 1,883 frames over both maps.
+- **2. Coarse grids**: faces of 12 cells or more also get a 64-texel grid,
+  used past 384 units (`LOD_Z`). On the screen I couldn't tell them apart.
+- **6. Distant models**: the soldier and the infantry have a second, cut-down
+  mesh (vertices merged on a 6-cell grid across the model: `--lod=6` in
+  `tools/models.txt`), used past 400 units (`MODEL_FAR`); only the vertices
+  it uses are transformed.
+
+Not done: 7 (frame pacing), as asked.
+
+Memory: all three maps still boot. demo3 needed two changes: its coarse
+grids only for faces of 24 cells or more (`LODMIN`, set in `build.sh`), to
+keep it and the models inside the cart's 4 MB, and the brushes (only the
+collision traces use them) stay on the cart when copying them to LWRAM
+would leave under 48 KB for what's allocated after the level. Running out
+of the cart now stops with a message too. HWRAM free: demo1 12 KB, demo2
+118 KB, demo3 45 KB.
+
+Checked: `tools/compare.sh` (the cells in assembly against the C) shows
+only single pixels on shared cell edges, as before.

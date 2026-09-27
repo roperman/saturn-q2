@@ -57,7 +57,7 @@ static bool         slave_ok, start_used;
 static u32          us_game, bench_us[5];
 
 /* the benchmark (START + R): fixed views, 16 frames each, the game paused. x y z (eye), yaw, pitch */
-static const s32    bench_views[][5] = {
+static const s32    bench_demo1[][5] = {
     { 128, -320, 46, 0x6000, 0 },           /* the start, looking down the hall */
     { -1064, 1632, -2, 0x8000, 0 },         /* by the door to the crate room */
     { -1960, 1444, -2, 0xC000, 0 },         /* the dark corridor */
@@ -65,10 +65,20 @@ static const s32    bench_views[][5] = {
     { 20, -213, 46, 0x7000, 0x800 },        /* the hall, turned */
     { -1636, 1488, 142, 0x0000, 0 },        /* the sliding doors */
 };
-#define NBENCH          ((int)(sizeof(bench_views) / sizeof(bench_views[0])))
+/* demo2's heavy places (its benchmark: MAP=demo2) */
+static const s32    bench_demo2[][5] = {
+    { 832, 2292, -210, 0x8000, 0 },         /* the start: the warehouse */
+    { 935, 2506, 46, 0x6544, 0 },           /* up among the crates */
+    { -103, -300, 30, 0x3D35, 0 },          /* the big room: VDP1 is behind here */
+    { -88, -260, 30, 0x4354, 0 },           /* ...and more so */
+    { 618, -757, -146, 0x1670, 0 },
+    { 503, -1816, 46, 0x90E5, 0 },
+};
+#define NBENCH          (6)                 /* views in each */
+static const s32    (*bench_views)[5];
 #define BENCH_FRAMES    (16)
 static int          bench_view = -1, bench_frame;
-static u32          bench_acc[NBENCH][5];   /* walk, master, slave, cpu, frame (us, summed) */
+static u32          bench_acc[NBENCH][6];   /* walk, master, slave, cpu, frame (us, summed), vblanks waiting for VDP1 */
 static u32          bench_prof[15];         /* setup, grid, cells, slow, models, nfast, nslow, faces, the models' light, verts, polys */
 static bool         bench_done;
 static bool         god;
@@ -198,6 +208,7 @@ void                main(void)
     vdp_set_hw_erase(false);
     vdp_set_min_frame(1);
     message("QUAKE II", "LOADING DEMO1 ONTO THE RAM CART");
+    bench_views = MAP_FILE[4] == '2' ? bench_demo2 : bench_demo1;      /* "DEMO2.MAP" */
     if (!level_load(MAP_FILE))
         for (;;)
             message(cart_mb < 4 ? "THIS NEEDS THE 4MB RAM CART" : MAP_FILE " WON'T LOAD", NULL);
@@ -310,6 +321,13 @@ void                main(void)
             bench_frame = 0;
             bench_done = false;
             memset(bench_acc, 0, sizeof(bench_acc));
+#ifdef R_PROFILE
+            {
+                extern int wk_nodes, wk_leaves, wk_ftests, wk_models;
+
+                wk_nodes = wk_leaves = wk_ftests = wk_models = 0;
+            }
+#endif
             memset(bench_prof, 0, sizeof(bench_prof));
         }
         if (pressed(PAD_L) && (pad_now & PAD_START))
@@ -398,21 +416,23 @@ void                main(void)
                 a[2] += rs.t_grid;
                 a[3] += us_cpu;
                 a[4] += us_frame;
+                a[5] += (u32)waited;
                 bench_prof[0] += rs.p_setup;
                 bench_prof[1] += rs.p_grid;
                 bench_prof[2] += rs.p_cells;
                 bench_prof[3] += rs.p_slow;
                 bench_prof[4] += rs.t_models;
-                bench_prof[5] += (u32)rs.nfast;
                 bench_prof[6] += (u32)rs.nslow;
                 bench_prof[7] += (u32)rs.faces;
                 bench_prof[8] += rs.t_mlight;
                 bench_prof[9] += rs.t_mverts;
                 bench_prof[10] += rs.t_mpolys;
                 bench_prof[11] += (u32)rs.nexact;
-                bench_prof[12] += rs.p_corners;
-                bench_prof[13] += (u32)rs.gverts;
-                bench_prof[14] += (u32)rs.culled;
+                bench_prof[13] += rs.t_mfar;
+                bench_prof[14] += (u32)rs.mfar;
+                bench_prof[12] += (u32)rs.models;
+                bench_prof[5] += rs.us_tree;
+
             }
             if (++bench_frame == BENCH_FRAMES)
             {
@@ -482,13 +502,13 @@ void                main(void)
             u32 tot[5] = { 0, 0, 0, 0, 0 };
             int v, k, n = BENCH_FRAMES - 2;
 
-            vdp_text(8, 96, RGB(255, 220, 120), "V WALK MAST SLAV CPU FRM");
+            vdp_text(8, 96, RGB(255, 220, 120), "V WALK MAST SLAV CPU FRM  WT");
             for (v = 0; v < NBENCH; ++v)
             {
                 u32 *a = bench_acc[v];
 
-                vdp_printf(8, 106 + v * 9, RGB(255, 255, 255), "%d %4d %4d %4d %4d %4d", v + 1, a[0] / n / 100,
-                           a[1] / n / 100, a[2] / n / 100, a[3] / n / 100, a[4] / n / 100);
+                vdp_printf(8, 106 + v * 9, RGB(255, 255, 255), "%d %4d %4d %4d %4d %4d %3d", v + 1, a[0] / n / 100,
+                           a[1] / n / 100, a[2] / n / 100, a[3] / n / 100, a[4] / n / 100, (int)(a[5] * 10 / (u32)n));
                 for (k = 0; k < 5; ++k)
                     tot[k] += a[k] / n;
             }
@@ -498,8 +518,18 @@ void                main(void)
             vdp_printf(8, 106 + (NBENCH + 1) * 9, RGB(160, 255, 160), "S%d G%d C%d K%d L%d M%d",
                        bench_prof[0] / n / 100, bench_prof[1] / n / 100, bench_prof[2] / n / 100, bench_prof[12] / n / 100,
                        bench_prof[3] / n / 100, bench_prof[4] / n / 100);
-            vdp_printf(8, 106 + (NBENCH + 2) * 9, RGB(160, 255, 160), "F%d L%d X%d Q%d P%d MV%d", bench_prof[5] / n,
-                       bench_prof[6] / n, bench_prof[11] / n, bench_prof[14] / n, bench_prof[13] / n, bench_prof[9] / n / 100);
+            {
+#ifdef WALK_CHECK
+                {
+                    extern int walk_total, walk_frames;
+
+                    vdp_printf(8, 106 + (NBENCH + 3) * 9, RGB(255, 255, 120), "WALK DIFFS %d IN %d FRAMES", walk_total,
+                               walk_frames);
+                }
+#endif
+                vdp_printf(8, 106 + (NBENCH + 2) * 9, RGB(160, 255, 160), "MODELS %d, FAR %d: %d.%dMS", bench_prof[12] / n,
+                           bench_prof[14] / n, bench_prof[13] / n / 1000, bench_prof[13] / n / 100 % 10);
+            }
         }
         if (level_complete)
         {
@@ -532,11 +562,19 @@ void                main(void)
 
                 vdp_printf(8, 108, c, "GRID PT%d BAD%d DSP %s%s HEAP %x", cyc[0], grid_bad, r_dsp_ok ? "OK" : "BAD",
                            r_use_dsp ? " ON" : "", level_heap());
+#ifdef WALK_CHECK
+                {
+                    extern int walk_diff, walk_len, walk_clen, walk_first, walk_total, walk_frames;
+
+                    vdp_printf(8, 118, c, "WALK DIFF %d ASM %d C %d AT %d", walk_diff, walk_len, walk_clen, walk_first);
+                    vdp_printf(8, 30, c, "WALK TOTAL %d IN %d FRAMES", walk_total, walk_frames);
+                }
+#endif
 
             }
-            vdp_printf(8, 48, c, "%d %d %d%s%s%s W%d M%d G%d", pl.origin[0] >> 16, pl.origin[1] >> 16, pl.origin[2] >> 16,
-                       pl.on_ground ? " GROUND" : "", pl.noclip ? " NOCLIP" : "", god ? " GOD" : "", pl.waterlevel,
-                       warp_m, pl.ground_ent);
+            vdp_printf(8, 48, c, "%d %d %d %X%s%s%s W%d", pl.origin[0] >> 16, pl.origin[1] >> 16, pl.origin[2] >> 16,
+                       cam.yaw, pl.on_ground ? " GROUND" : "", pl.noclip ? " NOCLIP" : "", god ? " GOD" : "",
+                       pl.waterlevel);
             vdp_printf(8, 8, c, "FPS %d.%d  CPU %dMS  WAIT %d", 10000000 / (us_frame ? us_frame : 1) / 10,
                        10000000 / (us_frame ? us_frame : 1) % 10, us_cpu / 1000, waited);
             vdp_printf(8, 18, c, "FACES %d CELLS %d CULL %d NEAR %d", rs.faces, rs.cells, rs.culled, rs.near);

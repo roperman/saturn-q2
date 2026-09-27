@@ -57,6 +57,7 @@ typedef struct
 #define PMOD_LUT4       (1 << 3)
 #define PMOD_HALF_TRANS (0x0003)
 #define PMOD_GOURAUD    (0x0004)
+#define PMOD_HSS        (0x1000)        /* high-speed shrink: skips texels when drawing smaller than the texture */
 
 typedef struct
 {

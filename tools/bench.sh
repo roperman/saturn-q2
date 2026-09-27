@@ -4,7 +4,7 @@
 cd "$(dirname "$0")/.."
 OUT=${1:-bench.png}
 tools/emu.sh start game.cue >/dev/null
-sleep 42
+sleep ${BOOT:-45}
 w=$(xdotool search --class mednafen | tail -1)
 xdotool windowactivate --sync "$w"
 xdotool keydown Return; sleep 0.1; xdotool keydown e; sleep 0.12; xdotool keyup e; sleep 0.1; xdotool keyup Return

@@ -26,21 +26,40 @@ extern u8           _bss_end[];         /* the linker's __bss_end (C names get a
    work RAM (fastest), the faces, cells and lights into low. */
 static u8           *hw_next, *lw_next, *cart_next;
 
+static void         out_of_ram(const char *what, u32 bytes);
+
 const u8            *cart_load(const char *name)
 {
-    int             size = cd_load(name, cart_next, (u32)(CART_BASE + CART_SIZE - cart_next));
+    u32             space = (u32)(CART_BASE + CART_SIZE - cart_next), lba, want;
+    int             size = cd_load(name, cart_next, space);
     const u8        *p = cart_next;
 
     if (size < 0)
+    {
+        if (cd_find(name, &lba, &want) && ((want + 2047) & ~2047u) > space)
+            out_of_ram("THE CART", ((want + 2047) & ~2047u) - space);    /* (not just missing) */
         return NULL;
+    }
     cart_next += ((u32)size + 2047) & ~2047u;
     return p;
 }
 
+/* LWRAM kept free for what's allocated after the level (level_alloc_low: the
+   game's entities, the BSP's parents): the brushes (only the traces read
+   them) stay on the cart rather than take it */
+#define LW_RESERVE      (48 * 1024)
+
+static const void   *hot_spare(const void *src, u32 bytes, bool high, u32 spare);
+
 static const void   *hot(const void *src, u32 bytes, bool high)
 {
+    return hot_spare(src, bytes, high, 0);
+}
+
+static const void   *hot_spare(const void *src, u32 bytes, bool high, u32 spare)
+{
     u8              **next = high ? &hw_next : &lw_next;
-    u8              *end = high ? HWRAM_END : LWRAM_END;
+    u8              *end = (high ? HWRAM_END : LWRAM_END) - spare;
     u8              *dst = *next;
 
     if (dst + bytes > end)
@@ -147,6 +166,10 @@ bool                level_load(const char *name)
     lv.erecs = b + h[42];                       lv.nerecs = (int)h[43];
     lv.strings = (const char *)(b + h[44]);
     lv.axes = (const s32 *)(b + h[46]);
+    lv.quart0 = (int)*(const u32 *)(b + h[48]);
+    lv.lodfaces = (const q_lodface *)(b + h[50]);
+    lv.lodcells = (const q_cell *)(b + h[52]);
+    lv.lodlights = (const u16 *)(b + h[54]);
     cart_next = CART_BASE + (((u32)size + 2047) & ~2047u);
     hw_next = (u8 *)(((u32)_bss_end + 15) & ~15u);
     lw_next = LWRAM_BASE;
@@ -155,12 +178,14 @@ bool                level_load(const char *name)
     lv.leafs = hot(lv.leafs, (u32)lv.nleafs * sizeof(q_leaf), true);
     lv.marks = hot(lv.marks, h[7] * 2, true);
     lv.axes = hot(lv.axes, h[47] * 24, true);
+    lv.naxes = (int)h[47];
+    lv.faces_cart = lv.faces;
     lv.faces = hot(lv.faces, (u32)lv.nfaces * sizeof(q_face), false);
     lv.cells = hot(lv.cells, h[11] * sizeof(q_cell), false);
     lv.lights = hot(lv.lights, h[13] * 2, false);
-    lv.brushes = hot(lv.brushes, (u32)lv.nbrushes * sizeof(q_brush), false);
-    lv.brushsides = hot(lv.brushsides, h[29] * sizeof(q_brushside), false);
-    lv.leafbrushes = hot(lv.leafbrushes, h[31] * 2, false);
+    lv.brushes = hot_spare(lv.brushes, (u32)lv.nbrushes * sizeof(q_brush), false, LW_RESERVE);
+    lv.brushsides = hot_spare(lv.brushsides, h[29] * sizeof(q_brushside), false, LW_RESERVE);
+    lv.leafbrushes = hot_spare(lv.leafbrushes, h[31] * 2, false, LW_RESERVE);
     {
         const s32 *s = (const s32 *)(b + h[24]);
 

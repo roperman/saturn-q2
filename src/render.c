@@ -37,7 +37,18 @@
 #define MAX_ROW         (257)
 #define MAX_SLOTS       (3072)              /* (VRAM has room for about 2,800) */
 #define MAX_VIS         (4096)
+#ifndef CLAMP_XY
 #define CLAMP_XY        (2000)
+#endif
+
+/* the world's cells: 4-bit colour tables, Gouraud. OPT=-DHSS adds VDP1's
+   high-speed shrink (a cell drawn smaller than its texture skips texels):
+   Mednafen's timing doesn't show it, so it's untested where it would count */
+#ifdef HSS
+#define CELL_PMOD       (PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD | PMOD_HSS)
+#else
+#define CELL_PMOD       (PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD)
+#endif
 
 /* R_PROFILE: the per-cell and per-row counts and timings (the benchmark's
    breakdown). Each is a store, and on the SH-2 a store waits for the bus (the
@@ -54,7 +65,12 @@
 #define MODEL_FRONT     (-1)                /* the sign of a front face's screen winding */                /* Gouraud steps for a model's light 0..2: sized for skin brightness */
 
 /* outcodes */
-/* (src/grid.s builds these with ROTCL: that order) */
+/* (src/grid.s builds these with ROTCL: that order). OC_FAR: beyond the guard
+   band (GUARD_X, GUARD_Y from the middle): not outside the view, but a cell
+   there would have VDP1 going over far more than the screen (cell_split) */
+#define OC_FAR          (32)
+#define GUARD_X         (480)
+#define GUARD_Y         (336)
 #define OC_NEAR         (16)
 #define OC_LEFT         (1)
 #define OC_RIGHT        (2)
@@ -62,9 +78,10 @@
 #define OC_BOTTOM       (8)
 
 typedef struct { s32 x, y, z; } v3;
-/* a grid vertex: view space, the frustum planes it's outside, and (once
-   something needs it) its screen position, x << 16 | y */
-typedef struct { s32 x, y, z; u32 xy; union { struct { u8 oc, done; }; u16 ocd; }; u16 pad; } gv;
+/* a grid vertex: its screen position (x << 16 | y) and the frustum planes it's
+   outside, 8 bytes (two to a cache line). Where it is in view space, the few
+   things that need it work out again (grid_pos). */
+typedef struct { u32 xy; union { struct { u8 oc, done; }; u16 ocd; }; u16 pad; } gv;
 
 /* src/grid.s: a grid row in assembly. p: the row's first point; e0, d, e1:
    the steps (out of the first column, a whole one, into the last). k: the
@@ -76,7 +93,7 @@ void                grid_row_asm(gv *row, int n, const grid_args *a, const s32 *
 void                grid_face_asm(gv *grid, int npts, grid_args *a, s32 *k);
 #define GK_ROWS         (9)
 #define GK_F0           (11)
-static s32          grid_k[8];              /* NEAR_Z, FOCAL, CX, CY, SCREEN_W, SCREEN_H, ky, CLAMP_XY */
+static s32          grid_k[22];             /* NEAR_Z, FOCAL, CX, CY, SCREEN_W, SCREEN_H, ky, CLAMP_XY; [20] [21] the guard band */
 static bool         r_grid_asm;             /* it passed its test (grid_selftest) */
 static void         grid_selftest(void);
 
@@ -103,6 +120,15 @@ typedef struct
 }                   cell_args;
 void                cells_asm(cell_args *a);
 bool                r_cells_asm = true;
+bool                r_nosplit;              /* (for comparing: whole tiles near the camera in one piece) */
+#ifndef LOD_Z
+#define LOD_Z           (384)               /* a face wholly beyond this uses its coarse grid (OPT=-DLOD_Z=...) */
+#endif
+s32                 r_lod_z = FIX(LOD_Z);
+#ifndef MODEL_FAR
+#define MODEL_FAR       (400)               /* a model beyond this (units) uses its coarse mesh */
+#endif
+int                 r_model_far = MODEL_FAR;
 static u16          cell_all[MAX_ROW];      /* the cells' numbers, for the C doing a whole row */
 
 /* each CPU's own: its writer, scratch, statistics and half of the texture cache */
@@ -112,9 +138,11 @@ typedef struct
     int             bucket, first, last;    /* the part of the face list it draws */
     bool            fifo;                   /* commands appended (drawn in order) rather than pushed (reversed) */
     gv              grid[2 * MAX_ROW];      /* a face's grid, or two rows of a big one's */
-    s32             gk[20];                 /* grid_k, and grid_face_asm's */
+    s32             gk[22];                 /* grid_k, and grid_face_asm's (the guard band at the end, as grid_k) */
     grid_args       ga;
     cell_args       ca;
+    v3              fo;                     /* the face's first grid point (its steps: ga, gk) */
+    int             fnu, fnv;
     v3              dut, dvt;               /* the face's axes, one stored texel apart (view space) */
     u8              dmask;                  /* the dynamic lights reaching this face */
     /* a model being drawn: its vertices (screen xy, view z, outcodes, Gouraud) and polygons by depth */
@@ -158,7 +186,9 @@ int                 r_nsprites;
 static struct { s32 x, y, z, r2, inv; u8 r, g, b, pad; } dl[MAX_DLIGHTS];
 static int          ndl;
 static s16          *leaf_model, *model_next;   /* brush models, listed by the leaf their centre's in */
-static int          nvis, vis_cells;
+static int          nvis;
+static const u8     bitm[8] = { 1, 2, 4, 8, 16, 32, 64, 128 };  /* (a variable shift's a library call) */
+static u8           *face_back;             /* a bit a face: on its plane's back (FF_BACK), in high work RAM */
 
 /* frustum: 4 planes through the camera, normals inwards (16.16), and the camera's distance along each */
 static s32          fr_n[4][3], fr_d[4];
@@ -189,6 +219,8 @@ static s32          dspm_out[DSPM_BLOCKS * 48] __attribute__((aligned(16)));
 static u32          dspm_count __attribute__((aligned(16)));
 static s16          ent_dsp[MAX_ENTITIES], ent_blk[MAX_ENTITIES];  /* its place in the DSP's list (or -1), its first block */
 bool                r_use_dsp, r_dsp_ok;
+static s32          *axis_view;             /* the axes in view space: du and its frame, dv and its (draw_face) */
+
 
 /* the DSP self-test's findings (shown by main.c) */
 s32                 dsp_test[8];
@@ -287,21 +319,34 @@ void                cam_update(void)
 }
 
 /* a node's box entirely outside a frustum plane? (its nearest corner along the normal is behind it) */
-static bool         cull_box(const s16 *mins, const s16 *maxs)
+/* Is a box outside one of the view's side planes? Only the planes in *mask
+   are tried, and those the box is wholly inside come off it: nothing in the
+   box can be outside them either, so a walk passes the mask down and deep in
+   the tree most boxes aren't tried at all. */
+static bool         cull_box(const s16 *mins, const s16 *maxs, u8 *mask)
 {
     int             i;
+    u8              m = *mask;
 
     for (i = 0; i < 4; ++i)
     {
-        const s32   *n = fr_n[i];
-        u8          s = fr_sign[i];
-        s32         d = n[0] * (s & 1 ? mins[0] : maxs[0])
-                      + n[1] * (s & 2 ? mins[1] : maxs[1])
-                      + n[2] * (s & 4 ? mins[2] : maxs[2]);
+        const s32   *n;
+        u8          s;
 
-        if (d < fr_d[i])
+        if (!(m & (1 << i)))
+            continue;
+        n = fr_n[i];
+        s = fr_sign[i];
+        /* the corner furthest along the plane's normal: outside, and so's all of it */
+        if (n[0] * (s & 1 ? mins[0] : maxs[0]) + n[1] * (s & 2 ? mins[1] : maxs[1])
+            + n[2] * (s & 4 ? mins[2] : maxs[2]) < fr_d[i])
             return true;
+        /* the nearest: inside, and so's all of it */
+        if (n[0] * (s & 1 ? maxs[0] : mins[0]) + n[1] * (s & 2 ? maxs[1] : mins[1])
+            + n[2] * (s & 4 ? maxs[2] : mins[2]) >= fr_d[i])
+            m &= (u8)~(1 << i);
     }
+    *mask = m;
     return false;
 }
 
@@ -317,7 +362,9 @@ void                render_init(void)
         cell_all[i] = (u8)i;
     grid_k[0] = NEAR_Z; grid_k[1] = FOCAL; grid_k[2] = CX; grid_k[3] = CY;
     grid_k[4] = SCREEN_W; grid_k[5] = SCREEN_H; grid_k[6] = ky; grid_k[7] = CLAMP_XY;
-    for (i = 0; i < 8; ++i)
+    grid_k[20] = GUARD_X;
+    grid_k[21] = GUARD_Y;
+    for (i = 0; i < 22; ++i)
         ctx[0].gk[i] = ctx[1].gk[i] = grid_k[i];
     grid_selftest();
     dsp_selftest();
@@ -325,6 +372,13 @@ void                render_init(void)
     wscale = 65536 / (lv.N * lv.N);
     for (i = 1; i < 64; ++i)
         rcp[i] = 65536 / i;
+    face_back = level_alloc((u32)(lv.nfaces + 7) >> 3);
+    memset(face_back, 0, (u32)(lv.nfaces + 7) >> 3);
+    for (i = 0; i < lv.nfaces; ++i)
+        if (lv.faces[i].flags & FF_BACK)
+            face_back[i >> 3] |= bitm[i & 7];
+    axis_view = level_alloc((u32)lv.naxes * 32);
+    memset(axis_view, 0, (u32)lv.naxes * 32);
     face_vis = level_alloc((u32)(lv.nfaces + 7) >> 3);
     leaf_spr = level_alloc((u32)lv.nleafs * 2);
     memset(leaf_spr, 0xFF, (u32)lv.nleafs * 2);
@@ -332,8 +386,8 @@ void                render_init(void)
     memset(leaf_ent, 0xFF, (u32)lv.nleafs * 2);
     node_vis = level_alloc((u32)lv.nnodes * 2);
     leaf_vis = level_alloc((u32)lv.nleafs * 2);
-    node_parent = level_alloc((u32)lv.nnodes * 2);
-    leaf_parent = level_alloc((u32)lv.nleafs * 2);
+    node_parent = level_alloc_low((u32)lv.nnodes * 2);     /* (only when the camera's cluster changes) */
+    leaf_parent = level_alloc_low((u32)lv.nleafs * 2);
     memset(node_vis, 0, (u32)lv.nnodes * 2);
     memset(leaf_vis, 0, (u32)lv.nleafs * 2);
     /* parents, for marking the nodes above visible leaves */
@@ -536,7 +590,7 @@ static void         mark_leaves(int cluster)
     {
         int c = lv.leafs[i].cluster, n;
 
-        if (c < 0 || !(pvs[c >> 3] & (1 << (c & 7))))
+        if (c < 0 || !(pvs[(u32)c >> 3] & bitm[c & 7]))
             continue;
         leaf_vis[i] = visframe;
         for (n = leaf_parent[i]; n >= 0 && node_vis[n] != visframe; n = node_parent[n])
@@ -559,21 +613,26 @@ static inline void  to_view(const s32 *w, v3 *o)
     o->z = fmul(w[0], cam.fwd[0]) + fmul(w[1], cam.fwd[1]) + fmul(w[2], cam.fwd[2]);
 }
 
-/* which of the view frustum's planes a point is outside (no divide) */
+/* which of the view frustum's planes a point is outside (no divide; each
+   plane on its own, so behind the camera it can be outside two opposite) */
 static inline u8    view_oc(s32 x, s32 y, s32 z)
 {
+#if CX == FOCAL
+    s32             tx = z, ty = fmul(z, ky);       /* (90 degrees across: the sides are x = +-z) */
+#else
     s32             tx = fmul(z, kx), ty = fmul(z, ky);
+#endif
     u8              oc = 0;
 
     if (z < NEAR_Z)
         oc |= OC_NEAR;
     if (x < -tx)
         oc |= OC_LEFT;
-    else if (x > tx)
+    if (x > tx)
         oc |= OC_RIGHT;
     if (y > ty)
         oc |= OC_TOP;
-    else if (y < -ty)
+    if (y < -ty)
         oc |= OC_BOTTOM;
     return oc;
 }
@@ -730,7 +789,7 @@ static inline u32   *cmd_alloc(r_ctx *x, u32 *link)
 }
 
 /* a corner's Gouraud colour with the dynamic lights near it added (Quake's falloff, squared) */
-static u16          dlight_add(u8 mask, const gv *v, u16 c)
+static u16          dlight_add(u8 mask, const v3 *v, u16 c)
 {
     int             r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31, i;
 
@@ -755,8 +814,10 @@ static u16          dlight_add(u8 mask, const gv *v, u16 c)
 }
 
 /* one cell's command: corners xy in the cell's order A (u0, v0), B (u1, v0), C, D */
+static void         cell_pos(const r_ctx *x, int i, int j, v3 *P);
+
 static __attribute__((noinline)) void cell_emit(r_ctx *x, const q_cell *cell, int ty0, int th,
-                                                const u32 *xy, const u16 *light, int stride, gv **g)
+                                                const u32 *xy, const u16 *light, int stride, int i, int j)
 {
     int             t = cell->tex & CELL_TEX, s = x->tex_slot[t], tw;
     vdp_writer      *w = x->w;
@@ -791,13 +852,16 @@ static __attribute__((noinline)) void cell_emit(r_ctx *x, const q_cell *cell, in
     ld = light[stride];
     if (x->dmask)
     {
-        la = dlight_add(x->dmask, g[0], la);
-        lb = dlight_add(x->dmask, g[1], lb);
-        lc = dlight_add(x->dmask, g[2], lc);
-        ld = dlight_add(x->dmask, g[3], ld);
+        v3 P[4];
+
+        cell_pos(x, i, j, P);
+        la = dlight_add(x->dmask, &P[0], la);
+        lb = dlight_add(x->dmask, &P[1], lb);
+        lc = dlight_add(x->dmask, &P[2], lc);
+        ld = dlight_add(x->dmask, &P[3], ld);
     }
     d[0] = 0x10020000u | link;              /* jump assign, distorted sprite */
-    d[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((lut_vram + lut * 32) >> 3);
+    d[1] = (u32)CELL_PMOD << 16 | ((lut_vram + lut * 32) >> 3);
     d[2] = ((vram + (u32)ty0 * (u32)(tw >> 1)) >> 3) << 16 | (u32)(((tw >> 3) << 8) | th);
     d[3] = xy[0];
     d[5] = xy[2];
@@ -817,12 +881,172 @@ static __attribute__((noinline)) void cell_emit(r_ctx *x, const q_cell *cell, in
     d[7] = (u32)grda << 16;
 }
 
+/* where grid point (i, j) of the face being drawn is in view space: its grid
+   steps (the edge column and row, whole ones between) from the first point.
+   The grid adds the same steps, so it's the same point exactly */
+static void         grid_step(v3 *o, const v3 *e0, const v3 *d, const v3 *e1, int n, int i)
+{
+    if (i == 0)
+        o->x = o->y = o->z = 0;
+    else if (n == 1 || i < n)
+    {
+        o->x = e0->x + d->x * (i - 1); o->y = e0->y + d->y * (i - 1); o->z = e0->z + d->z * (i - 1);
+    }
+    else
+    {
+        o->x = e0->x + d->x * (n - 2) + e1->x; o->y = e0->y + d->y * (n - 2) + e1->y;
+        o->z = e0->z + d->z * (n - 2) + e1->z;
+    }
+}
+
+/* the four corners of cell (i, j): A B C D */
+static __attribute__((noinline)) void cell_pos(const r_ctx *x, int i, int j, v3 *P)
+{
+    const v3        *f = (const v3 *)&x->gk[GK_F0];     /* f0, dv, f1 */
+    v3              a0, a1, b0, b1;
+
+    grid_step(&a0, &x->ga.e0, &x->ga.d, &x->ga.e1, x->fnu, i);
+    grid_step(&a1, &x->ga.e0, &x->ga.d, &x->ga.e1, x->fnu, i + 1);
+    grid_step(&b0, &f[0], &f[1], &f[2], x->fnv, j);
+    grid_step(&b1, &f[0], &f[1], &f[2], x->fnv, j + 1);
+    P[0].x = x->fo.x + a0.x + b0.x; P[0].y = x->fo.y + a0.y + b0.y; P[0].z = x->fo.z + a0.z + b0.z;
+    P[1].x = x->fo.x + a1.x + b0.x; P[1].y = x->fo.y + a1.y + b0.y; P[1].z = x->fo.z + a1.z + b0.z;
+    P[2].x = x->fo.x + a1.x + b1.x; P[2].y = x->fo.y + a1.y + b1.y; P[2].z = x->fo.z + a1.z + b1.z;
+    P[3].x = x->fo.x + a0.x + b1.x; P[3].y = x->fo.y + a0.y + b1.y; P[3].z = x->fo.z + a0.z + b1.z;
+}
+
+/* A whole tile too near the camera, or reaching too far off the screen, to
+   draw in one piece: VDP1 goes over all of a polygon, on the screen or off
+   (one such cell can cost more than the rest of the frame). Its quarters
+   instead (tile t quartered is texture lv.quart0 + t, the four one under
+   another), and those in halves and quarters by rows (SRCA steps of two), the
+   pieces outside the view dropped. The cell's a parallelogram in view space:
+   A, and U and V along its sides (u, v in texels, 0..N). */
+typedef struct
+{
+    v3              A, U, V;
+    u16             l[4];                   /* the corners' lights: A, B (u = N), C, D (v = N) */
+    u32             srca, lut;              /* the quartered tile's, in 8s */
+}                   split_cell;
+
+/* a colour between two (RGB 5:5:5), t of n along: multiplies and a >> 16
+   (a divide would be a library call, and it's 36 of these a piece) */
+static u16          col_lerp(u16 a, u16 b, int t, int n)
+{
+    s32             w = t * rcp[n];         /* 16.16 */
+    int             ar = a & 31, ag = (a >> 5) & 31, ab = (a >> 10) & 31;
+    int             r = ar + (((s32)((b & 31) - ar) * w) >> 16);
+    int             g = ag + (((s32)(((b >> 5) & 31) - ag) * w) >> 16);
+    int             bl = ab + (((s32)(((b >> 10) & 31) - ab) * w) >> 16);
+
+    return (u16)(0x8000 | bl << 10 | g << 5 | r);
+}
+
+static void         split_piece(r_ctx *x, const split_cell *sc, int ua, int ub, int va, int vb)
+{
+    int             N = lv.N, h = N / 2, k, qv = va >= h, ty0, th;
+    int             us[4] = { ua, ub, ub, ua }, vs[4] = { va, va, vb, vb };
+    v3              q[4];
+    u8              oa = 0xFF, oo = 0;
+    u32             xy[4], *d, link;
+    u16             l[4], grda;
+    s32             vram;
+
+    for (k = 0; k < 4; ++k)
+    {
+        s32 fu = us[k] * rcp[N], fv = vs[k] * rcp[N];
+        u8  oc;
+
+        q[k].x = sc->A.x + fmul(sc->U.x, fu) + fmul(sc->V.x, fv);
+        q[k].y = sc->A.y + fmul(sc->U.y, fu) + fmul(sc->V.y, fv);
+        q[k].z = sc->A.z + fmul(sc->U.z, fu) + fmul(sc->V.z, fv);
+        oc = view_oc(q[k].x, q[k].y, q[k].z);
+        oa &= oc;
+        oo |= oc;
+    }
+    if (oa)
+        return;                             /* outside one plane: none of it's seen */
+    if (!(oo & OC_NEAR))
+    {
+        for (k = 0; k < 4; ++k)
+        {
+            xy[k] = project(x, q[k].x, q[k].y, q[k].z);
+            if (iabs(XY_X(xy[k]) - CX) > GUARD_X || iabs(XY_Y(xy[k]) - CY) > GUARD_Y)
+                oo |= OC_FAR;
+        }
+    }
+    if (oo & (OC_NEAR | OC_FAR) && vb - va > 2)
+    {
+        /* still too near or too big: in two by rows */
+        int m = (va + vb) >> 1;
+
+        split_piece(x, sc, ua, ub, va, m);
+        split_piece(x, sc, ua, ub, m, vb);
+        return;
+    }
+    ty0 = va - qv * h;
+    th = vb - va;
+    if (oo & OC_NEAR)
+    {
+        if (!near_clip(q, &ty0, &th, false, 16 / h))           /* rows in 8 bytes */
+            return;
+        for (k = 0; k < 4; ++k)
+            xy[k] = project(x, q[k].x, q[k].y, q[k].z);
+    }
+    /* its lights: between the cell's corners' */
+    for (k = 0; k < 4; ++k)
+    {
+        u16 top = col_lerp(sc->l[0], sc->l[1], us[k], N), bot = col_lerp(sc->l[3], sc->l[2], us[k], N);
+
+        l[k] = col_lerp(top, bot, vs[k], N);
+        if (x->dmask)
+        {
+            l[k] = dlight_add(x->dmask, &q[k], l[k]);
+        }
+    }
+    vram = tex_vram(x, lv.quart0 + (int)sc->lut);
+    if (vram < 0 || !(d = cmd_alloc(x, &link)))
+        return;
+    PROF(++x->st.pieces);
+    d[0] = 0x10020000u | link;
+    d[1] = (u32)CELL_PMOD << 16 | ((lut_vram + sc->lut * 32) >> 3);
+    /* quarter (qv, qu), from its row ty0: h / 2 bytes a row */
+    d[2] = (((u32)vram >> 3) + (u32)((qv * 2 + (ua >= h)) * h + ty0) * (u32)h / 16) << 16
+         | (u32)(((h >> 3) << 8) | th);
+    d[3] = xy[0];
+    d[4] = xy[1];
+    d[5] = xy[2];
+    d[6] = xy[3];
+    grda = vdp_gouraud_fast(x->w, (u32)l[0] << 16 | l[1], (u32)l[2] << 16 | l[3]);
+    d[7] = (u32)grda << 16;
+}
+
+static __attribute__((noinline)) void cell_split(r_ctx *x, const q_cell_fast *cell, const v3 *P, const u16 *light,
+                                                 int stride)
+{
+    split_cell      sc;
+    int             h = lv.N / 2;
+
+    sc.A = P[0];
+    sc.U.x = P[1].x - P[0].x; sc.U.y = P[1].y - P[0].y; sc.U.z = P[1].z - P[0].z;
+    sc.V.x = P[3].x - P[0].x; sc.V.y = P[3].y - P[0].y; sc.V.z = P[3].z - P[0].z;
+    sc.l[0] = light[0];
+    sc.l[1] = light[1];
+    sc.l[2] = light[stride + 1];
+    sc.l[3] = light[stride];
+    sc.lut = cell->lut;
+    split_piece(x, &sc, 0, h, 0, h);
+    split_piece(x, &sc, h, 2 * h, 0, h);
+    split_piece(x, &sc, 0, h, h, 2 * h);
+    split_piece(x, &sc, h, 2 * h, h, 2 * h);
+}
+
 /* A cropped cell, or one crossing the near plane: its corners on screen (and
    maybe fewer rows of its texture). g: the grid vertices round it, which are
    cl..cr, ct..cb of its tile (in stored texels: the face's edge columns and
    rows are narrower); exact: the cell's all of that. false: not drawn */
-static __attribute__((noinline)) bool cell_corners(r_ctx *x, const q_cell *cell, gv **g, u32 *xy, int *ty0, int *th,
-                                                   int cl, int cr, int ct, int cb, bool exact)
+static __attribute__((noinline)) bool cell_corners(r_ctx *x, const q_cell *cell, gv **g, v3 *P, int i, int j, u32 *xy,
+                                                   int *ty0, int *th, int cl, int cr, int ct, int cb, bool exact)
 {
     v3              q[4];
     int             k;
@@ -861,15 +1085,16 @@ static __attribute__((noinline)) bool cell_corners(r_ctx *x, const q_cell *cell,
         }
     }
     /* big or near: in view space (the cell as a whole isn't outside the view: VDP1 clips the rest) */
+    cell_pos(x, i, j, P);
     if (exact)
         for (k = 0; k < 4; ++k)
         {
-            q[k].x = g[k]->x; q[k].y = g[k]->y; q[k].z = g[k]->z;
+            q[k] = P[k];
         }
     else
     {
         const v3 *du = &x->dut, *dv = &x->dvt;
-        const gv *o = g[0];
+        const v3 *o = &P[0];
 
         q[0].x = o->x + du->x * u0 + dv->x * v0; q[0].y = o->y + du->y * u0 + dv->y * v0; q[0].z = o->z + du->z * u0 + dv->z * v0;
         q[1].x = o->x + du->x * u1 + dv->x * v0; q[1].y = o->y + du->y * u1 + dv->y * v0; q[1].z = o->z + du->z * u1 + dv->z * v0;
@@ -907,15 +1132,20 @@ static inline void  grid_point(gv *g, s32 px, s32 py, s32 pz, s32 tx, s32 ty)
         oc = OC_NEAR;
     if (px < -tx)
         oc |= OC_LEFT;
-    else if (px > tx)
+    if (px > tx)
         oc |= OC_RIGHT;
     if (py > ty)
         oc |= OC_TOP;
-    else if (py < -ty)
+    if (py < -ty)
         oc |= OC_BOTTOM;
-    g->x = px; g->y = py; g->z = pz;
     if (front)
-        g->xy = screen_xy(px, py, divu_result());
+    {
+        s32 r = divu_result(), sx = mul_hi(px, r), sy = -mul_hi(py, r);
+
+        if (oc && (sx > GUARD_X || sx < -GUARD_X || sy > GUARD_Y || sy < -GUARD_Y))
+            oc |= OC_FAR;
+        g->xy = screen_xy(px, py, r);
+    }
     g->ocd = (u16)(oc << 8 | front);        /* oc, and done if projected: one store (big-endian) */
 }
 
@@ -962,12 +1192,12 @@ static void         cells_face(r_ctx *x, int stride, const q_cell *cell0)
     a->sb8 = slot_bytes >> 3;
     a->base8 = slot_vram >> 3;
     a->lut8 = lut_vram >> 3;
-    a->pmod = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16;
+    a->pmod = (u32)CELL_PMOD << 16;
     a->ctrl = 0x10020000u;                  /* jump assign, distorted sprite */
     a->fifo = x->fifo;
     a->stride2 = (u32)stride * 2;
     a->fast = CELL_FULL | CELL_EXACT;
-    a->near24 = (u32)OC_NEAR << 24;
+    a->near24 = (u32)(OC_NEAR | OC_FAR) << 24;
 }
 
 /* rows of cells in assembly (a whole face's, or one), the writer's lists
@@ -1046,8 +1276,7 @@ static void         grid_selftest(void)
             grid_row(c, n, &a->p, &a->d, &a->e0, &a->e1, fmul(a->d.z, kx), fmul(a->d.z, ky));
             grid_row_asm(as, n, a, grid_k);
             for (i = 0; i < n; ++i)
-                if (c[i].x != as[i].x || c[i].y != as[i].y || c[i].z != as[i].z || c[i].oc != as[i].oc
-                    || (!(c[i].oc & OC_NEAR) && c[i].xy != as[i].xy))
+                if (c[i].oc != as[i].oc || (!(c[i].oc & OC_NEAR) && c[i].xy != as[i].xy))
                     ++grid_bad;
         }
     }
@@ -1075,8 +1304,7 @@ static void         grid_selftest(void)
         gk[GK_F0 + 6] = f1.x; gk[GK_F0 + 7] = f1.y; gk[GK_F0 + 8] = f1.z;
         grid_face_asm(as, np, a, gk);
         for (i = 0; i < np * nr; ++i)
-            if (c[i].x != as[i].x || c[i].y != as[i].y || c[i].z != as[i].z || c[i].oc != as[i].oc
-                || (!(c[i].oc & OC_NEAR) && c[i].xy != as[i].xy))
+            if (c[i].oc != as[i].oc || (!(c[i].oc & OC_NEAR) && c[i].xy != as[i].xy))
                 ++grid_bad;
     }
     r_grid_asm = grid_bad == 0;
@@ -1087,26 +1315,35 @@ static void         grid_selftest(void)
    dynamic light near (or the assembly's off). top, bot: its grid rows;
    light: the top row's lights; cl..cr, ct..cb: its grid cell in its tile. */
 static __attribute__((noinline)) void cell_c(r_ctx *x, const q_cell *cell, gv *top, gv *bot, const u16 *light,
-                                             int stride, int i, int cl, int cr, int ct, int cb)
+                                             int stride, int i, int j, int cl, int cr, int ct, int cb)
 {
     u32             xy[4];
     int             ty0, th, tex = cell->tex, N = lv.N;
     u32             size_full = (u32)(((N >> 3) << 8) | N);
     gv              *g[4];
+    v3              P[4];                   /* its corners in view space, when they're needed */
     u8              oa, oo;
     bool            exact;
 
     if (tex == CELL_EMPTY)
         return;
     g[0] = &top[i]; g[1] = &top[i + 1]; g[2] = &bot[i + 1]; g[3] = &bot[i];
-    oa = g[0]->oc & g[1]->oc & g[2]->oc & g[3]->oc;
+    oa = g[0]->oc & g[1]->oc & g[2]->oc & g[3]->oc & ~OC_FAR;
     if (oa)
     {
         PROF(++x->st.culled);       /* the whole cell's outside a plane: so is any crop of it */
         return;
     }
     oo = g[0]->oc | g[1]->oc | g[2]->oc | g[3]->oc;
-    if (tex & CELL_FULL && !(oo & OC_NEAR) && !x->dmask)
+    /* (where its corners are in view space: only what needs them works them out) */
+    if (tex & CELL_FULL && oo & (OC_NEAR | OC_FAR) && !r_nosplit)
+    {
+        /* a whole tile too near, or too big on the screen: in pieces */
+        cell_pos(x, i, j, P);
+        cell_split(x, (const q_cell_fast *)cell, P, light + i, stride);
+        return;
+    }
+    if (tex & CELL_FULL && !(oo & (OC_NEAR | OC_FAR)) && !x->dmask)
     {
         /* the common case, all here: a whole tile, in front, no dynamic light */
         int         t = tex & CELL_TEX, s = x->tex_slot[t];
@@ -1130,7 +1367,7 @@ static __attribute__((noinline)) void cell_c(r_ctx *x, const q_cell *cell, gv *t
             return;
         PROF(++x->st.nfast);
         dw[0] = 0x10020000u | link;
-        dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16
+        dw[1] = (u32)CELL_PMOD << 16
               | ((lut_vram + (u32)((const q_cell_fast *)cell)->lut * 32) >> 3);
         dw[2] = ((u32)vram >> 3) << 16 | size_full;
         dw[3] = gv_xy(x, g[0]);
@@ -1164,13 +1401,13 @@ static __attribute__((noinline)) void cell_c(r_ctx *x, const q_cell *cell, gv *t
     {
 #ifdef R_PROFILE
         u32 ps = frt_read();
-        bool ok = cell_corners(x, cell, g, xy, &ty0, &th, cl, cr, ct, cb, exact);
+        bool ok = cell_corners(x, cell, g, P, i, j, xy, &ty0, &th, cl, cr, ct, cb, exact);
 
         x->st.p_corners += (frt_read() - ps) & 0xFFFF;
         if (!ok)
             return;
 #else
-        if (!cell_corners(x, cell, g, xy, &ty0, &th, cl, cr, ct, cb, exact))
+        if (!cell_corners(x, cell, g, P, i, j, xy, &ty0, &th, cl, cr, ct, cb, exact))
             return;
 #endif
     }
@@ -1178,41 +1415,42 @@ static __attribute__((noinline)) void cell_c(r_ctx *x, const q_cell *cell, gv *t
     {
         u32 ps = frt_read();
 
-        cell_emit(x, cell, ty0, th, xy, light + i, stride, g);
+        cell_emit(x, cell, ty0, th, xy, light + i, stride, i, j);
         x->st.p_slow += (frt_read() - ps) & 0xFFFF;
     }
 #else
-    cell_emit(x, cell, ty0, th, xy, light + i, stride, g);
+    cell_emit(x, cell, ty0, th, xy, light + i, stride, i, j);
 #endif
 }
 
-static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
-{
-    const q_face    *f = &lv.faces[fi];
-    v3              o, du, dv, rowp, e0, e1, f0, f1;
-    s32             d[3], dtx, dty;
-    gv              *top = x->grid, *bot = x->grid + MAX_ROW, *tmp;
-    const u16       *light;
-    int             i, j, nu = f->nu, nv = f->nv, N = lv.N, stride = nu + 1;
-    int             eu0 = f->eu0, eu1 = f->eu1, ev0 = f->ev0, ev1 = f->ev1, ct, cb, k;
-    bool            whole, fast_ok;
-    const q_cell    *row_cells;
-    vdp_writer      *w = x->w;
 
+/* A face's grid and its cells (draw_face's setup chose which grid: the face's,
+   or its coarse one): its own function, so that the setup's choosing doesn't
+   cost the compiler registers in this, the part that counts */
+typedef struct
+{
+    v3              o, du, dv;              /* the first point, a cell along u and v: view space */
+    int             nu, nv, eu0, eu1, ev0, ev1;
+    const q_cell    *cells;
+    const u16       *light;
+}                   face_grid;
+
+static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, const q_face *f, int model)
+{
+    v3              o = gp->o, du = gp->du, dv = gp->dv, rowp, e0, e1, f0, f1;
+    s32             dtx, dty;
+    gv              *top = x->grid, *bot = x->grid + MAX_ROW, *tmp;
+    const u16       *light = gp->light;
+    int             i, j, nu = gp->nu, nv = gp->nv, N = lv.N, stride = nu + 1;
+    int             eu0 = gp->eu0, eu1 = gp->eu1, ev0 = gp->ev0, ev1 = gp->ev1, ct, cb, k;
+    bool            whole, fast_ok;
+    const q_cell    *row_cells = gp->cells;
+    vdp_writer      *w = x->w;
     int             count0 = x->w->count;
 #ifdef R_PROFILE
     u32             pt = frt_read(), pt2;
 #endif
 
-    if (f->flags & (FF_SKY | FF_NODRAW) || nu + 1 > MAX_ROW)
-        return;
-    ++x->st.faces;
-    d[0] = f->origin[0] + mover_ofs[model][0] - cam.pos[0];
-    d[1] = f->origin[1] + mover_ofs[model][1] - cam.pos[1];
-    d[2] = f->origin[2] + mover_ofs[model][2] - cam.pos[2];
-    to_view(d, &o);
-    to_view(&lv.axes[f->axes * 6], &du);
-    to_view(&lv.axes[f->axes * 6 + 3], &dv);
     /* the dynamic lights close enough to its plane (and in front of it) */
     x->dmask = 0;
     for (i = 0; i < r_ndlights; ++i)
@@ -1240,31 +1478,36 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
     f0.x = x->dvt.x * k; f0.y = x->dvt.y * k; f0.z = x->dvt.z * k;
     f1.x = x->dvt.x * ev1; f1.y = x->dvt.y * ev1; f1.z = x->dvt.z * ev1;
 
+    /* the grid's steps, where the assembly (and grid_pos) find them */
+    {
+        s32 *gk = x->gk;
+
+        x->ga.e0 = e0; x->ga.d = du; x->ga.e1 = e1;
+        gk[GK_F0] = f0.x; gk[GK_F0 + 1] = f0.y; gk[GK_F0 + 2] = f0.z;
+        gk[GK_F0 + 3] = dv.x; gk[GK_F0 + 4] = dv.y; gk[GK_F0 + 5] = dv.z;
+        gk[GK_F0 + 6] = f1.x; gk[GK_F0 + 7] = f1.y; gk[GK_F0 + 8] = f1.z;
+        x->fo = o;
+        x->fnu = nu;
+        x->fnv = nv;
+    }
     PROF((pt2 = frt_read(), x->st.p_setup += (pt2 - pt) & 0xFFFF, pt = pt2));
     /* the grid: the whole face at once if it fits (the assembly), or a row at a time */
     whole = r_grid_asm && (nu + 1) * (nv + 1) <= 2 * MAX_ROW;
     if (whole)
     {
-        s32 *gk = x->gk;
-
-        x->ga.p = o; x->ga.e0 = e0; x->ga.d = du; x->ga.e1 = e1;
-        gk[GK_ROWS] = nv;
-        gk[GK_F0] = f0.x; gk[GK_F0 + 1] = f0.y; gk[GK_F0 + 2] = f0.z;
-        gk[GK_F0 + 3] = dv.x; gk[GK_F0 + 4] = dv.y; gk[GK_F0 + 5] = dv.z;
-        gk[GK_F0 + 6] = f1.x; gk[GK_F0 + 7] = f1.y; gk[GK_F0 + 8] = f1.z;
-        grid_face_asm(top, nu + 1, &x->ga, gk);
+        x->ga.p = o;
+        x->gk[GK_ROWS] = nv;
+        grid_face_asm(top, nu + 1, &x->ga, x->gk);
         bot = top + stride;
     }
     else if (r_grid_asm)
     {
-        x->ga.p = o; x->ga.e0 = e0; x->ga.d = du; x->ga.e1 = e1;
+        x->ga.p = o;
         grid_row_asm(top, nu + 1, &x->ga, grid_k);
     }
     else
         grid_row(top, nu + 1, &o, &du, &e0, &e1, dtx, dty);
     rowp = o;
-    row_cells = &lv.cells[f->firstcell];
-    light = &lv.lights[f->firstlight];
     PROF((x->st.gverts += (nu + 1) * (nv + 1), x->st.seen += nu * nv));
     PROF((pt2 = frt_read(), x->st.p_grid += (pt2 - pt) & 0xFFFF, pt = pt2));
     fast_ok = r_cells_asm && !x->dmask && !r_debug;
@@ -1281,7 +1524,7 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
             int c = x->ca.def[li], jj = c / nu;
 
             i = c - jj * nu;
-            cell_c(x, row_cells + c, top + jj * stride, top + (jj + 1) * stride, light + jj * stride, stride, i,
+            cell_c(x, row_cells + c, top + jj * stride, top + (jj + 1) * stride, light + jj * stride, stride, i, jj,
                    i == 0 ? eu0 : 0, i == nu - 1 ? eu1 : N, jj == 0 ? ev0 : 0, jj == nv - 1 ? ev1 : N);
         }
         PROF((pt2 = frt_read(), x->st.p_cells += (pt2 - pt) & 0xFFFF, pt = pt2));
@@ -1316,7 +1559,7 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
         for (li = 0; li < n; ++li)
         {
             i = list[li];
-            cell_c(x, row_cells + i, top, bot, light, stride, i, i == 0 ? eu0 : 0, i == nu - 1 ? eu1 : N, ct, cb);
+            cell_c(x, row_cells + i, top, bot, light, stride, i, j, i == 0 ? eu0 : 0, i == nu - 1 ? eu1 : N, ct, cb);
         }
         PROF((pt2 = frt_read(), x->st.p_cells += (pt2 - pt) & 0xFFFF, pt = pt2));
         if (whole)
@@ -1330,6 +1573,93 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
         }
     }
     x->st.cells += x->w->count - count0;    /* once a face, not a store a cell */
+}
+
+
+static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
+{
+    const q_face    *f = &lv.faces[fi];
+    face_grid       g;
+    v3              o, du, dv;
+    s32             d[3];
+    const u16       *light;
+    int             nu = f->nu, nv = f->nv, eu0 = f->eu0, eu1 = f->eu1, ev0 = f->ev0, ev1 = f->ev1;
+    const q_cell    *row_cells;
+    s32             zmin;
+#ifdef R_PROFILE
+    u32             pxf;
+#endif
+
+    if (f->flags & (FF_SKY | FF_NODRAW) || nu + 1 > MAX_ROW)
+        return;
+    ++x->st.faces;
+    PROF(pxf = frt_read());
+    d[0] = f->origin[0] + mover_ofs[model][0] - cam.pos[0];
+    d[1] = f->origin[1] + mover_ofs[model][1] - cam.pos[1];
+    d[2] = f->origin[2] + mover_ofs[model][2] - cam.pos[2];
+    to_view(d, &o);
+    {
+        /* the grid's axes in view space, once a frame for each of the level's pairs (both
+           CPUs share them: a vector and its frame fill a cache line, so a line that says
+           this frame is this frame's) */
+        s32 *c = axis_view + f->axes * 8;
+
+        if (c[3] == (s32)frame && c[7] == (s32)frame)
+        {
+            du.x = c[0]; du.y = c[1]; du.z = c[2];
+            dv.x = c[4]; dv.y = c[5]; dv.z = c[6];
+        }
+        else
+        {
+            to_view(&lv.axes[f->axes * 6], &du);
+            to_view(&lv.axes[f->axes * 6 + 3], &dv);
+            c[0] = du.x; c[1] = du.y; c[2] = du.z; c[3] = (s32)frame;
+            c[4] = dv.x; c[5] = dv.y; c[6] = dv.z; c[7] = (s32)frame;
+        }
+    }
+    /* all of it outside one of the view's planes? Its grid's a parallelogram (o, and nu
+       steps along du and nv along dv: a little more than the face), so four corners
+       answer it, and a face out here needn't have its grid worked out at all */
+    {
+        s32 ux = du.x * nu, uy = du.y * nu, uz = du.z * nu, vx = dv.x * nv, vy = dv.y * nv, vz = dv.z * nv;
+
+        if (view_oc(o.x, o.y, o.z) & view_oc(o.x + ux, o.y + uy, o.z + uz) & view_oc(o.x + vx, o.y + vy, o.z + vz)
+            & view_oc(o.x + ux + vx, o.y + uy + vy, o.z + uz + vz))
+        {
+            PROF(++x->st.faces_out);
+            PROF(x->st.p_xform += (frt_read() - pxf) & 0xFFFF);
+            return;
+        }
+        zmin = imin(imin(o.z, o.z + uz), imin(o.z + vz, o.z + uz + vz));
+        PROF(x->st.cells_all += nu * nv);
+    }
+    /* far: its coarse grid, if it has one (a quarter of the cells, the textures at half the
+       resolution: as mipmapping would, and less shimmer) */
+    row_cells = &lv.cells[f->firstcell];
+    light = &lv.lights[f->firstlight & 0xFFFFFF];
+    if (f->flags & FF_LOD && zmin > r_lod_z)
+    {
+        const q_lodface *lf = &lv.lodfaces[f->lodhi << 8 | f->firstlight >> 24];
+        s32             ou = (s32)lf->offu * (65536 / 32), ov = (s32)lf->offv * (65536 / 32);  /* in the face's cells */
+
+        o.x -= fmul(du.x, ou) + fmul(dv.x, ov);
+        o.y -= fmul(du.y, ou) + fmul(dv.y, ov);
+        o.z -= fmul(du.z, ou) + fmul(dv.z, ov);
+        du.x += du.x; du.y += du.y; du.z += du.z;
+        dv.x += dv.x; dv.y += dv.y; dv.z += dv.z;
+        nu = lf->nu;
+        nv = lf->nv;
+        eu0 = lf->eu0; eu1 = lf->eu1; ev0 = lf->ev0; ev1 = lf->ev1;
+        row_cells = &lv.lodcells[lf->firstcell];
+        light = &lv.lodlights[lf->firstlight];
+        PROF(x->st.cells_384 += nu * nv);
+    }
+    PROF(x->st.p_xform += (frt_read() - pxf) & 0xFFFF);
+    g.o = o; g.du = du; g.dv = dv;
+    g.nu = nu; g.nv = nv; g.eu0 = eu0; g.eu1 = eu1; g.ev0 = ev0; g.ev1 = ev1;
+    g.cells = row_cells;
+    g.light = light;
+    draw_grid(x, &g, f, model);
 }
 
 /* Sharing the list. The slave starts as soon as the walk starts, taking
@@ -1359,7 +1689,7 @@ static bool         leaf_seen(const q_leaf *leaf)
     int             i;
 
     for (i = leaf->nummark; i; --i, ++m)
-        if (face_vis[*m >> 3] & (1 << (*m & 7)))
+        if (face_vis[*m >> 3] & bitm[*m & 7])
             return true;
     return !leaf->nummark;
 }
@@ -1368,18 +1698,15 @@ static inline void  list_face(int i, int model)
 {
     if (nvis < MAX_VIS)
     {
-        const q_face *f = &lv.faces[i];
-
         vis_model[nvis] = (u8)model;
         vis_faces[nvis++] = (u16)i;
-        vis_cells += f->nu * f->nv;
         SHARE->published = nvis;
     }
 }
 
 /* a brush model's own BSP, front to back: every face towards the camera.
    cp: the camera relative to the model (where it's moved to) */
-static void         walk_model(int n, int model, const s32 *cp)
+static void         walk_model(int n, int model, const s32 *cp, u8 mask)
 {
     const q_node    *node;
     const q_plane   *pl;
@@ -1399,7 +1726,7 @@ static void         walk_model(int n, int model, const s32 *cp)
             mn[i] = (s16)(node->mins[i] + o - 1);
             mx[i] = (s16)(node->maxs[i] + o + 1);
         }
-        if (cull_box(mn, mx))
+        if (mask && cull_box(mn, mx, &mask))
             return;
     }
     pl = &lv.planes[node->plane];
@@ -1408,14 +1735,124 @@ static void         walk_model(int n, int model, const s32 *cp)
     else
         d = fmul(cp[0], pl->n[0]) + fmul(cp[1], pl->n[1]) + fmul(cp[2], pl->n[2]) - pl->dist;
     side = d < 0;
-    walk_model(node->child[side], model, cp);
+    walk_model(node->child[side], model, cp, mask);
     for (i = node->firstface; i < node->firstface + node->numfaces; ++i)
-        if (!(lv.faces[i].flags & FF_BACK) == !side)
+        if (!(face_back[(u32)i >> 3] & bitm[i & 7]) == !side)
             list_face(i, model);
-    walk_model(node->child[!side], model, cp);
+    walk_model(node->child[!side], model, cp, mask);
 }
 
-static void         walk(int n)
+#ifdef R_PROFILE
+int                 wk_nodes, wk_leaves, wk_ftests, wk_models;
+#endif
+
+/* is a node or leaf in the camera's cluster's PVS? (asked before walking into
+   it: a call's eight registers saved and restored for nothing, otherwise) */
+static inline bool  in_pvs(int n)
+{
+    return n >= 0 ? node_vis[n] == visframe : leaf_vis[-(n + 1)] == visframe;
+}
+
+/* what a leaf in view holds besides its faces: entities (unless none of the
+   leaf can be seen), sprites, brush models (walked on their own). The walk in
+   assembly calls this for a leaf with any. */
+void                walk_leaf_extra(int l, int mask)
+{
+    int             i;
+
+    if (leaf_ent[l] >= 0 && !leaf_seen(&lv.leafs[l]))
+        ;                                   /* none of the leaf can be seen: nor can what's in it */
+    else for (i = leaf_ent[l]; i >= 0; i = ent_next[i])
+        if (nvis < MAX_VIS)
+        {
+            vis_model[nvis] = ENTITY;
+            vis_faces[nvis++] = (u16)i;
+            SHARE->published = nvis;
+        }
+    for (i = leaf_spr[l]; i >= 0; i = spr_next[i])
+        if (nvis < MAX_VIS)
+        {
+            vis_model[nvis] = SPRITE;
+            vis_faces[nvis++] = (u16)i;
+            SHARE->published = nvis;
+        }
+    for (i = leaf_model[l]; i >= 0; i = model_next[i])
+    {
+        s32 cp[3];
+
+        if (!mover_live(i))
+            continue;
+        cp[0] = cam.pos[0] - mover_ofs[i][0];
+        cp[1] = cam.pos[1] - mover_ofs[i][1];
+        cp[2] = cam.pos[2] - mover_ofs[i][2];
+        PROF(++wk_models);
+        walk_model(lv.models[i].headnode, i, cp, (u8)mask);
+    }
+}
+
+/* src/walk.s: the walk in assembly. Its context (the layout it reads) */
+typedef struct
+{
+    const q_node    *nodes;
+    const q_plane   *planes;
+    const q_leaf    *leafs;
+    const u16       *node_vis, *leaf_vis;
+    u32             frame;
+    const u8        *face_vis, *face_back;
+    s32             cam[3];
+    const u8        *bitm;
+    u16             *list;
+    u8              *list_model;
+    int             *nlist;
+    volatile int    *published;
+    struct { u8 far[3], near[3], pad[2]; s32 n[3], d; } fr[4];     /* the box's corners: offsets from its mins */
+    const s16       *leaf_ent, *leaf_spr, *leaf_model;
+    void            (*extra)(int, int);
+}                   walk_ctx;
+void                walk_asm(int n, int mask, const walk_ctx *w);
+static walk_ctx     wctx;
+bool                r_walk_asm = true;
+#ifdef WALK_CHECK
+int                 walk_diff, walk_len, walk_clen, walk_first, walk_what[4], walk_total, walk_frames;
+#endif
+
+static void         walk_setup(void)
+{
+    int             i, k;
+
+    wctx.nodes = lv.nodes;
+    wctx.planes = lv.planes;
+    wctx.leafs = lv.leafs;
+    wctx.node_vis = node_vis;
+    wctx.leaf_vis = leaf_vis;
+    wctx.frame = visframe;
+    wctx.face_vis = face_vis;
+    wctx.face_back = face_back;
+    wctx.cam[0] = cam.pos[0]; wctx.cam[1] = cam.pos[1]; wctx.cam[2] = cam.pos[2];
+    wctx.bitm = bitm;
+    wctx.list = vis_faces;
+    wctx.list_model = vis_model;
+    wctx.nlist = &nvis;
+    wctx.published = &SHARE->published;
+    for (i = 0; i < 4; ++i)
+    {
+        for (k = 0; k < 3; ++k)
+        {
+            u8 neg = fr_n[i][k] < 0;
+
+            wctx.fr[i].far[k] = (u8)(2 * k + (neg ? 0 : 6));    /* mins, or maxs 6 bytes on */
+            wctx.fr[i].near[k] = (u8)(2 * k + (neg ? 6 : 0));
+            wctx.fr[i].n[k] = fr_n[i][k];
+        }
+        wctx.fr[i].d = fr_d[i];
+    }
+    wctx.leaf_ent = leaf_ent;
+    wctx.leaf_spr = leaf_spr;
+    wctx.leaf_model = leaf_model;
+    wctx.extra = walk_leaf_extra;
+}
+
+static void         walk(int n, u8 mask)
 {
     const q_node    *node;
     const q_plane   *pl;
@@ -1424,57 +1861,40 @@ static void         walk(int n)
 
     if (n < 0)
     {
+        PROF(++wk_leaves);
         const q_leaf *leaf = &lv.leafs[-(n + 1)];
         const u16    *m;
 
-        if (leaf_vis[-(n + 1)] != visframe || cull_box(leaf->mins, leaf->maxs))
+        if (leaf_vis[-(n + 1)] != visframe || (mask && cull_box(leaf->mins, leaf->maxs, &mask)))
             return;
         (void)m;
-        if (leaf_ent[-(n + 1)] >= 0 && !leaf_seen(leaf))
-            ;                               /* none of the leaf can be seen: nor can what's in it */
-        else for (i = leaf_ent[-(n + 1)]; i >= 0; i = ent_next[i])
-            if (nvis < MAX_VIS)
-            {
-                vis_model[nvis] = ENTITY;
-                vis_faces[nvis++] = (u16)i;
-                vis_cells += 80;            /* about what one costs, in cells */
-                SHARE->published = nvis;
-            }
-        for (i = leaf_spr[-(n + 1)]; i >= 0; i = spr_next[i])
-            if (nvis < MAX_VIS)
-            {
-                vis_model[nvis] = SPRITE;
-                vis_faces[nvis++] = (u16)i;
-                vis_cells += 2;
-                SHARE->published = nvis;
-            }
-        for (i = leaf_model[-(n + 1)]; i >= 0; i = model_next[i])
-        {
-            s32 cp[3];
-
-            if (!mover_live(i))
-                continue;
-            cp[0] = cam.pos[0] - mover_ofs[i][0];
-            cp[1] = cam.pos[1] - mover_ofs[i][1];
-            cp[2] = cam.pos[2] - mover_ofs[i][2];
-            walk_model(lv.models[i].headnode, i, cp);
-        }
+        walk_leaf_extra(-(n + 1), mask);
         return;
     }
     node = &lv.nodes[n];
-    if (node_vis[n] != visframe || cull_box(node->mins, node->maxs))
+    PROF(++wk_nodes);
+    if (node_vis[n] != visframe || (mask && cull_box(node->mins, node->maxs, &mask)))
         return;
+    PROF(wk_ftests += node->numfaces);
     pl = &lv.planes[node->plane];
     if (pl->type < 3)
         d = cam.pos[pl->type] - pl->dist;
     else
         d = fmul(cam.pos[0], pl->n[0]) + fmul(cam.pos[1], pl->n[1]) + fmul(cam.pos[2], pl->n[2]) - pl->dist;
     side = d < 0;
-    walk(node->child[side]);
+    if (in_pvs(node->child[side]))
+        walk(node->child[side], mask);
     for (i = node->firstface; i < node->firstface + node->numfaces; ++i)
-        if ((face_vis[i >> 3] & (1 << (i & 7))) && !(lv.faces[i].flags & FF_BACK) == !side)
+    {
+        /* visible from here (facevis) and facing this way: two bits in high work RAM (the
+           faces themselves are in low: a miss each) */
+        u32 k = (u32)i >> 3, b = bitm[i & 7];
+
+        if (face_vis[k] & b && !(face_back[k] & b) == !side)
             list_face(i, 0);
-    walk(node->child[!side]);
+    }
+    if (in_pvs(node->child[!side]))
+        walk(node->child[!side], mask);
 }
 
 /* a glowing blob: a half-transparent halo round a solid core */
@@ -1715,12 +2135,27 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     s32             (*A0)[3] = xf.A0, (*A1)[3] = xf.A1, *C0 = xf.C0, *C1 = xf.C1;
     const u16       *gt;
     int             i, b, bi, nv = imin(m->nverts, MAX_MVERTS), np = imin(m->npolys, MAX_MPOLYS);
+    const q_mpoly   *polys = m->polys;
+    const u16       *vlist = NULL;          /* far: only the vertices the coarse mesh uses */
+    int             nvl = nv, vi;
     vdp_writer      *w = x->w;
     u32             t0 = frt_read();
 
     if (ent_dsp[ei] < 0 && !model_xf(e, &xf))
         return;
     ++x->st.models;
+    {
+        /* far: the mesh merged on a coarse grid (a third of the polygons), if it has one */
+        s32 dx = (e->origin[0] - cam.pos[0]) >> 16, dy = (e->origin[1] - cam.pos[1]) >> 16;
+
+        if (m->nfpolys && dx * dx + dy * dy > r_model_far * r_model_far)
+        {
+            polys = m->fpolys;
+            np = imin(m->nfpolys, MAX_MPOLYS);
+            vlist = m->fverts;
+            nvl = m->nfverts;
+        }
+    }
     /* its light by normal: the base (ents_light), plus any dynamic lights
        near it, stronger on the side facing them */
     gt = e->gbase;
@@ -1771,9 +2206,12 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             ;
         for (a = (u32)out; a < end; a += 16)
             *(volatile u32 *)(0x40000000 | (a & 0x1FFFFFFF)) = 0;      /* the cache's associative purge */
-        for (i = 0; i < nv; ++i)
+        for (vi = 0; vi < nvl; ++vi)
         {
-            const s32   *o = out + (i >> 4) * 48 + (i & 15);
+            const s32   *o;
+
+            i = vlist ? vlist[vi] : vi;
+            o = out + (i >> 4) * 48 + (i & 15);
             s32         vx = o[0], vy = o[16], vz = o[32];
             u8          oc = 0;
 
@@ -1797,12 +2235,15 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             x->moc[i] = oc;
         }
     }
-    else for (i = 0; i < nv; ++i)
+    else for (vi = 0; vi < nvl; ++vi)
     {
         s32 p[3], vx, vy, vz;
         u8  oc = 0;
+        const u8 *q0, *q1;
 
-        const u8 *q0 = v0 + i * 4, *q1 = v1 + i * 4;
+        i = vlist ? vlist[vi] : vi;
+        q0 = v0 + i * 4;
+        q1 = v1 + i * 4;
 
         /* each frame straight into view space (bytes times the folded matrix: 32-bit multiplies), then blended */
         vx = A0[0][0] * q0[0] + A0[0][1] * q0[1] + A0[0][2] * q0[2] + C0[0];
@@ -1843,7 +2284,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     inv = ((MBUCKETS - 1) << 16) / imax(((zmax - zmin) >> 16) + 1, 1);
     for (i = 0; i < np; ++i)
     {
-        const q_mpoly   *p = &m->polys[i];
+        const q_mpoly   *p = &polys[i];
         int             a = p->v[0], bb = p->v[1], cc = p->v[2], dd = p->v[3];
         s32             cross, z;
         u32             pa, pb, pc;
@@ -1874,7 +2315,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     for (bi = 0; bi < MBUCKETS; ++bi)
         for (b = x->fifo ? MBUCKETS - 1 - bi : bi, i = x->mhead[b]; i >= 0; i = x->mnext[i])
         {
-            const q_mpoly   *p = &m->polys[i];
+            const q_mpoly   *p = &polys[i];
             const q_mtex    *mt = &m->tex[p->tex];
             int             id = e->skin * m->ntex + p->tex;
             int             lut = m->lut0 + e->skin * m->nluts + (m->nluts > 1 ? p->tex : 0);
@@ -1897,6 +2338,18 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             ++x->st.mpolys;
         }
     x->st.t_models += (frt_read() - t0) & 0xFFFF;
+#ifdef R_PROFILE
+    {
+        /* (profile: how much of it went on models beyond 400 units, and how many) */
+        s32 dx = (e->origin[0] - cam.pos[0]) >> 16, dy = (e->origin[1] - cam.pos[1]) >> 16;
+
+        if (dx * dx + dy * dy > 400 * 400)
+        {
+            x->st.t_mfar += (frt_read() - t0) & 0xFFFF;
+            ++x->st.mfar;
+        }
+    }
+#endif
 }
 
 
@@ -2031,22 +2484,74 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         ent_next[i] = leaf_ent[l];
         leaf_ent[l] = (s16)i;
     }
+    PROF(rs.us_pre = frt_to_us((frt_read() - t0) & 0xFFFF));
     /* the models' vertices: the DSP starts on them now */
     models_to_dsp();
+    PROF(rs.us_mdsp = frt_to_us((frt_read() - t0) & 0xFFFF) - rs.us_pre);
     /* the slave starts on the list as the walk fills it */
     ctx[0].w = w0;
     ctx[1].w = w1;
     ctx[0].bucket = 0;
     ctx[1].bucket = 1;
     ctx[1].fifo = false;
-    nvis = vis_cells = 0;
+    nvis = 0;
     SHARE->published = 0;
     SHARE->lo = 0;
     SHARE->hi = 0x7FFFFFFF;
     SHARE->walk_done = 0;
     if (r_two_cpus)
         signal_slave();
-    walk(0);
+#ifdef R_PROFILE
+    {
+        u32 tw = frt_read();
+#endif
+    if (r_walk_asm)
+    {
+        walk_setup();
+        walk_asm(0, 15, &wctx);             /* all four side planes to try */
+    }
+    else
+        walk(0, 15);
+#ifdef R_PROFILE
+        rs.us_tree = frt_to_us((frt_read() - tw) & 0xFFFF);
+    }
+#endif
+#ifdef WALK_CHECK
+    {
+        /* (OPT="-DWALK_CHECK -DONE_CPU") the C walk again: the same list? */
+        static u16  *a_faces;
+        static u8   *a_model;
+        int         na = nvis, k;
+
+        if (!a_faces)
+        {
+            a_faces = level_alloc_low(MAX_VIS * 2);
+            a_model = level_alloc_low(MAX_VIS);
+        }
+
+        memcpy(a_faces, vis_faces, (u32)na * 2);
+        memcpy(a_model, vis_model, (u32)na);
+        nvis = 0;
+        walk(0, 15);
+        walk_diff = 0;
+        walk_first = -1;
+        for (k = 0; k < na && k < nvis; ++k)
+            if (a_faces[k] != vis_faces[k] || a_model[k] != vis_model[k])
+            {
+                if (walk_first < 0)
+                {
+                    walk_first = k;
+                    walk_what[0] = a_faces[k]; walk_what[1] = a_model[k];
+                    walk_what[2] = vis_faces[k]; walk_what[3] = vis_model[k];
+                }
+                ++walk_diff;
+            }
+        walk_len = na;
+        walk_clen = nvis;
+        walk_total += walk_diff + (na != nvis);
+        ++walk_frames;
+    }
+#endif
     for (i = 0; i < nents; ++i)
         if (ent_leaf[i] >= 0)
             leaf_ent[ent_leaf[i]] = -1;
@@ -2075,17 +2580,25 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.models += s->models;
         rs.mpolys += s->mpolys;
         rs.t_models += frt_to_us(s->t_models);
+        rs.t_mfar += frt_to_us(s->t_mfar);
+        rs.mfar += s->mfar;
         rs.t_mlight += frt_to_us(s->t_mlight);
         rs.t_mverts += frt_to_us(s->t_mverts);
         rs.t_mpolys += frt_to_us(s->t_mpolys);
         rs.nfast += s->nfast;
         rs.nslow += s->nslow;
         rs.nexact += s->nexact;
+        rs.pieces += s->pieces;
+        rs.faces_out += s->faces_out;
+        rs.cells_all += s->cells_all;
+        rs.cells_384 += s->cells_384;
+        rs.cells_512 += s->cells_512;
         rs.p_setup += frt_to_us(s->p_setup);
         rs.p_grid += frt_to_us(s->p_grid);
         rs.p_cells += frt_to_us(s->p_cells);
         rs.p_slow += frt_to_us(s->p_slow);
         rs.p_corners += frt_to_us(s->p_corners);
+        rs.p_xform += frt_to_us(s->p_xform);
     }
     rs.t_face = ctx[0].st.t_face;
     rs.t_grid = ((const r_stats *)UNCACHED(&ctx[1].st))->t_face;

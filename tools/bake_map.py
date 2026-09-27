@@ -32,10 +32,11 @@ T = 32                  # cell size in texels of texture space
 EPS = 1e-4
 
 # face flags (src/level.h)
-FF_SKY, FF_WARP, FF_TRANS33, FF_TRANS66, FF_FLOWING, FF_NODRAW, FF_BACK = 1, 2, 4, 8, 16, 32, 64
+FF_SKY, FF_WARP, FF_TRANS33, FF_TRANS66, FF_FLOWING, FF_NODRAW, FF_BACK, FF_LOD = 1, 2, 4, 8, 16, 32, 64, 128
 TEX_TRANSPOSED = 0x8000
 CELL_FULL = 0x8000          # a cell's tex: a whole tile; then its colour table, not ty0/th
 CELL_EXACT = 0x4000         # a cropped cell that's exactly its grid cell (the face's edge is the grid's)
+LOD_MIN = 12                # the faces with coarse grids: this many cells or more
 # movers (src/q2.h)
 MV_NONE, MV_STATIC, MV_DOOR, MV_PLAT, MV_BUTTON = 0, 1, 2, 3, 4
 MF_START_OPEN, MF_PROXIMITY, MF_SHOOT = 1, 2, 4
@@ -105,6 +106,8 @@ def rgb555(c):
 class Baker:
     def __init__(self, pak, bsp, res, bright):
         self.pak, self.bsp, self.res, self.bright = pak, bsp, res, bright
+        self.T = T                              # a cell's side in texels of the texture (a coarse pass doubles it)
+        self.lod_min = LOD_MIN
         self.N = T // res                       # stored texels per cell side
         self.pal = palette(pak)
         self.wals = {}
@@ -131,7 +134,7 @@ class Baker:
 
     def tile(self, name, tx, ty):
         """a T x T texel window of a texture (wrapping), downsampled and quantised: its index"""
-        key = (name, tx, ty)
+        key = (name, tx, ty, self.res)
         if key in self.tiles:
             return self.tiles[key]
         w = self.wal(name)
@@ -284,10 +287,10 @@ class Baker:
         S, Tv = ti["s"], ti["t"]
         pts = [(sum(v[k] * S[k] for k in range(3)) + S[3], sum(v[k] * Tv[k] for k in range(3)) + Tv[3])
                for v in b.face_verts(fi)]
-        u0 = math.floor(min(p[0] for p in pts) / T + EPS)
-        u1 = math.ceil(max(p[0] for p in pts) / T - EPS)
-        v0 = math.floor(min(p[1] for p in pts) / T + EPS)
-        v1 = math.ceil(max(p[1] for p in pts) / T - EPS)
+        u0 = math.floor(min(p[0] for p in pts) / self.T + EPS)
+        u1 = math.ceil(max(p[0] for p in pts) / self.T - EPS)
+        v0 = math.floor(min(p[1] for p in pts) / self.T + EPS)
+        v1 = math.ceil(max(p[1] for p in pts) / self.T - EPS)
         nu, nv = max(u1 - u0, 1), max(v1 - v0, 1)
         if nu > 255 or nv > 255:
             self.stats["too big"] += 1
@@ -309,38 +312,38 @@ class Baker:
         eu1 = edge([j * nu + nu - 1 for j in range(nv)], 1, max, N)
         ev0 = edge(range(nu), 2, min, 0)
         ev1 = edge(range((nv - 1) * nu, nv * nu), 3, max, N)
-        us = [(u0 + i) * T for i in range(nu + 1)]
-        vs = [(v0 + j) * T for j in range(nv + 1)]
+        us = [(u0 + i) * self.T for i in range(nu + 1)]
+        vs = [(v0 + j) * self.T for j in range(nv + 1)]
         us[0] += eu0 * r
-        us[nu] = (u0 + nu - 1) * T + eu1 * r
+        us[nu] = (u0 + nu - 1) * self.T + eu1 * r
         vs[0] += ev0 * r
-        vs[nv] = (v0 + nv - 1) * T + ev1 * r
+        vs[nv] = (v0 + nv - 1) * self.T + ev1 * r
         sample = self.lightmap(fi, pts)
         lights = []
         for j in range(nv + 1):
             for i in range(nu + 1):
                 lights.append(self.gouraud(sample(us[i], vs[j]) if sample else None, w.avg))
         origin = [P0[k] + A[k] * us[0] + B[k] * vs[0] for k in range(3)]
-        du = [A[k] * T for k in range(3)]
-        dv = [B[k] * T for k in range(3)]
+        du = [A[k] * self.T for k in range(3)]
+        dv = [B[k] * self.T for k in range(3)]
         return {"flags": flags, "plane": f["plane"], "origin": origin, "du": du, "dv": dv, "edges": (eu0, eu1, ev0, ev1),
-                "nu": nu, "nv": nv, "cells": cells, "lights": lights}
+                "nu": nu, "nv": nv, "cells": cells, "lights": lights, "start": (us[0], vs[0])}
 
     def bake_cell(self, name, w, pts, cu, cv):
         """(texture, ty0, th, u0, u1, v0, v1): crop in stored texels of the cell"""
         N, r = self.N, self.res
-        poly = clip(pts, cu * T, 0, True)
+        poly = clip(pts, cu * self.T, 0, True)
         if poly:
-            poly = clip(poly, (cu + 1) * T, 0, False)
+            poly = clip(poly, (cu + 1) * self.T, 0, False)
         if poly:
-            poly = clip(poly, cv * T, 1, True)
+            poly = clip(poly, cv * self.T, 1, True)
         if poly:
-            poly = clip(poly, (cv + 1) * T, 1, False)
+            poly = clip(poly, (cv + 1) * self.T, 1, False)
         if len(poly) < 3 or area(poly) < 0.5:
             self.stats["cells empty"] += 1
             return (0xFFFF, 0, 0, 0, 0, 0, 0)
         # the cell in stored texels
-        loc = [((p[0] - cu * T) / r, (p[1] - cv * T) / r) for p in poly]
+        loc = [((p[0] - cu * self.T) / r, (p[1] - cv * self.T) / r) for p in poly]
         # conservative coverage: a texel is in if the polygon overlaps it
         mask = bytearray(N * N)
         for y in range(N):
@@ -360,7 +363,7 @@ class Baker:
         if not any(mask):
             self.stats["cells empty"] += 1
             return (0xFFFF, 0, 0, 0, 0, 0, 0)
-        t = self.tile(name, (cu * T) % w.w, (cv * T) % w.h)
+        t = self.tile(name, (cu * self.T) % w.w, (cv * self.T) % w.h)
         if all(mask):
             self.stats["cells full"] += 1
             return ("full", self.tex_tile(t), t)
@@ -386,6 +389,21 @@ class Baker:
     def bake(self, out_path, preview=None):
         b = self.bsp
         faces = [self.bake_face(fi) for fi in range(len(b.faces))]
+        # far faces' coarse grids: 64-texel cells, the textures at half the resolution (the same
+        # N stored texels a cell, so the same drawing); for the faces of LOD_MIN cells or more (the
+        # big ones: most of the far cells, and the least edge, where the cells need their own
+        # masked textures)
+        lods = [None] * len(faces)
+        self.T, self.res = 2 * T, 2 * self.res
+        for fi, f in enumerate(faces):
+            if f["flags"] & (FF_SKY | FF_NODRAW) or f["nu"] * f["nv"] < self.lod_min:
+                continue
+            lf = self.bake_face(fi)
+            if lf["nu"] * lf["nv"] < f["nu"] * f["nv"] and not lf["flags"] & FF_NODRAW:
+                f["lod"] = sum(1 for x in lods if x)     # its record's number (the records go in this order)
+                lods[fi] = lf
+                f["flags"] |= FF_LOD
+        self.T, self.res = T, self.res // 2
         blob = Blob()
         lumps = {}
 
@@ -401,17 +419,8 @@ class Baker:
                                            l["firstface"], l["numfaces"], l["firstbrush"], l["numbrushes"],
                                            l["contents"]) for l in b.leafs))
         lump("marks", struct.pack(">%dH" % len(b.leaffaces), *b.leaffaces))
-        fdata, cdata, ldata = [], [], []
-        axes = {}
-        ncells = nlights = 0
-        for f in faces:
+        def pack_cells(f, cdata):
             eu0, eu1, ev0, ev1 = f["edges"]
-            # the grid's axes: 575 pairs among 7,500 faces, so a table (in high work RAM)
-            key = tuple(fx(x) for x in f["du"]) + tuple(fx(x) for x in f["dv"])
-            if key not in axes:
-                axes[key] = len(axes)
-            fdata.append(struct.pack(">3iHHBBBBBBBBII", *[fx(x) for x in f["origin"]], axes[key], f["plane"],
-                                     f["flags"], f["nu"], f["nv"], eu0, eu1, ev0, ev1, 0, ncells, nlights))
             nu = f["nu"]
             for k, c in enumerate(f["cells"]):
                 if c[0] == "full":
@@ -435,13 +444,59 @@ class Baker:
                                                  c[1], c[1] * w // 16, w >> 3, c[2]))
                     else:
                         cdata.append(struct.pack(">H6B", *c))
+
+        fdata, cdata, ldata = [], [], []
+        axes = {}
+        ncells = nlights = 0
+        for f in faces:
+            eu0, eu1, ev0, ev1 = f["edges"]
+            # the grid's axes: 575 pairs among 7,500 faces, so a table (in high work RAM)
+            key = tuple(fx(x) for x in f["du"]) + tuple(fx(x) for x in f["dv"])
+            if key not in axes:
+                axes[key] = len(axes)
+            lod = f.get("lod", 0)
+            assert nlights < 1 << 24 and lod < 1 << 16
+            fdata.append(struct.pack(">3iHHBBBBBBBBII", *[fx(x) for x in f["origin"]], axes[key], f["plane"],
+                                     f["flags"], f["nu"], f["nv"], eu0, eu1, ev0, ev1, lod >> 8, ncells,
+                                     (lod & 255) << 24 | nlights))
+            pack_cells(f, cdata)
             ldata.append(struct.pack(">%dH" % len(f["lights"]), *f["lights"]))
             ncells += len(f["cells"])
             nlights += len(f["lights"])
+        # the coarse grids (on the cart): a record a face (zeros for those without one), their cells
+        # and lights. Its first point's a few texels from the face's along u and v (its texels are
+        # twice the size, and masked cells widen to 8 of them differently)
+        lfdata, lcdata, lldata = [], [], []
+        nlc = nll = 0
+        for fi, lf in enumerate(lods):
+            if not lf:
+                continue
+            f = faces[fi]
+            offu = round(f["start"][0] - lf["start"][0])
+            offv = round(f["start"][1] - lf["start"][1])
+            assert -128 <= offu < 128 and -128 <= offv < 128, (offu, offv)
+            lfdata.append(struct.pack(">6B2bII", lf["nu"], lf["nv"], *lf["edges"], offu, offv, nlc, nll))
+            pack_cells(lf, lcdata)
+            lldata.append(struct.pack(">%dH" % len(lf["lights"]), *lf["lights"]))
+            nlc += len(lf["cells"])
+            nll += len(lf["lights"])
+        lump("lodfaces", b"".join(lfdata))
+        lump("lodcells", b"".join(lcdata))
+        lump("lodlights", b"".join(lldata))
         lump("faces", b"".join(fdata))                          # 32 bytes a face
         lump("axes", b"".join(struct.pack(">6i", *k) for k in axes))
         lump("cells", b"".join(cdata))                          # 8 bytes a cell
         lump("lights", b"".join(ldata))
+        # every tile quartered: its four N/2 x N/2 quarters one under another (top left, top right,
+        # bottom left, bottom right), for a whole tile too near the camera to draw in one piece
+        # (src/render.c cell_split); quarter q of tile t is texture quart0 + t, from row q * N/2
+        N, h = self.N, self.N // 2
+        quart0 = len(self.textures)
+        for t in range(len(self.tile_data)):
+            idx = self.tile_data[t][0]
+            data = [idx[(qy * h + y) * N + qx * h + x] for qy in (0, 1) for qx in (0, 1) for y in range(h) for x in range(h)]
+            self.texture(("quart", t), lambda t=t, data=data: (t, h, N * 2, data, False))
+        lump("quarts", struct.pack(">I", quart0))
         # textures: 4bpp, rows of w/2 bytes; each starts on 8 bytes (srca)
         tex_table, tex_blob = [], bytearray()
         for (t, w, h, data, transposed) in self.textures:
@@ -505,14 +560,15 @@ class Baker:
         lump("leafbrushes", struct.pack(">%dH" % len(b.leafbrushes), *b.leafbrushes))
         order = ["planes", "nodes", "leafs", "marks", "faces", "cells", "lights", "textures", "texdata", "luts",
                  "vis", "models", "start", "brushes", "brushsides", "leafbrushes", "movers", "facevis", "sky", "spawns",
-                 "leaflight", "entities2", "strings", "axes"]
+                 "leaflight", "entities2", "strings", "axes", "quarts", "lodfaces", "lodcells", "lodlights"]
         counts = {"planes": len(b.planes), "nodes": len(b.nodes), "leafs": len(b.leafs), "marks": len(b.leaffaces),
                   "faces": len(faces), "cells": ncells, "lights": nlights, "textures": len(self.textures),
                   "texdata": len(tex_blob), "luts": len(self.tile_data), "vis": b.numclusters,
                   "models": len(b.models), "start": 1, "brushes": len(b.brushes),
                   "brushsides": len(b.brushsides), "leafbrushes": len(b.leafbrushes), "movers": len(movers),
                   "facevis": len(rows), "sky": 1, "spawns": len(spawns), "leaflight": len(b.leafs),
-                  "entities2": len(erecs), "strings": len(estrings), "axes": len(axes)}
+                  "entities2": len(erecs), "strings": len(estrings), "axes": len(axes),
+                  "quarts": len(self.tile_data), "lodfaces": len(lods), "lodcells": nlc, "lodlights": nll}
         hsize = (12 + 8 * len(order) + 31) & ~31
         final = bytearray(b"Q2SL" + struct.pack(">IHH", 1, T, self.N))
         for n in order:
@@ -868,7 +924,9 @@ def main():
     opts = dict(a[2:].split("=", 1) for a in sys.argv[1:] if a.startswith("--"))
     pak = Pak(args[0])
     bsp = Bsp(pak.read(args[1]))
-    Baker(pak, bsp, int(opts.get("res", 2)), float(opts.get("bright", 1.0))).bake(args[2], opts.get("preview"))
+    baker = Baker(pak, bsp, int(opts.get("res", 2)), float(opts.get("bright", 1.0)))
+    baker.lod_min = int(opts.get("lodmin", LOD_MIN))     # (a bigger level, fewer coarse grids: the cart's 4 MB)
+    baker.bake(args[2], opts.get("preview"))
 
 
 if __name__ == "__main__":

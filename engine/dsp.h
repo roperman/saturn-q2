@@ -23,6 +23,9 @@ void                dsp_init_models(void);              /* ...or models' vertice
    frames' packed vertices >> 2 and its blocks of 16); out gets 16 x' 16 y'
    16 z' a block; *count goes up by one as each model's finished */
 void                dsp_models(const u32 *stream, s32 *out, int models, volatile u32 *count);
+void                dsp_init_faces(void);               /* (a test) faces' grids into view space (xformf.dsp) */
+void                dsp_faces(const u32 *jobs, int n, volatile u32 *count, const s32 *axes, const s32 *rows9,
+                              const s32 *cam3);
 /* xformb: blocks of 16 vertices, each with its own matrix; stream holds a
    13-word header per block (t0 m00 m01 m02 t1 .. m22, vertices >> 2) */
 void                dsp_blocks(const u32 *stream, s32 *out, int blocks);    /* starts it */

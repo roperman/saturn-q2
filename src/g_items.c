@@ -60,6 +60,32 @@ const g_weapon      weapons[W_COUNT] = {
 
 static const int    ammo_max[AMMO_COUNT] = { 0, 100, 200, 50, 50, 200, 50 };
 
+static const g_item *item_of(int cls);
+
+/* the models this level's things use (models_load_all loads only those: cart space, and time) */
+void                g_models_needed(bool *need)
+{
+    const q_erec    *r = (const q_erec *)lv.erecs;
+    int             i;
+
+    for (i = 0; i < MDL_COUNT; ++i)
+        need[i] = false;
+    need[MDL_ROCKET] = need[MDL_GRENADE] = true;    /* (yours, any level) */
+    for (i = 0; i < lv.nerecs; ++i, ++r)
+    {
+        const g_item *it = item_of(r->cls);
+
+        if (it)
+            need[it->model] = true;
+        else if (r->cls == C_MONSTER_SOLDIER || r->cls == C_MONSTER_SOLDIER_LIGHT || r->cls == C_MONSTER_SOLDIER_SS)
+            need[MDL_SOLDIER] = true;
+        else if (r->cls == C_MONSTER_INFANTRY)
+            need[MDL_INFANTRY] = true;
+        else if (r->cls == C_MISC_EXPLOBOX)
+            need[MDL_BARREL] = true;
+    }
+}
+
 static const g_item *item_of(int cls)
 {
     unsigned        i;

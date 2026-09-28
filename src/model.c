@@ -60,11 +60,17 @@ bool                model_load(q_mdl *m, const char *file)
 
 void                models_load_all(void)
 {
+    bool            need[MDL_COUNT];
     int             i;
 
+    g_models_needed(need);
+    nmodels_loaded = 0;
     for (i = 0; i < MDL_COUNT; ++i)
-        if (model_load(&models[i], model_files[i]))
+    {
+        models[i].loaded = false;
+        if (need[i] && model_load(&models[i], model_files[i]))
             nmodels_loaded = i + 1;
+    }
 }
 
 /* The animated models' polygons, far mesh and texture records into HWRAM,

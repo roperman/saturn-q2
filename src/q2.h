@@ -286,7 +286,8 @@ typedef struct
 #include "q2models.h"
 extern q_mdl        models[MDL_COUNT];
 extern int          nmodels_loaded;
-void                models_load_all(void);                  /* tools/models.txt's, onto the cart */
+void                models_load_all(void);                  /* tools/models.txt's this level uses, onto the cart */
+void                g_models_needed(bool *need);            /* (g_items.c) which of them */
 void                models_hot(void);                       /* the monsters' polygons into HWRAM (last at start-up) */
 extern q_entity     ents[MAX_ENTITIES];
 extern int          nents;

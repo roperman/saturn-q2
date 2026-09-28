@@ -224,6 +224,7 @@ extern menu_id      menu_cur;
 extern int          g_skill;                    /* 0-2; -1: everything spawns */
 extern int          opt_volume;
 extern bool         opt_stats;
+extern bool         opt_crosshair;
 bool                menu_active(void);
 bool                menu_at_title(void);
 void                menu_open(menu_id m);

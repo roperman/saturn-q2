@@ -18,6 +18,7 @@ static menu_id      options_from;           /* where the options go back to */
 
 int                 g_skill = -1;           /* 0 easy, 1 medium, 2 hard; -1 everything (until one's chosen) */
 int                 opt_volume = 15;
+bool                opt_crosshair = true;   /* (no gun on the screen to aim by) */
 #ifdef STATS
 bool                opt_stats = true;       /* the debugging overlay (OPT=-DSTATS: on from the start) */
 #else
@@ -59,7 +60,7 @@ static int          n_items(void)
     {
         case MENU_MAIN:     return 2;
         case MENU_SKILL:    return 3;
-        case MENU_OPTIONS:  return 4;
+        case MENU_OPTIONS:  return 5;
         case MENU_PAUSE:    return 4;
         default:            return 0;
     }
@@ -96,6 +97,8 @@ menu_action         menu_input(u16 pressed)
         else if (sel == 1)
             game_during_draw = !game_during_draw;
         else if (sel == 2)
+            opt_crosshair = !opt_crosshair;
+        else if (sel == 3)
             opt_stats = !opt_stats;
         s_play(SND_MENU_MOVE, NULL, ATTN_NONE);
     }
@@ -133,7 +136,7 @@ menu_action         menu_input(u16 pressed)
             menu_cur = MENU_NONE;
             return MA_NEW_GAME;
         case MENU_OPTIONS:
-            if (sel == 3)
+            if (sel == 4)
             {
                 menu_open(options_from);
                 sel = 1;
@@ -207,9 +210,10 @@ void                menu_draw(void)
             fmt(line, "VOLUME %d", opt_volume);
             item_text(0, 90, line);
             item_text(1, 106, game_during_draw ? "FASTER FIGHTS  ON" : "FASTER FIGHTS OFF");
-            item_text(2, 122, opt_stats ? "STATISTICS  ON" : "STATISTICS OFF");
-            item_text(3, 146, "BACK");
-            vdp_text(160 - 19 * 4, 176, RGB(120, 110, 90), "LEFT RIGHT TO CHANGE");
+            item_text(2, 122, opt_crosshair ? "CROSSHAIR  ON" : "CROSSHAIR OFF");
+            item_text(3, 138, opt_stats ? "STATISTICS  ON" : "STATISTICS OFF");
+            item_text(4, 162, "BACK");
+            vdp_text(160 - 19 * 4, 186, RGB(120, 110, 90), "LEFT RIGHT TO CHANGE");
             break;
         }
         case MENU_PAUSE:

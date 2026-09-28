@@ -144,7 +144,10 @@ void                hud_draw(void)
                                                 NULL, NULL };
     const g_weapon  *w = &weapons[client.weapon];
     int             y = SCREEN_H - 26;
+    const t_pic     *ch = opt_crosshair && !g_player->dead && !menu_active() ? pic("ch1") : NULL;
 
+    if (ch)
+        draw_pic(ch, SCREEN_W / 2 - ch->w / 2, SCREEN_H / 2 - ch->h / 2);   /* (Quake's crosshair 1) */
     if (npics)
     {
         draw_pic(pic("i_health"), 8, y);

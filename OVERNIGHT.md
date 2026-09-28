@@ -389,3 +389,55 @@ whole vblanks, so VDP1 a little over 20 ms is enough to make most of them
 40. Coarse grids from 192 units or Gouraud off change VDP1's time by
 nothing measurable in Mednafen. The face list is 2,048 long now (busy
 views list about 500): 6 KB of HWRAM back.
+
+## 9. Sound
+
+`tools/bake_sound.py`: 64 of Quake 2's own sounds (every weapon, the
+soldiers' and infantry's sight, attacks, pain and death, the player's pain
+by health, death, jumps, landings, footsteps and water, pickups by kind,
+doors, lifts, buttons, secrets, messages, explosions, grenade bounces,
+ricochets, the menus) at 11 kHz 8-bit: 372 KB of the 425 in sound RAM.
+The 68000 driver (engine/m68k) gained 8-bit samples, a volume and pan for
+each effect, and 16 effect slots (there's no music in the demo).
+`src/sound.c` places them: quieter with distance by Quake's attenuations,
+panned to the side of the view they're on; your own in the middle.
+Checked in a recording (Mednafen's -soundrecord: `RECORD=out.wav
+tools/emu.sh start`): left is left, and a fight is full of it.
+
+## 10. Menus and the levels in order
+
+- **The title**: Quake 2's plaque, logo, GAME and OPTIONS and its spinning
+  cursor, the level turning behind. GAME asks the skill: easy, medium,
+  hard, which now filter the monsters and items as Quake's do (demo1 has
+  21 monsters on medium). Until you choose, everything spawns (the
+  benchmarks see what they always did).
+- **Options**: volume, faster fights (the game's tick during the
+  drawing, section 7), crosshair (Quake's, on), statistics (the overlay:
+  off now; `OPT=-DSTATS` for on).
+- **START in the game**: pause (resume, options, restart the level, quit
+  to the title). START with a button is still the debugging keys, and
+  START + R still runs the benchmarks from anywhere (and restarts the
+  level first, everything in it).
+- **The exits**: the lift at the end of Outer Base now takes you to
+  Installation, with your health, armour, weapons and ammo, at the start
+  the exit names, and so on through the demo's hub (Installation to Comm
+  Center and back); its last exit says THE END OF THE DEMO and goes back
+  to the title. `OPT=-DLEVEL_TEST` takes each exit in turn.
+- Each level loads only the models it uses.
+
+## 11. Not done: the other monsters
+
+Installation has 5 monsters the port doesn't have yet (3 flyers, a gunner,
+a tank) and Comm Center 14 (5 berserkers, 4 parasites, 3 flyers, 2
+gunners): they're left out, so those levels are quieter than Quake's.
+Each needs its AI ported (vendor/quake2/game/m_*.c), its model and its
+sounds. The gunner and berserker are the easy two (a machinegun and
+grenades; a club), but each is bigger than the soldier (330 vertices, 610
+triangles, 209 and 244 frames): about 230 KB on the cart even with only
+the animations used, and Comm Center has 125 KB left. Ways to make room,
+your call: the soldiers without their hurt skins there (about 120 KB), every
+other animation frame for the new ones (the blend hides it), or demo3's
+textures coarser. Flyers need flying; the tank's the size of three soldiers.
+
+Also not done, your call: the weapon in your hands (Quake 2's v_*.md2:
+as big as a soldier, drawn every frame: about 3-4 ms, and cart space).

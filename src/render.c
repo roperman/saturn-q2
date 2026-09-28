@@ -116,8 +116,16 @@ typedef struct
     u32             *gst;
     u32             grda;
     const q_cell    *cell0;                 /* the deferred cells' numbers count from here */
+    /* small crops: their grid cells' texels (the face's edge columns and rows are narrower) */
+    u32             cl0, cr1, ct0, cb1;     /* the first column's left, the last's right; the rows' */
+    u32             rows0, N;               /* rows at the start (the first's rows == this) */
+    const s32       *rcp;
+    const u16       *slot_lut;
+    const u8        *slot_w;
     u16             def[2 * MAX_ROW];
 }                   cell_args;
+_Static_assert(__builtin_offsetof(cell_args, cell0) == 96 && __builtin_offsetof(cell_args, cl0) == 100
+               && __builtin_offsetof(cell_args, slot_w) == 132, "src/cells.s: C_ROW, C_CROP");
 void                cells_asm(cell_args *a);
 bool                r_cells_asm = true;
 bool                r_nosplit;              /* (for comparing: whole tiles near the camera in one piece) */
@@ -1226,6 +1234,10 @@ static void         cells_face(r_ctx *x, int stride, const q_cell *cell0)
     a->stride2 = (u32)stride * 2;
     a->fast = CELL_FULL | CELL_EXACT;
     a->near24 = (u32)(OC_NEAR | OC_FAR) << 24;
+    a->N = (u32)lv.N;
+    a->rcp = rcp;
+    a->slot_lut = slot_lut;
+    a->slot_w = slot_w;
 }
 
 /* rows of cells in assembly (a whole face's, or one), the writer's lists
@@ -1548,7 +1560,11 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
     if (whole && fast_ok && w->count + nu * nv <= WRITER_CMDS && w->gcount + nu * nv <= w->gmax)
     {
         /* the common cells of the whole face in assembly, then the C for what it left */
-        int n = cells_run(x, top, top + stride, row_cells, light, nu, nv), li;
+        int n, li;
+
+        x->ca.cl0 = (u32)eu0; x->ca.cr1 = (u32)eu1; x->ca.ct0 = (u32)ev0; x->ca.cb1 = (u32)ev1;
+        x->ca.rows0 = (u32)nv;
+        n = cells_run(x, top, top + stride, row_cells, light, nu, nv);
 
         PROF((x->st.nexact += n));          /* (profile: X counts the cells the assembly left) */
         for (li = 0; li < n; ++li)
@@ -1584,6 +1600,8 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
         if (fast_ok && w->count + nu <= WRITER_CMDS && w->gcount + nu <= w->gmax)
         {
             x->ca.cell0 = row_cells;
+            x->ca.cl0 = (u32)eu0; x->ca.cr1 = (u32)eu1; x->ca.ct0 = (u32)ct; x->ca.cb1 = (u32)cb;
+            x->ca.rows0 = 1;
             n = cells_run(x, top, bot, row_cells, light, nu, 1);
             list = x->ca.def;
             PROF((x->st.nexact += n));

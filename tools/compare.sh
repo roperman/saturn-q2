@@ -10,7 +10,7 @@
 cd "$(dirname "$0")/.."
 OUT=${1:-${TMPDIR:-/tmp}/compare}
 mkdir -p "$OUT"
-EXTRA=""
+EXTRA="$CMP_EXTRA"
 [ -n "$COMPARE" ] && EXTRA="-DCOMPARE_$(echo "$COMPARE" | tr a-z A-Z) $CMP_EXTRA"
 OPT="-DBENCH_HOLD $EXTRA" ./build.sh >/dev/null || exit 1
 tools/emu.sh start game.cue >/dev/null

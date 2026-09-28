@@ -600,3 +600,58 @@ animates (firing, switching) about 4 ms (mostly the cart: its frames and
 records live there). The fight benchmark (you don't fire in it): 39.8 ->
 41.5 ms a frame, 441 of 482 pictures at 40 ms. `OPT=-DVIEW_TEST` gives every
 gun and cycles them. Not done: Quake 2's gun bob as you walk.
+
+## 15. The gun, faster
+
+Timed in the fight benchmark (demo1's round room), the gun's parts in
+microseconds a frame (`GUN US V S C K`: vertices, sort, commands, kept);
+`OPT=-DVIEW_ANIM` keeps it firing (without shots) for the moving numbers.
+
+| | vertices | sort | commands | kept | gun | fight frame |
+|---|---|---|---|---|---|---|
+| still, before | | | | 900 | 0.9 | 41.5 |
+| firing, before (C) | 1640 | 1430 | 2150 | | 5.1 | 44.2 |
+| sort and commands in mdraw.s | 1830 | 1140 | 940 | | 3.8 | 42.7 |
+| vertices in assembly (vverts_asm) | 1600 | 1120 | 930 | | 3.6 | 43.3 |
+| records and frames read by DMA | 1400 | 900 | 980 | | 3.2 | 43.2 |
+| vertices on the DSP | 1075 | 897 | 845 | | 2.8 | 43.1 |
+| still, now (kept drawing by DMA) | | | | 535 | 0.5 | 41.6 |
+
+(The frame gains about half what the gun does: the two CPUs meet in the
+middle of the face list, so the master's saving is shared.)
+
+- **The passes**: the monsters' `mpolys_asm` and `mcmds_asm` do the gun's
+  sort and commands. `mpolys_asm` takes a winding sign (the gun's triangles
+  go the other way) and lists the polygons across the near plane rather than
+  dropping them; there are a lot (every gun in every frame, the chaingun 20
+  drawn). The C cuts those as before and gives each corners of its own (past
+  `mxy` and `mg` in `r_ctx`, over `mz`, `moc` and `gtab`, done with by
+  then) and a record of its own (64 spare after the gun's own, baked into
+  its file), put into its bucket where the C would have: the same polygons
+  in the same order. `mcmds_asm` writes straight into the overlay.
+- **The cart**: the gun's frames and records are on the cart, and its misses
+  there were most of the time left, the other CPU drawing at once. They're
+  now read by SCU DMA into the master's own command list (free until the
+  master draws its faces, which it does after the gun) while the walk and
+  the game's tick run; the still gun's kept drawing moved from low work RAM
+  (DMA can't read that) to the cart and comes in the same way.
+- **The vertices**: on the DSP after the monsters', in the blocks they
+  leave, doubled (mverts_asm's near plane is 8, the gun's 4). The DSP blends
+  as it does the monsters' (each frame's scale times its share), so its
+  rounding differs from the C's: 8.4% of vertices a pixel or two off, 18 of
+  240,262 on the other side of the near plane (`OPT=-DVIEW_CHECK=3`).
+  `OPT=-DVIEW_EXACT` keeps to `vverts_asm`, which blends exactly as the C did
+  (it's also used whenever the DSP can't: the gun fired during the game's
+  tick, or no blocks left).
+- **Checked**: `OPT=-DVIEW_CHECK=1` runs the old C alongside and compares
+  every command and colour: none different in 102,107 commands, every gun,
+  firing. `=2` draws the kept drawing and a full one: none different in
+  168,899 (and 127,615 on demo3, where one gun at a time fits the cart).
+  The only change to what's sent: polygons wholly off one side of the
+  screen are no longer (they drew nothing).
+- **Memory**: fast RAM on demo1 1.3 KB less (the code), the same monster
+  records fit as before (`OPT=-DLEVEL_TEST` now shows what's left of each
+  memory, and what monster records stayed on the cart: 12.8 KB on demo1,
+  none elsewhere); low work RAM 7.7 KB more; the cart 12 KB less (the kept
+  drawing, and 768 bytes more a gun). The static benchmark: CPU 1736 (1731
+  to 1744 before, noise).

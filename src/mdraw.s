@@ -19,6 +19,7 @@
         .global _mverts_asm
         .global _mpolys_asm
         .global _mcmds_asm
+        .global _vverts_asm
 
 A_OUT   = 0                             ! the DSP's results for the model
 A_MXY   = 4                             ! screen positions (x << 16 | y)
@@ -218,6 +219,10 @@ _mverts_asm:
 ! bucket (depth - nearest) * inv (0 to 31) by the average of corners 0 and
 ! 2, pushed onto that bucket's list (mnext is the 64 bytes after mhead).
 ! Screen coordinates fit 16 bits, so the products are MULS.W.
+!
+! The gun in your hands (draw_viewmodel) winds the other way (P_SIGN -1: the
+! cross product negated, kept in GBR), and its polygons across the near plane
+! aren't dropped but listed (P_NEAR), for the C to cut at the plane.
 
 P_POLYS = 0                             ! q_mpoly: v[4], tex, flags (12 bytes)
 P_N     = 4
@@ -227,6 +232,9 @@ P_MZ    = 16
 P_HEAD  = 20                            ! mhead[32], then mnext[]
 P_ZMIN  = 24
 P_INV   = 28
+P_SIGN  = 32                            ! 0: MODEL_FRONT -1; -1: the other way round
+P_NEAR  = 36                            ! s16 list of those across the near plane (0: dropped)
+P_NNEAR = 40                            ! ...how many (in and out)
 
 _mpolys_asm:
         mov.l   r8,@-r15
@@ -236,6 +244,10 @@ _mpolys_asm:
         mov.l   r12,@-r15
         mov.l   r13,@-r15
         mov.l   r14,@-r15
+        stc.l   gbr,@-r15
+        mov.l   r4,@-r15                ! (the arguments, for .Lpnear)
+        mov.l   @(P_SIGN,r4),r0
+        ldc     r0,gbr
         mov.l   @(P_POLYS,r4),r14
         mov.l   @(P_N,r4),r13
         mov.l   @(P_MOC,r4),r7
@@ -271,7 +283,7 @@ _mpolys_asm:
         or      r3,r1
         or      r1,r0
         tst     #OC_NEAR,r0
-        bf      .Lpskip
+        bf      .Lpnear
         ! which way round: (b - a) x (c - a)
         mov.w   @r14,r0
         extu.w  r0,r0
@@ -306,6 +318,9 @@ _mpolys_asm:
         tst     r1,r1
         bt      .Lpflat                 ! 0: a quad's other half decides
 .Lpside:
+        stc     gbr,r0
+        xor     r0,r1
+        sub     r0,r1                   ! (negated for the gun)
         cmp/pz  r1
         bt      .Lpskip                 ! facing away (MODEL_FRONT -1)
         ! its bucket: ((corner 0's depth / 2 + corner 2's / 2 - nearest) >> 16) * inv >> 16, 0 to 31
@@ -348,6 +363,8 @@ _mpolys_asm:
         bf.s    .Lploop
         add     #1,r5
 .Lpdone:
+        add     #4,r15                  ! (the arguments)
+        ldc.l   @r15+,gbr
         mov.l   @r15+,r14
         mov.l   @r15+,r13
         mov.l   @r15+,r12
@@ -356,6 +373,20 @@ _mpolys_asm:
         mov.l   @r15+,r9
         rts
         mov.l   @r15+,r8
+
+.Lpnear:
+        ! across the near plane: listed if there's a list, else dropped
+        mov.l   @r15,r1
+        mov.l   @(P_NEAR,r1),r2
+        tst     r2,r2
+        bt      .Lpskip
+        mov.l   @(P_NNEAR,r1),r0
+        mov     r0,r3
+        add     #1,r3
+        mov.l   r3,@(P_NNEAR,r1)
+        add     r0,r0
+        bra     .Lpskip
+        mov.w   r5,@(r0,r2)
 
 .Lpflat:
         ! (c - a) x (d - a), unless it's a triangle (flags bit 0)
@@ -700,3 +731,247 @@ _mcmds_asm:
         .long   0x10020000              ! jump-assign, distorted sprite
 .Ltexload:
         .long   _tex_load
+
+! vverts_asm: the gun's vertices (draw_viewmodel), as mverts_asm does a
+! monster's, but from its two frames' packed bytes (x y z normal) rather than
+! the DSP's results: each coordinate u + (v - u) lerp, u and v the two
+! frames' (scale * byte + translation), as the C had it; view z from the x
+! bytes, x from the y bytes (negated), y from the z bytes. Each vertex's
+! normal byte (the nearer frame's) is listed for the C to light. The next
+! vertex's z is worked out and its divide started as soon as this one has its
+! quotient; the nearest and farthest depths stay in the arguments (the
+! registers are all taken).
+!
+!   void vverts_asm(vverts_args *a)
+
+V_SX0   = 0                             ! z, from the x bytes: frame 0's scale, translation, frame 1's
+V_TX0   = 4
+V_SX1   = 8
+V_TX1   = 12
+V_SY0   = 16                            ! x (right): minus the y bytes'
+V_TY0   = 20
+V_SY1   = 24
+V_TY1   = 28
+V_SZ0   = 32                            ! y (up): the z bytes'
+V_TZ0   = 36
+V_SZ1   = 40
+V_TZ1   = 44
+V_L     = 48                            ! the blend, 16.16
+V_ZMIN  = 52                            ! in and out
+V_ZMAX  = 56
+V_PA    = 60                            ! frame 0's vertices
+V_PB    = 64                            ! frame 1's (this and the rest by R0)
+V_MXY   = 68
+V_MZ    = 72
+V_MOC   = 76
+V_VN    = 80
+V_N     = 84
+V_NOFS  = 88                            ! the normal's byte from r6: 3, or frame 1's
+
+! a coordinate: \o from byte \k of this vertex (\n: 4 for the next one's), with
+! frame 0's scale and translation at \s0 \t0 and frame 1's at \s1 \t1. Uses r0 r1 r2
+.macro  COORD o k s0 t0 s1 t1
+        mov.b   @(\k,r6),r0
+        extu.b  r0,r1
+        mov.l   @(\s0,r4),r2
+        mul.l   r2,r1                   ! s0 a
+        mov.b   @(\k,r7),r0
+        extu.b  r0,r0
+        mov.l   @(\s1,r4),r2
+        sts     macl,\o
+        mul.l   r2,r0                   ! s1 b
+        mov.l   @(\t0,r4),r2
+        add     r2,\o                   ! u
+        mov.l   @(\t1,r4),r2
+        sts     macl,r1
+        add     r2,r1                   ! v
+        sub     \o,r1
+        mov.l   @(V_L,r4),r2
+        dmuls.l r2,r1
+        sts     mach,r1
+        sts     macl,r2
+        xtrct   r1,r2                   ! (v - u) lerp
+        add     r2,\o
+.endm
+
+! the next vertex's z into r3 (r6 r7: this one's bytes)
+.macro  NEXTZ
+        COORD   r3, 4, V_SX0, V_TX0, V_SX1, V_TX1
+.endm
+
+! this vertex's x and y into r13 r14
+.macro  THISXY
+        COORD   r13, 1, V_SY0, V_TY0, V_SY1, V_TY1
+        neg     r13,r13
+        COORD   r14, 2, V_SZ0, V_TZ0, V_SZ1, V_TZ1
+.endm
+
+! start FOCAL << 32 / \reg on the divider (at GBR). Uses r0
+.macro  VDIVSTART reg
+        mov     \reg,r0
+        mov.l   r0,@(0,gbr)             ! DVSR
+        mov.l   .Lvfocal,r0
+        mov.l   r0,@(16,gbr)            ! DVDNTH
+        mov     #0,r0
+        mov.l   r0,@(20,gbr)            ! DVDNTL: starts it
+.endm
+
+! the next vertex's z into r3, its divide started if it's in front of the near plane
+.macro  VADVANCE
+        NEXTZ
+        mov.l   .Lvnear,r1
+        cmp/ge  r1,r3
+        bf      33f
+        VDIVSTART r3
+33:
+.endm
+
+_vverts_asm:
+        mov.l   r8,@-r15
+        mov.l   r9,@-r15
+        mov.l   r10,@-r15
+        mov.l   r11,@-r15
+        mov.l   r12,@-r15
+        mov.l   r13,@-r15
+        mov.l   r14,@-r15
+        stc.l   gbr,@-r15
+        mov.l   @(V_PA,r4),r6
+        mov     #V_PB,r0
+        mov.l   @(r0,r4),r7
+        mov     #V_MXY,r0
+        mov.l   @(r0,r4),r8
+        mov     #V_MZ,r0
+        mov.l   @(r0,r4),r9
+        mov     #V_MOC,r0
+        mov.l   @(r0,r4),r10
+        mov     #V_VN,r0
+        mov.l   @(r0,r4),r11
+        mov     #V_N,r0
+        mov.l   @(r0,r4),r5             ! vertices left, this one included
+        mov.l   .Lvdiv,r0
+        ldc     r0,gbr                  ! the divider
+        tst     r5,r5
+        bf      0f
+        bra     .Lvdone
+        nop
+0:      add     #-4,r6                  ! the first one's z (NEXTZ looks a vertex on), its divide
+        add     #-4,r7
+        VADVANCE
+        add     #4,r6
+        add     #4,r7
+        THISXY
+.Lvloop:
+        ! x r13, y r14, z r3 (its divide running if it's in front of the near plane); r6 r7 its bytes
+        mov     #V_NOFS,r0
+        mov.l   @(r0,r4),r0
+        mov.b   @(r0,r6),r1
+        mov.b   r1,@r11                 ! its normal
+        mov.l   r3,@r9                  ! its depth
+        mov.l   .Lvnear,r1
+        cmp/ge  r1,r3
+        bt      1f
+        bra     .Lvnear_v
+        nop
+1:      mov.l   @(V_ZMIN,r4),r1         ! the depths
+        cmp/gt  r3,r1
+        bf      2f
+        mov.l   r3,@(V_ZMIN,r4)
+2:      mov.l   @(V_ZMAX,r4),r1
+        cmp/gt  r1,r3
+        bf      3f
+        mov.l   r3,@(V_ZMAX,r4)
+3:      mov.l   @(20,gbr),r0            ! FOCAL / z, 16.16
+        mov     r0,r12
+        VADVANCE                        ! the next one's divide starts now
+        dmuls.l r12,r13
+        mov.l   .Lvclamp,r2
+        sts     mach,r1
+        dmuls.l r12,r14
+        mov.l   .Lvcx,r0
+        add     r0,r1                   ! sx = CX + x r
+        neg     r2,r12
+        cmp/gt  r2,r1                   ! clamped to +-CLAMP_XY
+        bf      4f
+        mov     r2,r1
+4:      cmp/ge  r12,r1
+        bt      5f
+        mov     r12,r1
+5:      sts     mach,r0
+        neg     r0,r0
+        add     #112,r0                 ! sy = CY - y r
+        cmp/gt  r2,r0
+        bf      6f
+        mov     r2,r0
+6:      cmp/ge  r12,r0
+        bt      7f
+        mov     r12,r0
+7:      extu.w  r0,r13
+        mov     r1,r14
+        shll16  r14
+        or      r13,r14
+        mov.l   r14,@r8                 ! x << 16 | y
+        mov     #0,r13                  ! the outcode: left 1, right 2, top 4, bottom 8
+        cmp/pz  r1
+        bt      8f
+        bra     9f
+        mov     #1,r13
+8:      mov.l   .Lvw,r2
+        cmp/ge  r2,r1
+        bf      9f
+        mov     #2,r13
+9:      cmp/pz  r0
+        bt      10f
+        bra     .Lvoc
+        add     #4,r13
+10:     mov.l   .Lvh,r2
+        cmp/ge  r2,r0
+        bf      .Lvoc
+        add     #8,r13
+.Lvoc:  mov.b   r13,@r10
+.Lvnext:
+        ! on to the next: its x and y (its z's in r3 already)
+        add     #4,r6
+        add     #4,r7
+        add     #4,r8
+        add     #4,r9
+        add     #1,r10
+        dt      r5
+        bt.s    .Lvdone
+        add     #1,r11
+        THISXY
+        bra     .Lvloop
+        nop
+
+.Lvnear_v:
+        mov     #OC_NEAR,r0
+        mov.b   r0,@r10
+        VADVANCE
+        bra     .Lvnext
+        nop
+
+.Lvdone:
+        ldc.l   @r15+,gbr
+        mov.l   @r15+,r14
+        mov.l   @r15+,r13
+        mov.l   @r15+,r12
+        mov.l   @r15+,r11
+        mov.l   @r15+,r10
+        mov.l   @r15+,r9
+        rts
+        mov.l   @r15+,r8
+
+        .align  2
+.Lvdiv:
+        .long   0xFFFFFF00
+.Lvnear:
+        .long   0x40000                 ! VIEW_NEAR: 4.0
+.Lvfocal:
+        .long   160                     ! FOCAL
+.Lvclamp:
+        .long   2000                    ! CLAMP_XY
+.Lvcx:
+        .long   160                     ! CX
+.Lvw:
+        .long   320                     ! SCREEN_W
+.Lvh:
+        .long   224                     ! SCREEN_H

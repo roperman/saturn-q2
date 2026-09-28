@@ -435,6 +435,19 @@ vdp1_cmd            *vdp_overlay(void)
     return c;
 }
 
+/* the overlay's next free commands, to be written in order (their links are made at the
+   submit); vdp_overlay_add says how many were */
+vdp1_cmd            *vdp_overlay_block(int *room)
+{
+    *room = OVL_MAX - overlay_count;
+    return &staging[OVL_FIRST + overlay_count];
+}
+
+void                vdp_overlay_add(int n)
+{
+    overlay_count += n;
+}
+
 void                vdp_rect(int x0, int y0, int x1, int y1, u16 color, bool half_transparent)
 {
     vdp1_cmd        *c = vdp_overlay();

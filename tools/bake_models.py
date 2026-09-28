@@ -2,7 +2,8 @@
 """Bake every model in tools/models.txt that's out of date (tools/bake_md2.py), and write
 obj/gen/q2models.h: MDL_<NAME> numbers and the files, in the list's order. Rows marked
 "view" (the guns in your hands, loaded one at a time) are numbered apart: VIEW_<NAME>,
-VIEW_FILES, and the biggest one's bytes and textures (VIEW_MAX_BYTES, VIEW_MAX_TEX).
+VIEW_FILES, and the biggest one's bytes, textures and polygons (VIEW_MAX_BYTES, VIEW_MAX_TEX,
+VIEW_MAX_POLYS); they have VIEW_SUBS spare polygon records after their own.
 
     tools/bake_models.py data/pak0.pak cd/
 """
@@ -11,6 +12,7 @@ import subprocess
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+VIEW_SUBS = 64      # the guns' spare polygon records (src/render.c: those cut at the near plane)
 
 
 def main():
@@ -29,6 +31,8 @@ def main():
         if anims != "-":
             cmd.append("--anims=" + anims)
         cmd += ["--" + o for o in opts if o != "view"]
+        if "view" in opts:
+            cmd.append("--spare=%d" % VIEW_SUBS)
         subprocess.check_call(cmd)
     gen = os.path.join(ROOT, "obj", "gen")
     os.makedirs(gen, exist_ok=True)
@@ -44,13 +48,16 @@ def main():
             f.write("#define VIEW_%-11s (%d)\n" % (r[0].upper(), i))
         f.write("#define VIEW_COUNT       (%d)\n" % len(view))
         f.write("#define VIEW_FILES       %s\n" % ", ".join('"%s"' % r[1] for r in view))
-        vbytes = vtex = 0
+        vbytes = vtex = vpolys = 0
         for r in view:
             b = open(os.path.join(out, r[1]), "rb").read()
             vbytes = max(vbytes, len(b))
             vtex = max(vtex, int.from_bytes(b[14:16], "big"))     # (the header's ntex)
+            vpolys = max(vpolys, int.from_bytes(b[6:8], "big"))   # (npolys)
         f.write("#define VIEW_MAX_BYTES   (%d)\n" % ((vbytes + 2047) & ~2047))
-        f.write("#define VIEW_MAX_TEX     (%d)\n#endif\n" % vtex)
+        f.write("#define VIEW_MAX_TEX     (%d)\n" % vtex)
+        f.write("#define VIEW_MAX_POLYS   (%d)\n" % vpolys)
+        f.write("#define VIEW_SUBS        (%d)\n#endif\n" % VIEW_SUBS)
 
 
 if __name__ == "__main__":

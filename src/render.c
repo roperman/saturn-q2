@@ -229,11 +229,12 @@ static u8           slot_w[MAX_SLOTS];      /* the records are on the cart, 75 c
 static s32          kx, ky;                 /* CX / FOCAL, CY / FOCAL (16.16): the frustum's slopes */
 static s32          rcp[64];                /* 65536 / n */
 
-/* The gun's last drawing, kept (in low work RAM): most of the time it's still (up, not
-   firing), and then its polygons land where they did, in the same order. Its lighting can
-   still change (another leaf, turning), so the normals are kept, not the colours */
+/* The gun's last drawing, kept (on the cart: DMA reads it into the list each frame it goes
+   out again): most of the time it's still (up, not firing), and then its polygons land where
+   they did, in the same order. Its lighting can still change (another leaf, turning), so the
+   normals are kept, not the colours */
 typedef struct { u16 tex, size; u8 n[4]; u32 xy[4]; } view_kept;       /* 24 bytes */
-static view_kept    *view_keep;             /* (render_init: MAX_MPOLYS of them) */
+static view_kept    *view_keep;             /* (on the cart, r_view_level: MAX_MPOLYS of them) */
 static int          view_nkeep, view_gen = 1;
 static struct { const q_mdl *m; int gen, f0, f1; s32 lerp; } view_key;
 
@@ -445,7 +446,6 @@ void                render_init(void)
     }
     /* brush models (doors, lifts...): each in the leaf its centre's in */
     leaf_model = level_alloc((u32)lv.nleafs * 2);
-    view_keep = level_alloc_low(MAX_MPOLYS * sizeof(view_kept));     /* (the gun's last drawing) */
     view_key.m = NULL;
     model_next = level_alloc((u32)lv.nmodels * 2 + 2);
     for (i = 0; i < lv.nleafs; ++i)
@@ -1840,6 +1840,63 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
     draw_grid(x, &g, f, model);
 }
 
+/* src/mdraw.s: a model's whole mesh from the DSP into screen space (offsets fixed there) */
+typedef struct
+{
+    const s32       *out;                   /* the DSP's results: blocks of 16 x, 16 y, 16 z */
+    u32             *mxy;
+    s32             *mz;
+    u8              *moc;
+    s32             n, zmin, zmax;          /* (zmin and zmax in and out) */
+}                   mverts_args;
+
+void                mverts_asm(mverts_args *a);
+
+/* ...and its polygons facing the camera into depth buckets */
+typedef struct
+{
+    const q_mpoly   *polys;
+    s32             n;
+    const u8        *moc;
+    const u32       *mxy;
+    const s32       *mz;
+    s16             *mhead;                 /* (mnext right after it) */
+    s32             zmin, inv;
+    s32             sign;                   /* 0: MODEL_FRONT; -1: the other way (the gun) */
+    s16             *nearl;                 /* those across the near plane (NULL: dropped) */
+    s32             nnear;                  /* ...how many, in and out */
+}                   mpolys_args;
+
+void                mpolys_asm(mpolys_args *a);
+_Static_assert(__builtin_offsetof(mpolys_args, sign) == 32 && __builtin_offsetof(mpolys_args, nnear) == 40,
+               "mdraw.s: mpolys_args");
+
+/* ...and those into commands; the offsets are mdraw.s's M_ */
+typedef struct
+{
+    const q_mpoly   *polys;
+    const q_mtex    *tex;
+    const s16       *mnext;
+    const u32       *mxy;
+    const u16       *mg;
+    const u16       *tslot;
+    u16             *sframe;
+    u32             *cmds, *gst;
+    s32             tid0;
+    u32             frame, svram, sbytes, lb, dw1, luts4;
+    s32             gmax;
+    u32             gb, fifo;
+    r_ctx           *x;
+    s32             cnt, head, tail, gc, drop;
+    const s16       *mhead;
+    s32             wcmds;
+}                   mcmds_args;
+
+void                mcmds_asm(mcmds_args *a);
+_Static_assert(__builtin_offsetof(mcmds_args, luts4) == 60 && __builtin_offsetof(mcmds_args, cnt) == 80
+               && __builtin_offsetof(mcmds_args, wcmds) == 104, "mdraw.s: mcmds_args");
+_Static_assert(__builtin_offsetof(r_ctx, mnext) == __builtin_offsetof(r_ctx, mhead) + MBUCKETS * 2, "mdraw.s: mnext after mhead");
+
 /* ---- the gun in your hands (src/view.c) ---- */
 
 #define VIEW_NEAR       FIX(4)              /* (Quake 2's near plane for its guns: they're close) */
@@ -1847,30 +1904,65 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
                                                MODEL_FRONT draws their insides (seen side by side with a
                                                z-buffered render on the PC; a soldier the same way matches) */
 
-/* a vertex of the gun's two frames, blended; the frames are in the eye's space (Quake's x
-   forward, y left, z up), so into the view's (x right, y up, z forward) as they are */
-static void         view_vertex(const u8 *f0, const u8 *f1, s32 lerp, int i, v3 *o)
+/* src/mdraw.s: the gun's vertices from its two frames into screen space. The frames are in
+   the eye's space (Quake's x forward, y left, z up), so into the view's (x right = -y,
+   y up = z, z forward = x) as they are (offsets fixed in mdraw.s: V_) */
+typedef struct
 {
-    const s32       *s0 = (const s32 *)f0, *s1 = (const s32 *)f1;
-    const u8        *a = f0 + 24 + i * 4, *b = f1 + 24 + i * 4;
-    s32             p[3];
+    s32             st[12];                 /* per view axis (z x y): frame 0's scale, translation, frame 1's */
+    s32             lerp;
+    s32             zmin, zmax;             /* in and out */
+    const u8        *pa, *pb;               /* the two frames' vertices (x y z normal) */
+    u32             *mxy;
+    s32             *mz;
+    u8              *moc, *vn;              /* (vn: each one's normal, the nearer frame's) */
+    s32             n, nofs;                /* (nofs: the normal's byte from pa: 3, or frame 1's) */
+}                   vverts_args;
+
+void                vverts_asm(vverts_args *a);
+_Static_assert(__builtin_offsetof(vverts_args, zmin) == 52 && __builtin_offsetof(vverts_args, pa) == 60
+               && __builtin_offsetof(vverts_args, nofs) == 88, "mdraw.s: vverts_args");
+
+static void         view_blend(vverts_args *a, const u8 *f0, const u8 *f1, s32 lerp, const u8 *pa, const u8 *pb)
+{
+    const s32       *h0 = (const s32 *)f0, *h1 = (const s32 *)f1;
+    int             k;
+
+    for (k = 0; k < 3; ++k)                 /* (z from Quake's x, x from its y, y from its z) */
+    {
+        a->st[k * 4 + 0] = h0[k];
+        a->st[k * 4 + 1] = h0[3 + k];
+        a->st[k * 4 + 2] = h1[k];
+        a->st[k * 4 + 3] = h1[3 + k];
+    }
+    a->lerp = lerp;
+    a->pa = pa;
+    a->pb = pb;
+}
+
+/* a vertex of the gun, blended, in view space (as vverts_asm has it) */
+static void         view_vertex(const vverts_args *a, int i, v3 *o)
+{
+    const u8        *p = a->pa + i * 4, *q = a->pb + i * 4;
+    s32             c[3];
     int             k;
 
     for (k = 0; k < 3; ++k)
     {
-        s32 u = s0[k] * a[k] + s0[3 + k], v = s1[k] * b[k] + s1[3 + k];
+        const s32   *st = &a->st[k * 4];
+        s32         u = st[0] * p[k] + st[1], v = st[2] * q[k] + st[3];
 
-        p[k] = u + fmul(v - u, lerp);
+        c[k] = u + fmul(v - u, a->lerp);
     }
-    o->x = -p[1];
-    o->y = p[2];
-    o->z = p[0];
+    o->z = c[0];
+    o->x = -c[1];
+    o->y = c[2];
 }
 
 /* a polygon's corners on the screen. One behind the near plane is pulled along an edge to
    a corner in front, to where the edge crosses the plane: the texture squeezes a little at
    the screen's edge, rather than a hole there. false: all of it behind */
-static bool         view_poly_xy(r_ctx *x, const u8 *f0, const u8 *f1, s32 lerp, const q_mpoly *p, u32 *xy)
+static bool         view_poly_xy(r_ctx *x, const vverts_args *va, const q_mpoly *p, u32 *xy)
 {
     int             k;
 
@@ -1894,117 +1986,65 @@ static bool         view_poly_xy(r_ctx *x, const u8 *f0, const u8 *f1, s32 lerp,
         }
         if (f < 0)
             return false;
-        view_vertex(f0, f1, lerp, vi, &a);
-        view_vertex(f0, f1, lerp, f, &b);
+        view_vertex(va, vi, &a);
+        view_vertex(va, f, &b);
         t = fdiv(VIEW_NEAR - a.z, b.z - a.z);
         xy[k] = project(x, a.x + fmul(b.x - a.x, t), a.y + fmul(b.y - a.y, t), VIEW_NEAR);
     }
     return true;
 }
 
-/* the gun, over the world (VDP1's overlay list, drawn after it): its polygons facing you,
-   farthest first, lit by the light where you are and the way you face (Quake's shading) */
-static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
+#ifdef FIGHT_BENCH
+u32                 view_ph[4];             /* (the fight benchmark: the gun's vertices, sort, commands, kept; us) */
+#define VPH(k)      (view_ph[k] += frt_to_us((frt_read() - tph) & 0xFFFF), tph = frt_read())
+#else
+#define VPH(k)      ((void)0)
+#endif
+
+#ifdef VIEW_CHECK
+/* (OPT=-DVIEW_CHECK: all of draw_viewmodel again in C, and compared: the vertices, then the
+   commands and colours) */
+u32                 view_checks[7];         /* frames, commands, differing; (=3) vertices, moved, most, across */
+#define OVL_CHECK       (200)
+static u32          *chk_cmds, *chk_gcs;    /* (LWRAM, r_view_level) */
+static u32          *chk_kept, *chk_kgc;    /* (VIEW_CHECK=2: what was kept, gone out) */
+
+#if VIEW_CHECK < 3
+static __attribute__((noinline)) void draw_viewmodel_ref(r_ctx *x, const q_mdl *m, const vverts_args *va,
+                                                         const u8 *f0, const u8 *f1, s32 lerp, const u16 *gt)
 {
-    int             f0i, f1i, i, b, nv, np, ys = (int)((u32)cam.yaw >> 12) & 15;
-    s32             lerp, zmin = 0x7FFFFFFF, zmax = -0x7FFFFFFF, inv;
-    const q_mdl     *m = view_frame(&f0i, &f1i, &lerp);
-    const u8        *f0, *f1, *fn, *va, *vb;
-    const s32       *h0, *h1;
-    s32             s0[3], t0[3], s1[3], t1[3];
-    static u16      gt[162];
-    static const q_mdl *gt_m;
-    static int      gt_leaf = -1, gt_ys = -1;
+    int             i, b, nv = imin(m->nverts, MAX_MVERTS), np = imin(m->npolys, VIEW_MAX_POLYS);
+    s32             zmin = 0x7FFFFFFF, zmax = -0x7FFFFFFF, inv;
+    const u8        *fn = lerp < FIX(0.5) ? f0 : f1;
     vdp_writer      *w = x->w;
-    const q_mpoly   *polys;
+    const q_mpoly   *polys = m->polys;
     u32             colr0;
 
-    if (!m || leaf < 0)
-        return;
-    nv = imin(m->nverts, MAX_MVERTS);
-    np = imin(m->npolys, MAX_MPOLYS);
-    if (m != gt_m || leaf != gt_leaf || ys != gt_ys)
+    for (i = 0; i < nv; ++i)
     {
-        model_shade(gt, m->shade + ys * 162, &lv.leaflight[leaf * 4]);
-        gt_m = m;
-        gt_leaf = leaf;
-        gt_ys = ys;
-    }
-    f0 = m->frames + (u32)f0i * m->frame_bytes;
-    f1 = m->frames + (u32)f1i * m->frame_bytes;
-    if (f1 == f0)
-        lerp = 0;
-    fn = lerp < FIX(0.5) ? f0 : f1;
-    h0 = (const s32 *)f0;
-    h1 = (const s32 *)f1;
-    for (i = 0; i < 3; ++i)
-    {
-        s0[i] = h0[i]; t0[i] = h0[3 + i];
-        s1[i] = h1[i]; t1[i] = h1[3 + i];
-    }
-    if (view_key.m == m && view_key.gen == view_gen && view_key.f0 == f0i && view_key.f1 == f1i
-        && view_key.lerp == lerp)
-    {
-        /* as last frame: out from what was kept */
-        const view_kept *k = view_keep;
-
-        colr0 = lut_vram + (u32)m->lut0 * 32;
-        for (i = 0; i < view_nkeep; ++i, ++k)
-        {
-            int     t = m->tex_id0 + k->tex, sl = x->tex_slot[t];
-            s32     vram;
-            u32     *dw;
-
-            if (sl != 0xFFFF)
-            {
-                slot_frame[sl] = frame;
-                vram = (s32)(slot_vram + (u32)sl * slot_bytes);
-            }
-            else if ((vram = tex_load(x, t)) < 0)
-                continue;
-            if (!(dw = (u32 *)vdp_overlay()))
-                return;
-            dw[0] = (u32)(0x1000 | VDP1_DISTORTED) << 16;
-            dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((colr0 + (m->nluts > 1 ? (u32)k->tex * 32 : 0)) >> 3);
-            dw[2] = ((u32)vram >> 3) << 16 | k->size;
-            dw[3] = k->xy[0];
-            dw[4] = k->xy[1];
-            dw[5] = k->xy[2];
-            dw[6] = k->xy[3];
-            dw[7] = (u32)vdp_gouraud_fast(w, (u32)gt[k->n[0]] << 16 | gt[k->n[1]], (u32)gt[k->n[2]] << 16 | gt[k->n[3]]) << 16;
-            ++x->st.mpolys;
-        }
-        return;
-    }
-    view_key.m = NULL;
-    view_nkeep = 0;
-    /* the vertices: blended (or the one frame), into the view (Quake's x forward, y left,
-       z up: x right = -y, y up = z, z forward = x), onto the screen */
-    va = f0 + 24;
-    vb = f1 + 24;
-    for (i = 0; i < nv; ++i, va += 4, vb += 4)
-    {
-        s32 px = s0[0] * va[0] + t0[0], py = s0[1] * va[1] + t0[1], pz = s0[2] * va[2] + t0[2];
+        v3  v;
         u8  ni = fn[24 + i * 4 + 3];
 
-        if (lerp)
-        {
-            px += fmul(s1[0] * vb[0] + t1[0] - px, lerp);
-            py += fmul(s1[1] * vb[1] + t1[1] - py, lerp);
-            pz += fmul(s1[2] * vb[2] + t1[2] - pz, lerp);
-        }
-        x->mz[i] = px;
-        x->mg[i] = ni < 162 ? ni : 0;           /* (the normal: its colour at the end) */
-        if (px < VIEW_NEAR)
+        view_vertex(va, i, &v);
+        x->mz[i] = v.z;
+        x->mg[i] = ni < 162 ? ni : 0;
+        if (v.z < VIEW_NEAR)
             x->moc[i] = OC_NEAR;
         else
         {
-            x->moc[i] = 0;
-            x->mxy[i] = project(x, -py, pz, px);
-            if (px < zmin)
-                zmin = px;
-            if (px > zmax)
-                zmax = px;
+            u32 xy = project(x, v.x, v.y, v.z);
+            u8  oc = 0;
+
+            x->mxy[i] = xy;
+            if (XY_X(xy) < 0) oc = OC_LEFT;
+            else if (XY_X(xy) >= SCREEN_W) oc = OC_RIGHT;
+            if (XY_Y(xy) < 0) oc |= OC_TOP;
+            else if (XY_Y(xy) >= SCREEN_H) oc |= OC_BOTTOM;
+            x->moc[i] = oc;
+            if (v.z < zmin)
+                zmin = v.z;
+            if (v.z > zmax)
+                zmax = v.z;
         }
     }
     if (zmax < zmin)
@@ -2012,8 +2052,6 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
     inv = (s32)(((u32)(MBUCKETS - 1) << 16) / (u32)imax((zmax - zmin) >> 16, 1));
     for (b = 0; b < MBUCKETS; ++b)
         x->mhead[b] = -1;
-    /* facing you, and by depth */
-    polys = m->polys;
     for (i = 0; i < np; ++i)
     {
         const q_mpoly   *p = &polys[i];
@@ -2021,9 +2059,11 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         u32             xy[4];
         s32             cross, z;
 
+        if (x->moc[a] & x->moc[bb] & x->moc[c] & x->moc[d])
+            continue;
         if ((x->moc[a] | x->moc[bb] | x->moc[c] | x->moc[d]) & OC_NEAR)
         {
-            if (!view_poly_xy(x, f0, f1, lerp, p, xy))
+            if (!view_poly_xy(x, va, p, xy))
                 continue;
         }
         else
@@ -2045,7 +2085,6 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         x->mnext[i] = x->mhead[b];
         x->mhead[b] = (s16)i;
     }
-    /* out, farthest first: the overlay list is drawn in order */
     colr0 = lut_vram + (u32)m->lut0 * 32;
     for (b = MBUCKETS - 1; b >= 0; --b)
         for (i = x->mhead[b]; i >= 0; i = x->mnext[i])
@@ -2065,7 +2104,7 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
                 continue;
             if ((x->moc[p->v[0]] | x->moc[p->v[1]] | x->moc[p->v[2]] | x->moc[p->v[3]]) & OC_NEAR)
             {
-                if (!view_poly_xy(x, f0, f1, lerp, p, xy))
+                if (!view_poly_xy(x, va, p, xy))
                     continue;
             }
             else
@@ -2077,7 +2116,7 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
             }
             if (!(dw = (u32 *)vdp_overlay()))
                 return;
-            dw[0] = (u32)(0x1000 | VDP1_DISTORTED) << 16;       /* jump assign (the link's vdp_submit's), distorted sprite */
+            dw[0] = (u32)(0x1000 | VDP1_DISTORTED) << 16;
             dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((colr0 + (m->nluts > 1 ? (u32)p->tex * 32 : 0)) >> 3);
             dw[2] = ((u32)vram >> 3) << 16 | (u32)(((mt->w >> 3) << 8) | mt->h);
             dw[3] = xy[0];
@@ -2086,28 +2125,581 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
             dw[6] = xy[3];
             dw[7] = (u32)vdp_gouraud_fast(w, (u32)gt[x->mg[p->v[0]]] << 16 | gt[x->mg[p->v[1]]],
                                           (u32)gt[x->mg[p->v[2]]] << 16 | gt[x->mg[p->v[3]]]) << 16;
-            ++x->st.mpolys;
-            if (view_nkeep < MAX_MPOLYS)
-            {
-                view_kept *k = &view_keep[view_nkeep++];
+        }
+}
+#endif
+#endif
 
-                k->tex = p->tex;
-                k->size = (u16)dw[2];
-                k->n[0] = (u8)x->mg[p->v[0]];
-                k->n[1] = (u8)x->mg[p->v[1]];
-                k->n[2] = (u8)x->mg[p->v[2]];
-                k->n[3] = (u8)x->mg[p->v[3]];
-                k->xy[0] = xy[0];
-                k->xy[1] = xy[1];
-                k->xy[2] = xy[2];
-                k->xy[3] = xy[3];
+/* The gun's polygons cut at the near plane get corners of their own: vertices MAX_MVERTS and
+   up, in the r_ctx arrays after mxy and mg (mz, then moc and gtab: done with by then, as
+   draw_model reads them), and records after its own (the files have VIEW_SUBS spare) */
+_Static_assert(__builtin_offsetof(r_ctx, mz) == __builtin_offsetof(r_ctx, mxy) + MAX_MVERTS * 4
+               && __builtin_offsetof(r_ctx, moc) == __builtin_offsetof(r_ctx, mg) + MAX_MVERTS * 2
+               && __builtin_offsetof(r_ctx, gtab) == __builtin_offsetof(r_ctx, moc) + MAX_MVERTS
+               && MAX_MVERTS * 2 + 162 * 2 >= VIEW_SUBS * 4 * 2 && MAX_MVERTS >= VIEW_SUBS * 4
+               && VIEW_MAX_POLYS + VIEW_SUBS <= MAX_MPOLYS, "draw_viewmodel: room for the cut polygons");
+
+/* The gun's records (its polygons, the spare ones, its textures') and the two frames it's
+   between are read off the cart by DMA while the walk and the game's tick run, into the
+   master's own command list: it's free until the master draws its faces, after the gun.
+   (Read in place, the cart's misses were most of the gun's time, the other CPU drawing.) */
+static struct
+{
+    const q_mdl     *m;
+    int             f0, f1;
+    u8              *base;                  /* the records, then the frames */
+    const u8        *fsrc;                  /* the first frame's vertices (and the next frame, if that's the other) */
+    u32             rbytes, fbytes;
+    u8              stage;                  /* 0 nothing; 1 the records on their way; 2 the frames too;
+                                               3 what was kept (the gun as it was) */
+}                   vf;
+
+static u8           *view_scratch(vdp_writer *w0, u32 bytes)
+{
+    u8              *p = (u8 *)(((u32)(w0->cmds + w0->count) + 15) & ~15u);
+
+    return p + bytes <= (u8 *)(w0->cmds + WRITER_CMDS) ? p : NULL;
+}
+
+static u32          view_rbytes(const q_mdl *m)
+{
+    return ((u32)((const u8 *)(m->tex + m->ntex) - (const u8 *)m->polys) + 15) & ~15u;
+}
+
+/* (render_world, before the walk) the gun's to be drawn, and not as it was last frame: its records on their way */
+static void         view_fetch_start(vdp_writer *w0)
+{
+    int             f0i, f1i;
+    s32             lerp;
+    const q_mdl     *m = view_frame(&f0i, &f1i, &lerp);
+
+    vf.stage = 0;
+    if (!m)
+        return;
+    if (f1i == f0i)
+        lerp = 0;
+    vf.m = m;
+    if (view_key.m == m && view_key.gen == view_gen && view_key.f0 == f0i && view_key.f1 == f1i
+        && view_key.lerp == lerp)
+    {
+        /* it'll go out as kept: that's what's read */
+        vf.rbytes = (u32)view_nkeep * sizeof(view_kept);
+        if (vf.rbytes && (vf.base = view_scratch(w0, vf.rbytes)))
+        {
+            scu_dma0(vf.base, view_keep, vf.rbytes, false);
+            vf.stage = 3;
+        }
+        return;
+    }
+    vf.rbytes = view_rbytes(m);
+    vf.fsrc = m->frames + (u32)f0i * m->frame_bytes + 24;
+    vf.fbytes = (f1i == f0i + 1 ? m->frame_bytes : 0) + (u32)m->nverts * 4;
+    if (!(vf.base = view_scratch(w0, vf.rbytes + vf.fbytes)))
+        return;
+    vf.f0 = f0i;
+    vf.f1 = f1i;
+    scu_dma0(vf.base, m->polys, vf.rbytes, false);
+    vf.stage = 1;
+}
+
+/* (after the walk) ...and its frames, once the records are in */
+static void         view_fetch_more(void)
+{
+    if (vf.stage == 1 && !scu_dma0_busy())
+    {
+        scu_dma0(vf.base + vf.rbytes, vf.fsrc, vf.fbytes, false);
+        vf.stage = 2;
+    }
+}
+
+/* The gun's vertices on the DSP, as the monsters' are (models_to_dsp: after theirs, in the
+   blocks they leave), if it's to be drawn other than as kept: in view space doubled
+   (mverts_asm's near plane is 8, the gun's 4). Only the blend's rounding differs from
+   vverts_asm's, which it's otherwise (the DSP's is the monsters': each frame's scale times
+   its share of the blend, a vertex a pixel or two off at most); OPT=-DVIEW_EXACT keeps to
+   vverts_asm. */
+static struct { const q_mdl *m; int f0, f1; s32 lerp; int dsp, blk; } vd = { NULL, 0, 0, 0, -1, 0 };
+
+static int          view_to_dsp(u32 *st, int nm, int nb)
+{
+    int             f0i, f1i, blocks;
+    s32             lerp, w0, w1;
+    const q_mdl     *m = view_frame(&f0i, &f1i, &lerp);
+    const s32       *h0, *h1;
+
+    vd.dsp = -1;
+#if defined(VIEW_EXACT) || (defined(VIEW_CHECK) && VIEW_CHECK < 3)
+    (void)st; (void)nm; (void)nb; (void)m; (void)h0; (void)h1; (void)w0; (void)w1; (void)blocks;
+    return 0;
+#else
+    if (!m)
+        return 0;
+    if (f1i == f0i)
+        lerp = 0;
+    if (view_key.m == m && view_key.gen == view_gen && view_key.f0 == f0i && view_key.f1 == f1i
+        && view_key.lerp == lerp)
+        return 0;                           /* (it'll go out as kept) */
+    blocks = (imin(m->nverts, MAX_MVERTS) + 15) >> 4;
+    if (nm == DSPM_MODELS || nb + blocks > DSPM_BLOCKS)
+        return 0;
+    h0 = (const s32 *)(m->frames + (u32)f0i * m->frame_bytes);
+    h1 = (const s32 *)(m->frames + (u32)f1i * m->frame_bytes);
+    w1 = lerp;
+    w0 = FIX(1) - lerp;
+    /* rows (t, frame 0's bytes', frame 1's): view x = -(Quake's y), y = z, z = x; doubled */
+    st[0] = (u32)(-2 * (fmul(h0[4], w0) + fmul(h1[4], w1)));
+    st[1] = 0; st[2] = (u32)(-2 * fmul(h0[1], w0)); st[3] = 0;
+    st[4] = 0; st[5] = (u32)(-2 * fmul(h1[1], w1)); st[6] = 0;
+    st[7] = (u32)(2 * (fmul(h0[5], w0) + fmul(h1[5], w1)));
+    st[8] = 0; st[9] = 0; st[10] = (u32)(2 * fmul(h0[2], w0));
+    st[11] = 0; st[12] = 0; st[13] = (u32)(2 * fmul(h1[2], w1));
+    st[14] = (u32)(2 * (fmul(h0[3], w0) + fmul(h1[3], w1)));
+    st[15] = (u32)(2 * fmul(h0[0], w0)); st[16] = 0; st[17] = 0;
+    st[18] = (u32)(2 * fmul(h1[0], w1)); st[19] = 0; st[20] = 0;
+    st[21] = ((u32)(h0 + 6) & 0x07FFFFFF) >> 2;
+    st[22] = ((u32)(h1 + 6) & 0x07FFFFFF) >> 2;
+    st[23] = (u32)blocks;
+    vd.m = m;
+    vd.f0 = f0i;
+    vd.f1 = f1i;
+    vd.lerp = lerp;
+    vd.dsp = nm;
+    vd.blk = nb;
+    return blocks;
+#endif
+}
+
+/* the cache's copies of what DMA has written over (its associative purge, a line at a time) */
+static void         cache_forget(const void *p, u32 bytes)
+{
+    u32             a = (u32)p & ~15u, end = (u32)p + bytes;
+
+    for (; a < end; a += 16)
+        *(volatile u32 *)(0x40000000 | (a & 0x1FFFFFFF)) = 0;
+}
+
+/* a new level (view.c): room for the gun's last drawing, on the cart (DMA reads it from there) */
+void                r_view_level(void)
+{
+    view_keep = (view_kept *)cart_alloc(MAX_MPOLYS * sizeof(view_kept));
+    view_key.m = NULL;
+    vf.stage = 0;
+#ifdef VIEW_CHECK
+    chk_cmds = level_alloc_low(OVL_CHECK * 32);
+    chk_gcs = level_alloc_low(OVL_CHECK * 8);
+    chk_kept = level_alloc_low(OVL_CHECK * 32);
+    chk_kgc = level_alloc_low(OVL_CHECK * 8);
+#endif
+}
+
+/* the gun, over the world (VDP1's overlay list, drawn after it): its polygons facing you,
+   farthest first, lit by the light where you are and the way you face (Quake's shading).
+   In src/mdraw.s as the monsters are (the vertices, the sort, the commands); the polygons
+   across the near plane cut here and put in with the rest */
+static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
+{
+    int             f0i, f1i, i, b, k, nv, np, nnear, ns, ys = (int)((u32)cam.yaw >> 12) & 15;
+    s32             lerp, zmin, zmax, inv;
+    const q_mdl     *m = view_frame(&f0i, &f1i, &lerp);
+    const u8        *f0, *f1;
+    static u16      gt[162];
+    static const q_mdl *gt_m;
+    static int      gt_leaf = -1, gt_ys = -1;
+    vdp_writer      *w = x->w;
+    u32             colr0;
+    vverts_args     va;
+    q_mpoly         *polys;                                 /* (its records, fetched: view_fetch_start) */
+    const q_mtex    *tex;
+    int             nsubs;
+    u8              vn[MAX_MVERTS];                         /* each vertex's normal */
+    s16             nearl[VIEW_MAX_POLYS];                  /* the polygons across the near plane */
+    u32             sxy[VIEW_SUBS * 4];                     /* ...those drawn: their corners */
+    u16             sg[VIEW_SUBS * 4], si[VIEW_SUBS];       /* ...colours, and which polygon each was */
+#ifdef FIGHT_BENCH
+    u32             tph = frt_read();
+#endif
+#ifdef VIEW_CHECK
+#if VIEW_CHECK == 2
+    int             kept_n = -1;                            /* (the kept commands) */
+#endif
+    u32             cmxy[MAX_MVERTS];                       /* (the vertices, as vverts_asm had them) */
+    s32             cmz[MAX_MVERTS];
+    u8              cmoc[MAX_MVERTS];
+#endif
+
+    if (vf.stage)
+        while (scu_dma0_busy())
+            ;                               /* (in any case: the list's to be written over) */
+    if (!m || leaf < 0)
+        return;
+    nv = imin(m->nverts, MAX_MVERTS);
+    np = imin(m->npolys, VIEW_MAX_POLYS);
+    if (m != gt_m || leaf != gt_leaf || ys != gt_ys)
+    {
+        model_shade(gt, m->shade + ys * 162, &lv.leaflight[leaf * 4]);
+        gt_m = m;
+        gt_leaf = leaf;
+        gt_ys = ys;
+    }
+    f0 = m->frames + (u32)f0i * m->frame_bytes;
+    f1 = m->frames + (u32)f1i * m->frame_bytes;
+    if (f1 == f0)
+        lerp = 0;
+#if !defined(VIEW_CHECK) || VIEW_CHECK == 2
+    if (view_key.m == m && view_key.gen == view_gen && view_key.f0 == f0i && view_key.f1 == f1i
+        && view_key.lerp == lerp)
+    {
+        /* as last frame: out from what was kept (read into the list by DMA, if it was expected) */
+#ifdef VIEW_CHECK
+        int             kept_gc = w->gcount;
+#endif
+        const view_kept *kp = view_keep;
+        u32             *dw, dw1;
+        int             n = 0, room, luts32 = m->nluts > 1 ? 32 : 0;
+
+        if (vf.stage == 3 && vf.m == m)
+        {
+            cache_forget(vf.base, vf.rbytes);
+            kp = (const view_kept *)vf.base;
+        }
+        vf.stage = 0;
+        colr0 = lut_vram + (u32)m->lut0 * 32;
+        dw1 = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16;
+        dw = (u32 *)vdp_overlay_block(&room);
+        for (i = 0; i < view_nkeep && n < room; ++i, ++kp)
+        {
+            int     t = m->tex_id0 + kp->tex, sl = x->tex_slot[t];
+            s32     vram;
+
+            if (sl != 0xFFFF)
+            {
+                slot_frame[sl] = frame;
+                vram = (s32)(slot_vram + (u32)sl * slot_bytes);
+            }
+            else if ((vram = tex_load(x, t)) < 0)
+                continue;
+            dw[0] = (u32)(0x1000 | VDP1_DISTORTED) << 16;
+            dw[1] = dw1 | ((colr0 + (u32)(kp->tex * luts32)) >> 3);
+            dw[2] = ((u32)vram >> 3) << 16 | kp->size;
+            dw[3] = kp->xy[0];
+            dw[4] = kp->xy[1];
+            dw[5] = kp->xy[2];
+            dw[6] = kp->xy[3];
+            dw[7] = (u32)vdp_gouraud_fast(w, (u32)gt[kp->n[0]] << 16 | gt[kp->n[1]], (u32)gt[kp->n[2]] << 16 | gt[kp->n[3]]) << 16;
+            dw += 8;
+            ++n;
+        }
+        vdp_overlay_add(n);
+        x->st.mpolys += n;
+#if defined(VIEW_CHECK)
+        /* (OPT=-DVIEW_CHECK=2: kept, then drawn in full as well: the same?) */
+        kept_n = imin(n, OVL_CHECK);
+        memcpy(chk_kept, dw - n * 8, (u32)kept_n * 32);
+        vdp_overlay_add(-n);
+        w->gcount = kept_gc;
+        memcpy(chk_kgc, w->gst + kept_gc * 2, (u32)kept_n * 8);
+#else
+        VPH(3);
+        return;
+#endif
+    }
+#endif
+    view_key.m = NULL;
+    view_nkeep = 0;
+    {
+        /* the records and frames, fetched (view_fetch_start); or not, copied now (it was to be
+           kept, but the game's tick fired) */
+        u32         rb = view_rbytes(m);
+        const u8    *pa = f0 + 24, *pb = f1 + 24;
+        u8          *base;
+
+        if ((vf.stage == 1 || vf.stage == 2) && vf.m == m)
+        {
+            base = vf.base;
+            cache_forget(base, rb + (vf.stage == 2 ? vf.fbytes : 0));
+            if (vf.stage == 2 && vf.f0 == f0i && vf.f1 == f1i)
+            {
+                pa = base + rb;
+                pb = f1i == f0i ? pa : f1i == f0i + 1 ? pa + m->frame_bytes : pb;
             }
         }
-    view_key.m = m;
-    view_key.gen = view_gen;
-    view_key.f0 = f0i;
-    view_key.f1 = f1i;
-    view_key.lerp = lerp;
+        else if ((base = view_scratch(w, rb)))
+            memcpy(base, m->polys, rb);
+        else
+            return;
+        vf.stage = 0;
+        polys = (q_mpoly *)base;
+        tex = (const q_mtex *)(base + ((const u8 *)m->tex - (const u8 *)m->polys));
+        nsubs = imin(VIEW_SUBS, (int)(((const u8 *)m->tex - (const u8 *)m->polys) / 12) - np);
+        /* the vertices (src/mdraw.s), then each one's colour by its normal */
+        view_blend(&va, f0, f1, lerp, pa, pb);
+    }
+    va.zmin = 0x7FFFFFFF;
+    va.zmax = -0x7FFFFFFF;
+    va.mxy = x->mxy;
+    va.mz = x->mz;
+    va.moc = x->moc;
+    va.vn = vn;
+    va.n = nv;
+    va.nofs = lerp < FIX(0.5) ? 3 : 3 + (s32)(va.pb - va.pa);
+    if (vd.dsp >= 0 && vd.m == m && vd.f0 == f0i && vd.f1 == f1i && vd.lerp == lerp)
+    {
+        /* the DSP's (view_to_dsp): wait for them if they're not there, forget what the cache
+           had there, and onto the screen as a monster's; the normals from the frames */
+        const s32   *out = dspm_out + vd.blk * 48;
+        const u8    *pn = va.pa + va.nofs;
+        mverts_args ma;
+
+        while (*(volatile u32 *)UNCACHED(&dspm_count) <= (u32)vd.dsp)
+            ;
+        cache_forget(out, (u32)((nv + 15) >> 4) * 192);
+        ma.out = out;
+        ma.mxy = x->mxy;
+        ma.mz = x->mz;
+        ma.moc = x->moc;
+        ma.n = nv;
+        ma.zmin = 0x7FFFFFFF;
+        ma.zmax = -0x7FFFFFFF;
+        mverts_asm(&ma);
+        zmin = ma.zmin;
+        zmax = ma.zmax;
+        for (i = 0; i < nv; ++i)
+        {
+            u32 n = pn[i * 4];
+
+            n = n < 162 ? n : 0;
+            vn[i] = (u8)n;
+            x->mg[i] = gt[n];
+        }
+#if defined(VIEW_CHECK) && VIEW_CHECK == 3
+        {
+            /* (OPT=-DVIEW_CHECK=3: vverts_asm's as well: how far off are the DSP's?) */
+            u32 dxy[MAX_MVERTS];
+            u8  doc[MAX_MVERTS];
+
+            memcpy(dxy, x->mxy, (u32)nv * 4);
+            memcpy(doc, x->moc, (u32)nv);
+            vverts_asm(&va);
+            for (i = 0; i < nv; ++i)
+            {
+                ++view_checks[3];
+                if ((doc[i] ^ x->moc[i]) & OC_NEAR)
+                    ++view_checks[6];       /* (either side of the near plane) */
+                else if (!(doc[i] & OC_NEAR) && dxy[i] != x->mxy[i])
+                {
+                    ++view_checks[4];
+                    view_checks[5] = (u32)imax((s32)view_checks[5], imax(iabs(XY_X(dxy[i]) - XY_X(x->mxy[i])),
+                                                                        iabs(XY_Y(dxy[i]) - XY_Y(x->mxy[i]))));
+                }
+            }
+            mverts_asm(&ma);                /* (the DSP's drawn) */
+        }
+#endif
+    }
+    else
+    {
+        vverts_asm(&va);
+        zmin = va.zmin;
+        zmax = va.zmax;
+        for (i = 0; i < nv; ++i)
+        {
+            u32 n = vn[i] < 162 ? vn[i] : 0;
+
+            vn[i] = (u8)n;
+            x->mg[i] = gt[n];
+        }
+    }
+    vd.dsp = -1;
+#ifdef VIEW_CHECK
+    memcpy(cmxy, x->mxy, (u32)nv * 4);
+    memcpy(cmz, x->mz, (u32)nv * 4);
+    memcpy(cmoc, x->moc, (u32)nv);
+#endif
+    VPH(0);
+    if (zmax < zmin)
+        return;
+    inv = (s32)(((u32)(MBUCKETS - 1) << 16) / (u32)imax((zmax - zmin) >> 16, 1));
+    for (b = 0; b < MBUCKETS; ++b)
+        x->mhead[b] = -1;
+    /* facing you (the other way round from the monsters'), by depth; those across the near
+       plane listed */
+    {
+        mpolys_args a;
+
+        a.polys = polys;
+        a.n = np;
+        a.moc = x->moc;
+        a.mxy = x->mxy;
+        a.mz = x->mz;
+        a.mhead = x->mhead;
+        a.zmin = zmin;
+        a.inv = inv;
+        a.sign = -1;
+        a.nearl = nearl;
+        a.nnear = 0;
+        mpolys_asm(&a);
+        nnear = a.nnear;
+    }
+    /* those across the near plane: cut, tested, and into their buckets where they'd be in
+       polygon order (each bucket's list runs by polygon, highest first), with corners and
+       records of their own */
+    for (k = ns = 0; k < nnear && ns < nsubs; ++k)
+    {
+        const q_mpoly   *p = &polys[nearl[k]];
+        q_mpoly         *q = &polys[np + ns];
+        int             j, e, prev, pi = nearl[k];
+        u32             *xy = &sxy[ns * 4];
+        s32             cross, z;
+
+        if (!view_poly_xy(x, &va, p, xy))
+            continue;
+        cross = (XY_X(xy[1]) - XY_X(xy[0])) * (XY_Y(xy[2]) - XY_Y(xy[0]))
+              - (XY_Y(xy[1]) - XY_Y(xy[0])) * (XY_X(xy[2]) - XY_X(xy[0]));
+        if (cross == 0 && !(p->flags & 1))
+            cross = (XY_X(xy[2]) - XY_X(xy[0])) * (XY_Y(xy[3]) - XY_Y(xy[0]))
+                  - (XY_Y(xy[2]) - XY_Y(xy[0])) * (XY_X(xy[3]) - XY_X(xy[0]));
+        if (cross * VIEW_FRONT <= 0)
+            continue;
+        z = (x->mz[p->v[0]] >> 1) + (x->mz[p->v[2]] >> 1);
+        b = z <= zmin ? 0 : iclamp((((z - zmin) >> 16) * inv) >> 16, 0, MBUCKETS - 1);
+        for (j = 0; j < 4; ++j)
+        {
+            sg[ns * 4 + j] = x->mg[p->v[j]];
+            q->v[j] = (u16)(MAX_MVERTS + ns * 4 + j);
+        }
+        q->tex = p->tex;
+        q->flags = p->flags;
+        si[ns] = (u16)pi;
+        e = np + ns;
+        for (prev = -1, j = x->mhead[b]; j >= 0 && (j < np ? j : si[j - np]) > pi; j = x->mnext[j])
+            prev = j;
+        x->mnext[e] = (s16)j;
+        if (prev < 0)
+            x->mhead[b] = (s16)e;
+        else
+            x->mnext[prev] = (s16)e;
+        ++ns;
+    }
+    if (ns)
+    {
+        /* their corners: past mxy's and mg's own (mz, moc and gtab are done with) */
+        u32 *cxy = (u32 *)((u8 *)x + __builtin_offsetof(r_ctx, mz));
+        u16 *cg = (u16 *)((u8 *)x + __builtin_offsetof(r_ctx, moc));
+
+        memcpy(cxy, sxy, (u32)ns * 16);
+        memcpy(cg, sg, (u32)ns * 8);
+    }
+    VPH(1);
+    /* out, farthest first (appended: the overlay list is drawn in order) */
+    colr0 = lut_vram + (u32)m->lut0 * 32;
+    {
+        mcmds_args  a;
+        int         room;
+
+        a.polys = polys;
+        a.tex = tex;
+        a.mnext = x->mnext;
+        a.mxy = x->mxy;
+        a.mg = x->mg;
+        a.tslot = x->tex_slot;
+        a.sframe = slot_frame;
+        a.cmds = (u32 *)vdp_overlay_block(&room);
+        a.gst = w->gst;
+        a.tid0 = m->tex_id0;
+        a.frame = frame;
+        a.svram = slot_vram;
+        a.sbytes = slot_bytes;
+        a.lb = 0;                           /* (the overlay's links are made at the submit) */
+        a.dw1 = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | colr0 >> 3;
+        a.luts4 = m->nluts > 1 ? 4 : 0;
+        a.gmax = w->gmax;
+        a.gb = w->gbase >> 3;
+        a.fifo = true;
+        a.x = x;
+        a.cnt = 0;
+        a.head = -1;
+        a.tail = -1;
+        a.gc = w->gcount;
+        a.drop = 0;
+        a.mhead = x->mhead;
+        a.wcmds = room;
+        mcmds_asm(&a);
+#if defined(VIEW_CHECK) && VIEW_CHECK < 3
+        {
+            /* (the C again from the same start: the same commands and colours?) */
+            u32         *cmds = chk_cmds, *gcs = chk_gcs, *cw = a.cmds;
+            int         n = imin(a.cnt, OVL_CHECK), ng = imin(a.gc - w->gcount, OVL_CHECK), rn, d = 0, gc0 = w->gcount;
+
+            vverts_args rva = va;
+            s16         lists[MBUCKETS + MAX_MPOLYS];   /* (the C sorts its own: the kept drawing's made from these) */
+
+            memcpy(lists, x->mhead, sizeof(lists));
+            memcpy(cmds, cw, (u32)n * 32);
+            memcpy(gcs, w->gst + gc0 * 2, (u32)ng * 8);
+            rva.pa = f0 + 24;               /* (the C reads the cart's: the DMA's copy checked too) */
+            rva.pb = f1 + 24;
+            draw_viewmodel_ref(x, m, &rva, f0, f1, lerp, gt);
+            for (i = 0; i < nv; ++i)
+                d += x->mz[i] != cmz[i] || x->moc[i] != cmoc[i] || (!(cmoc[i] & OC_NEAR) && x->mxy[i] != cmxy[i]);
+            vdp_overlay_block(&rn);
+            rn = room - rn;                 /* (the C's commands) */
+            ++view_checks[0];
+            view_checks[1] += (u32)n;
+            for (k = 0; k < n && k < rn; ++k)
+                d += (cw[k * 8] >> 16) != (cmds[k * 8] >> 16) || memcmp(&cw[k * 8 + 1], &cmds[k * 8 + 1], 28)
+                     || memcmp(&w->gst[(gc0 + k) * 2], &gcs[k * 2], 8);
+            view_checks[2] += (u32)d + (u32)iabs(rn - n) + (u32)(w->gcount - gc0 != ng);
+            vdp_overlay_add(-rn);
+            w->gcount = gc0;
+            memcpy(x->mhead, lists, sizeof(lists));
+            memcpy(cw, cmds, (u32)n * 32);
+            memcpy(w->gst + gc0 * 2, gcs, (u32)ng * 8);
+        }
+#if VIEW_CHECK == 2
+        if (kept_n >= 0)
+        {
+            /* (the kept drawing went out as this does?) */
+            view_checks[1] += (u32)kept_n;
+            view_checks[2] += (u32)(kept_n != imin(a.cnt, OVL_CHECK));
+            for (k = 0; k < kept_n && k < a.cnt; ++k)
+                view_checks[2] += (a.cmds[k * 8] >> 16) != (chk_kept[k * 8] >> 16)
+                                  || memcmp(&a.cmds[k * 8 + 1], &chk_kept[k * 8 + 1], 28)
+                                  || memcmp(&w->gst[(w->gcount + k) * 2], &chk_kgc[k * 2], 8);
+        }
+#endif
+#endif
+        vdp_overlay_add(a.cnt);
+        w->gcount = a.gc;
+        x->st.mpolys += a.cnt;
+        x->st.dropped += a.drop;
+    }
+    /* a still frame (the gun at rest): kept, to go out again as it is next frame */
+    if (f1 == f0)
+    {
+        view_kept *kp = view_keep;
+
+        for (b = MBUCKETS - 1; b >= 0; --b)
+            for (i = x->mhead[b]; i >= 0 && view_nkeep < MAX_MPOLYS; i = x->mnext[i], ++kp, ++view_nkeep)
+            {
+                const q_mpoly   *p = &polys[i];
+                const q_mtex    *mt = &tex[p->tex];
+                int             j;
+
+                kp->tex = p->tex;
+                kp->size = (u16)(((mt->w >> 3) << 8) | mt->h);
+                for (j = 0; j < 4; ++j)
+                {
+                    kp->n[j] = vn[i < np ? p->v[j] : polys[si[i - np]].v[j]];
+                    kp->xy[j] = i < np ? x->mxy[p->v[j]] : sxy[(i - np) * 4 + j];
+                }
+            }
+        view_key.m = m;
+        view_key.gen = view_gen;
+        view_key.f0 = f0i;
+        view_key.f1 = f1i;
+        view_key.lerp = lerp;
+    }
+    VPH(2);
 }
 
 /* a slot's new gun (src/view.c): its textures' old copies forgotten (only the master draws
@@ -2533,6 +3125,13 @@ static void         models_to_dsp(void)
         ent_blk[i] = (s16)nb;
         nb += blocks;
     }
+    if ((k = view_to_dsp(st, nm, nb)) > 0)
+    {
+        /* (the gun in your hands, after them) */
+        st += 24;
+        ++nm;
+        nb += k;
+    }
     if (nm)
     {
         *(volatile u32 *)UNCACHED(&dspm_count) = 0;
@@ -2547,57 +3146,6 @@ u32                 model_checks[4], model_diffs[3];   /* vertices, buckets (and
 bool                r_model_ref;            /* (tools/compare.sh with COMPARE=models: UP, draw_model's old loops) */
 #endif
 
-/* src/mdraw.s: a model's whole mesh from the DSP into screen space (offsets fixed there) */
-typedef struct
-{
-    const s32       *out;                   /* the DSP's results: blocks of 16 x, 16 y, 16 z */
-    u32             *mxy;
-    s32             *mz;
-    u8              *moc;
-    s32             n, zmin, zmax;          /* (zmin and zmax in and out) */
-}                   mverts_args;
-
-void                mverts_asm(mverts_args *a);
-
-/* ...and its polygons facing the camera into depth buckets */
-typedef struct
-{
-    const q_mpoly   *polys;
-    s32             n;
-    const u8        *moc;
-    const u32       *mxy;
-    const s32       *mz;
-    s16             *mhead;                 /* (mnext right after it) */
-    s32             zmin, inv;
-}                   mpolys_args;
-
-void                mpolys_asm(mpolys_args *a);
-
-/* ...and those into commands; the offsets are mdraw.s's M_ */
-typedef struct
-{
-    const q_mpoly   *polys;
-    const q_mtex    *tex;
-    const s16       *mnext;
-    const u32       *mxy;
-    const u16       *mg;
-    const u16       *tslot;
-    u16             *sframe;
-    u32             *cmds, *gst;
-    s32             tid0;
-    u32             frame, svram, sbytes, lb, dw1, luts4;
-    s32             gmax;
-    u32             gb, fifo;
-    r_ctx           *x;
-    s32             cnt, head, tail, gc, drop;
-    const s16       *mhead;
-    s32             wcmds;
-}                   mcmds_args;
-
-void                mcmds_asm(mcmds_args *a);
-_Static_assert(__builtin_offsetof(mcmds_args, luts4) == 60 && __builtin_offsetof(mcmds_args, cnt) == 80
-               && __builtin_offsetof(mcmds_args, wcmds) == 104, "mdraw.s: mcmds_args");
-_Static_assert(__builtin_offsetof(r_ctx, mnext) == __builtin_offsetof(r_ctx, mhead) + MBUCKETS * 2, "mdraw.s: mnext after mhead");
 
 static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
 {
@@ -2888,6 +3436,9 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         a.mhead = x->mhead;
         a.zmin = zmin;
         a.inv = inv;
+        a.sign = 0;
+        a.nearl = NULL;
+        a.nnear = 0;
         mpolys_asm(&a);
 #ifdef MODEL_CHECK
         {
@@ -3446,8 +3997,9 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         leaf_ent[l] = (s16)i;
     }
     PROF(rs.us_pre = frt_to_us((frt_read() - t0) & 0xFFFF));
-    /* the models' vertices: the DSP starts on them now */
+    /* the models' vertices: the DSP starts on them now; the gun's records on their way */
     models_to_dsp();
+    view_fetch_start(w0);
     PROF(rs.us_mdsp = frt_to_us((frt_read() - t0) & 0xFFFF) - rs.us_pre);
     /* the slave starts on the list as the walk fills it */
     ctx[0].w = w0;
@@ -3519,6 +4071,7 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
     for (i = 0; i < r_nsprites && i < MAX_SPRITES; ++i)
         leaf_spr[spr_leaf[i]] = -1;
     rs.nodes = (int)frt_to_us((frt_read() - t0) & 0xFFFF);  /* the walk's time */
+    view_fetch_more();
     /* ("faster fights", on unless OPT=-DNO_GAME_DURING_DRAW: the game's tick here,
        on the master, while the slave draws from the front of the list; the master
        then draws from the back until they meet, so the slave takes more of it) */

@@ -264,6 +264,9 @@ def main():
             shade.append(max(0, min(255, int(128 * (1.0 + 0.45 * d)))))
     pdata = b"".join(struct.pack(">4HHH", *xyz, i, 1 if xyz[2] == xyz[3] else 0)
                      for i, (xyz, st) in enumerate(polys[:npolys]))
+    # (--spare=n: room for n more records after them, which the renderer fills: the gun's
+    # polygons cut at the near plane, its records all copied in one go)
+    pdata += bytes(12 * int(opts.get("spare") or 0))
     ldata = b"".join(struct.pack(">4HHH", *xyz, npolys + i, 1 if xyz[2] == xyz[3] else 0)
                      for i, (xyz, st) in enumerate(lpolys))
     if lpolys:

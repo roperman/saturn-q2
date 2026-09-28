@@ -86,22 +86,40 @@ void                models_load_all(void)
    The frames stay on the cart: the DSP reads those */
 #define HOT_KEEP        (2048)
 
+#ifdef LEVEL_TEST
+u32                 models_cold;            /* (OPT=-DLEVEL_TEST: what didn't fit, bytes) */
+#endif
+
+static const void   *hot(const void *p, u32 bytes)
+{
+    const void      *q = level_hot_keep(p, bytes, HOT_KEEP);
+
+#ifdef LEVEL_TEST
+    if (q == p)
+        models_cold += bytes;
+#endif
+    return q;
+}
+
 void                models_hot(void)
 {
     int             i;
 
+#ifdef LEVEL_TEST
+    models_cold = 0;
+#endif
     for (i = 0; i < nmodels_loaded; ++i)
     {
         q_mdl       *m = &models[i];
 
         if (!m->loaded || m->nframes < 2)
             continue;
-        m->polys = level_hot_keep(m->polys, (u32)m->npolys * sizeof(q_mpoly), HOT_KEEP);
-        m->tex = level_hot_keep(m->tex, (u32)m->ntex * sizeof(q_mtex), HOT_KEEP);
+        m->polys = hot(m->polys, (u32)m->npolys * sizeof(q_mpoly));
+        m->tex = hot(m->tex, (u32)m->ntex * sizeof(q_mtex));
         if (m->nfpolys)
         {
-            m->fpolys = level_hot_keep(m->fpolys, (u32)m->nfpolys * sizeof(q_mpoly), HOT_KEEP);
-            m->fverts = level_hot_keep(m->fverts, (u32)m->nfverts * 2, HOT_KEEP);
+            m->fpolys = hot(m->fpolys, (u32)m->nfpolys * sizeof(q_mpoly));
+            m->fverts = hot(m->fverts, (u32)m->nfverts * 2);
         }
     }
 }

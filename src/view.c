@@ -96,6 +96,7 @@ void                view_level_init(void)
     while (cd_async_busy() && cd_async_poll(32) == 0)
         ;                                   /* (a read under way: done with, whatever it was) */
     loading = -1;
+    r_view_level();
     nslots = cart_free() >= 2 * VIEW_MAX_BYTES ? 2 : 1;
     for (k = 0; k < VIEW_SLOTS; ++k)
     {
@@ -213,6 +214,10 @@ void                view_update(s32 dt)
     if (!ok)
         return;
     vclock += dt;
+#ifdef VIEW_ANIM
+    if (state == VS_IDLE && slot_weapon[cur] == client.weapon)
+        view_fired();                       /* (OPT=-DVIEW_ANIM: firing all the time, without shots: the gun's cost animating) */
+#endif
     /* a new gun chosen: this one down (the next one read meanwhile), then that one up */
     if (slot_weapon[cur] != client.weapon && (state == VS_IDLE || state == VS_FIRE))
     {

@@ -54,6 +54,9 @@ static void         message(const char *a, const char *b)
 
 static bool         slave_ok, start_used;
 
+#ifdef LEVEL_TEST
+u32                 lt_hw[4][4], lt_nhw;
+#endif
 #ifdef FIGHT_BENCH
 /* (OPT=-DFIGHT_BENCH: START + R stands you in the round room, god mode on,
    wakes the monsters around it and times 20 seconds of the fight, the game
@@ -68,6 +71,7 @@ static u32          fight_seg[6], fight_t[7];   /* the master's frame in parts (
 # define FT(k)          (fight_t[k] = frt_read())
 static u32          fight_tt[4];                /* a box trace's parts, 0.1 us */
 static u32          fight_gun;                  /* the gun in your hands (us) */
+static u32          fight_vph[4];               /* ...its vertices, sort, commands, kept (render.c view_ph) */
 static u32          fight_r[14];
 #ifdef R_PROFILE
 static u32          fight_p[13];                 /* the world: setup, grid, cells, slow cells (us); faces, cells, C cells */
@@ -312,6 +316,15 @@ static bool         load_level(const char *name, const char *spot, bool keep)
         g_player->health = health;
     }
     view_level_init();                      /* (the gun you hold: after the above) */
+#ifdef LEVEL_TEST
+    {
+        extern u32 models_cold;
+
+        level_free(&lt_hw[lt_nhw & 3][0], &lt_hw[lt_nhw & 3][1], &lt_hw[lt_nhw & 3][2]);      /* (what's left, each level) */
+        lt_hw[lt_nhw & 3][3] = models_cold;
+        ++lt_nhw;
+    }
+#endif
     return true;
 }
 
@@ -371,6 +384,15 @@ void                main(void)
     render_sky_init();
     models_hot();
     view_level_init();
+#ifdef LEVEL_TEST
+    {
+        extern u32 models_cold;
+
+        level_free(&lt_hw[0][0], &lt_hw[0][1], &lt_hw[0][2]);
+        lt_hw[0][3] = models_cold;
+        ++lt_nhw;
+    }
+#endif
     pmove_spawn(lv.start);
     cam.yaw = lv.start_yaw;
     cam.pitch = 0;
@@ -557,6 +579,11 @@ void                main(void)
                 memset(fight_r, 0, sizeof(fight_r));
                 memset(fight_seg, 0, sizeof(fight_seg));
                 fight_gun = 0;
+                {
+                    extern u32 view_ph[4];
+
+                    memset(view_ph, 0, sizeof(view_ph));
+                }
 #ifdef R_PROFILE
                 memset(fight_p, 0, sizeof(fight_p));
 #endif
@@ -973,6 +1000,8 @@ void                main(void)
             vdp_printf(8, 169, RGB(160, 255, 160), "UPLOADS %d.%d, MODELS' %d.%d GUN %d.%d", fight_r[9] / 1000 * 10 / n / 10,
                        fight_r[9] / 1000 * 10 / n % 10, fight_r[9] % 1000 * 10 / n / 10, fight_r[9] % 1000 * 10 / n % 10,
                        fight_gun / n / 1000, fight_gun / n / 100 % 10);
+            vdp_printf(8, 196, RGB(255, 200, 160), "GUN US V%d S%d C%d K%d", fight_vph[0] / n, fight_vph[1] / n,
+                       fight_vph[2] / n, fight_vph[3] / n);
 #undef MS10
 #ifdef FIGHT_TRACES
             {
@@ -992,6 +1021,15 @@ void                main(void)
 #endif
             vdp_printf(8, 190, RGB(255, 255, 255), "UP 20:%d 40:%d 60:%d 80:%d 100+:%d", fight_swaps[1],
                        fight_swaps[2], fight_swaps[3], fight_swaps[4], fight_swaps[5] + fight_swaps[6] + fight_swaps[7]);
+        }
+#endif
+#ifdef LEVEL_TEST
+        {
+            int k;
+
+            for (k = 0; k < 3; ++k)
+                vdp_printf(8, 30 + k * 9, RGB(255, 255, 120), "HW %d LW %d CA %d COLD %d", lt_hw[k][0], lt_hw[k][1],
+                           lt_hw[k][2], lt_hw[k][3]);
         }
 #endif
         if (level_complete)
@@ -1051,6 +1089,16 @@ void                main(void)
                 extern u32 el_checks, el_diffs;
 
                 vdp_printf(8, 8, c, "MODELS DRAWN %d STALE LIGHT %d", el_checks, el_diffs);
+            }
+#elif defined(VIEW_CHECK)
+            {
+                extern u32 view_checks[7];
+
+                vdp_printf(8, 8, c, "GUN CHECK F%d CMDS %d DIFF %d", view_checks[0], view_checks[1], view_checks[2]);
+#if VIEW_CHECK == 3
+                vdp_printf(8, 208, c, "DSP V%d MOVED %d MOST %d NEAR %d", view_checks[3], view_checks[4],
+                           view_checks[5], view_checks[6]);
+#endif
             }
 #else
             vdp_printf(8, 8, c, "FPS %d.%d  CPU %dMS  WAIT %d", 10000000 / (us_frame ? us_frame : 1) / 10,
@@ -1155,6 +1203,11 @@ void                main(void)
 #endif
                 fight_r[12] += rs.t_masm;
                 fight_gun += rs.t_view;
+                {
+                    extern u32 view_ph[4];
+
+                    memcpy(fight_vph, view_ph, sizeof(fight_vph));
+                }
                 fight_r[13] += rs.t_mnorm;
                 fight_gmax = imax((s32)fight_gmax, (s32)us_game);
                 ++fight_n;

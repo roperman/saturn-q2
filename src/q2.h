@@ -29,6 +29,7 @@ s32                 fdiv(s32 a, s32 b);                     /* 16.16 a / b */
 void                cycles_measure(void);                   /* src/cycles.c: what things cost */
 void                *level_alloc_low(u32 bytes);            /* low work RAM, for what isn't hot */
 u32                 level_heap(void);                       /* src/level.c: the top of what the level took of work RAM (high) */
+void                level_free(u32 *hw, u32 *lw, u32 *cart);    /* ...and what's left: high work RAM, low, the cart */
 
 /* ---- the baked level (tools/bake_map.py writes it; big-endian, so these overlay it) ---- */
 
@@ -306,6 +307,7 @@ void                model_shade(u16 *out, const u8 *sh, const u16 *ll);    /* 16
 extern bool         view_on;                /* drawn at all (not at the title, nor in the benchmark's views) */
 const q_mdl         *view_frame(int *f0, int *f1, s32 *lerp);   /* what to draw now, or NULL */
 void                r_view_slot(int slot);  /* (render.c) a slot's new gun: its old textures forgotten, its colour tables up */
+void                r_view_level(void);     /* (render.c) a new level (the gun's) */
 void                ents_light(void);                       /* their base lighting, before drawing (master) */
 
 /* hud.c */

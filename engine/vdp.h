@@ -122,6 +122,8 @@ static inline u16   vdp_gouraud_fast(vdp_writer *w, u32 c01, u32 c23)
 
 /* overlays: drawn after all sorted polygons, in call order */
 vdp1_cmd            *vdp_overlay(void);
+vdp1_cmd            *vdp_overlay_block(int *room);         /* the next free ones, written in order... */
+void                vdp_overlay_add(int n);                 /* ...and how many were */
 void                vdp_rect(int x0, int y0, int x1, int y1, u16 color, bool half_transparent);
 void                vdp_rect_shaded(int x0, int y0, int x1, int y1, u16 color, u16 g_top, u16 g_bot);
 void                vdp_frame(int x0, int y0, int x1, int y1, u16 color);

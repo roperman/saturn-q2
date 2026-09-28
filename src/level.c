@@ -100,6 +100,14 @@ u32                 level_heap(void)
     return (u32)hw_next;
 }
 
+/* what's left: high work RAM, low, the cart */
+void                level_free(u32 *hw, u32 *lw, u32 *cart)
+{
+    *hw = (u32)(HWRAM_END - hw_next);
+    *lw = (u32)(LWRAM_END - lw_next);
+    *cart = cart_free();
+}
+
 /* out of memory: say so and stop (going on would write over the stacks) */
 static void         out_of_ram(const char *what, u32 bytes)
 {

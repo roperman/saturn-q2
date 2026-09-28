@@ -441,3 +441,66 @@ textures coarser. Flyers need flying; the tank's the size of three soldiers.
 
 Also not done, your call: the weapon in your hands (Quake 2's v_*.md2:
 as big as a soldier, drawn every frame: about 3-4 ms, and cart space).
+
+## 12. More speed, after the missing parts
+
+The fight benchmark now splits the master's frame (input, the player and
+movers, the game, before the world, the world, after it), and the static
+benchmark shows the walk's own time. Step by step (fight ms a frame; the
+fight varies a couple of ms run to run, so each is against a run of the
+build before it):
+
+| | fight frame | where |
+|---|---|---|
+| **small crops in `cells.s`** | 54.7 -> 52.3 (R_PROFILE) | the C's cells 23 -> 10 ms |
+| **dynamic lights once a grid point** | 52.3 -> 50.4 (R_PROFILE) | the C's cells 102 -> 15 a frame |
+| **the entities' light** | 45.4 -> 42.6 | before the world 4.1 -> 2.0 ms |
+
+- **Small crops** (`src/cells.s`): crops inside their grid cell, all in
+  front, under 64 pixels, texture in VRAM: cell_corners' interpolation
+  (the same sums) in the assembly, not deferred to the C. The static
+  benchmark's CPU 1868 -> 1756. Pixel compare against the C: 96 pixels
+  differ in one view (it was 100-280 in five: the crops now go out in the
+  C's order).
+- **Dynamic lights** (blaster bolts, muzzle flashes: nearly always in a
+  fight): a face under one went all through the C, each cell's corners
+  positioned and lit separately, up to four times a point: 90 of the C's
+  102 cells a fight frame, 4 ms. Now each grid point's lit once, at the
+  same position by the same sums, and the face goes through the assembly.
+  `OPT=-DDL_CHECK` compares every corner with the old way: 380,056 in a
+  fight, none different.
+- **The entities' light** (`ents_light`: 3.1 ms of a fight frame on the
+  master, before any drawing): relighting an entity made two signed-shift
+  library calls a channel for each of its 162 normals (the SH-2 has no
+  arithmetic shift by n: GCC calls a helper), and items spin, so each
+  relit about 4 times a second; and every entity found its leaf every
+  frame, twice. The sum rewritten is never negative, so unsigned shifts
+  give the same exactly (every input tried on the host); the leaf's found
+  only when the entity has moved. `tools/abcompare.sh` (the benchmark's
+  views, the working tree against a stash of the change): identical on
+  one CPU; with two, 29 pixels of cell edges in one view change CPU.
+- **A leak**: `movers_init` took its arrays from the level's heap on every
+  new game, so each "restart level" lost 1-2 KB of high work RAM (a few
+  restarts: OUT OF HIGH WORK RAM). Now once a level. Six restarts in a row
+  checked.
+- **The 68000 sound driver** is loaded from the CD (`SND68K.BIN`) rather
+  than carried in the program: 4 KB of high work RAM back.
+
+Now, in the fight (no profiling): frame 42.6 ms, 406 of 412 pictures up
+for 40 ms (25 a second on PAL). The master's frame: the player and movers
+1.7 ms, the game 7.3, before the world 2.0, the world 29.8 (its walk about
+7, then its share of the list while the slave draws the rest).
+
+**Faster fights** (the game during the drawing) on top of all this:
+40.4 ms a frame, 481 pictures at 40 ms and 14 at 60. Still your call (the
+game's tick then comes a frame later relative to what's drawn).
+
+Looked at and left:
+- **The traces in assembly**: about 9 leaves, 13 brushes, 94 sides a box
+  trace; the time's spread over the loads and the sums, about half each.
+  Assembly would save roughly 0.5 ms a fight frame: not worth the risk.
+- **The grid**: already assembly with the divides overlapped.
+- **The walk** (6.7 ms a frame, the master's): 1,450 nodes and 570 leaves
+  a frame at about 90 cycles each, most of it memory.
+- Other library calls for shifts and divides: in code that runs a few
+  times a frame (the sky, a model's setup, the C's near cells).

@@ -129,7 +129,10 @@ _Static_assert(__builtin_offsetof(cell_args, cell0) == 96 && __builtin_offsetof(
 void                cells_asm(cell_args *a);
 bool                r_cells_asm = true;
 bool                r_nosplit;              /* (for comparing: whole tiles near the camera in one piece) */
-bool                r_dl_verts = true;      /* dynamic lights added once a grid point (not at each cell's corners) */
+bool                r_dl_verts = true;
+#ifdef ENTLIGHT_CHECK
+u32                 el_checks, el_diffs;
+#endif      /* dynamic lights added once a grid point (not at each cell's corners) */
 #ifdef DL_CHECK
 u32                 dl_checks, dl_diffs;    /* (OPT=-DDL_CHECK: the corners' sums as well, compared) */
 #endif
@@ -637,6 +640,13 @@ static void         mark_leaves(int cluster)
         for (n = leaf_parent[i]; n >= 0 && node_vis[n] != visframe; n = node_parent[n])
             node_vis[n] = visframe;
     }
+}
+
+/* is the PVS that's marked (r_leaf_in_pvs's) this cluster's? (render_world marks the
+   camera's when it changes cluster) */
+bool                r_pvs_marked(int cluster)
+{
+    return cluster >= 0 && cluster == view_cluster;
 }
 
 /* is a leaf in the camera's PVS? (for the AI: can't see what isn't) */
@@ -2286,6 +2296,15 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     int             nvl = nv, vi;
     vdp_writer      *w = x->w;
     u32             t0 = frt_read();
+#ifdef ENTLIGHT_CHECK
+    {
+        /* (OPT=-DENTLIGHT_CHECK: its light made for the leaf it's in, turned as it is) */
+        extern u32 el_checks, el_diffs;
+
+        ++el_checks;
+        el_diffs += e->g_litleaf != e->g_leaf || e->g_yaw != (int)(((u32)e->yaw >> 12) & 15);
+    }
+#endif
 
     if (ent_dsp[ei] < 0 && !model_xf(e, &xf))
         return;

@@ -280,6 +280,7 @@ typedef struct
     /* its light by normal, as Gouraud colours: the leaf's light and Quake's
        shading, remade when it changes leaf or turns (ents_light) */
     u16             gbase[162];
+    s16             g_litleaf;              /* the leaf gbase is for (with g_yaw): -1 none */
     int             g_leaf, g_yaw;          /* (g_leaf: the leaf it's in, after ents_light) */
 }                   q_entity;
 _Static_assert(sizeof(q_entity) == 384, "q_entity: g_moved in the padding");
@@ -323,5 +324,6 @@ void                render_slave(void);                     /* the slave's part,
 void                render_sky_init(void);                  /* the skybox's horizon on a VDP2 layer */
 void                render_sky(void);                       /* per frame, after cam_update() */
 bool                r_leaf_in_pvs(int leaf);                /* in the camera's PVS */
+bool                r_pvs_marked(int cluster);              /* the PVS marked is this cluster's (and it's one) */
 
 #endif

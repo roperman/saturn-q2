@@ -124,6 +124,11 @@ _Static_assert(MODEL_K <= 16, "ents_light: its sums stay unsigned");
 void                ents_light(void)
 {
     int             i, n;
+    /* only what can be drawn this frame is lit now: what's in a leaf of the PVS render_world
+       walks (the one marked, if it's the camera's: not on a frame the camera's changed cluster,
+       when everything is, as before). The rest keeps what it was lit for (g_litleaf, g_yaw),
+       and is lit when it's next in the PVS */
+    bool            pvs = r_pvs_marked(lv.leafs[level_leaf(cam.pos)].cluster);
 
     for (i = 0; i < nents; ++i)
     {
@@ -134,13 +139,18 @@ void                ents_light(void)
 
         if (!e->live)
             continue;
+        if (e->g_leaf < 0)
+            e->g_litleaf = -1;              /* (new, or a new level: nothing lit yet) */
         /* its leaf: again only if it's moved (items stand still; render_world uses it too) */
         leaf = e->g_moved || e->g_leaf < 0 ? level_leaf(e->origin) : e->g_leaf;
+        e->g_leaf = leaf;
         e->g_moved = false;
         ys = (int)((u32)e->yaw >> 12) & 15;
-        if (leaf == e->g_leaf && ys == e->g_yaw)
+        if (leaf == e->g_litleaf && ys == e->g_yaw)
             continue;
-        e->g_leaf = leaf;
+        if (pvs && !r_leaf_in_pvs(leaf))
+            continue;                       /* not drawn this frame */
+        e->g_litleaf = (s16)leaf;
         e->g_yaw = ys;
         ll = &lv.leaflight[leaf * 4];
         sh = e->mdl->shade + ys * 162;

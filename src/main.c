@@ -615,6 +615,14 @@ void                main(void)
             cmd.forward = pad_now & PAD_UP ? FIX(300) : pad_now & PAD_DOWN ? -FIX(300) : 0;
             cmd.side = pad_now & PAD_R ? FIX(300) : pad_now & PAD_L ? -FIX(300) : 0;
             cmd.up = pad_now & PAD_A && !(pad_now & PAD_START) ? FIX(300) : 0;
+#if defined(ENTLIGHT_CHECK) && !defined(FIGHT_BENCH)
+            if (!paused)
+            {
+                cmd.forward = FIX(300);         /* (walking in wide circles: new clusters, new things in view) */
+                cam.yaw = (cam.yaw + 0x60) & 0xFFFF;
+                cmd.yaw = cam.yaw;
+            }
+#endif
 #ifdef LADDER_CHECK
             if (!paused)
             {
@@ -884,6 +892,13 @@ void                main(void)
                            model_checks[2]);
             }
 #endif
+#ifdef ENTLIGHT_CHECK
+            {
+                extern u32 el_checks, el_diffs;
+
+                vdp_printf(8, 39, RGB(255, 255, 120), "MODELS DRAWN %d STALE LIGHT %d", el_checks, el_diffs);
+            }
+#endif
 #ifdef DL_CHECK
             {
                 extern u32 dl_checks, dl_diffs;
@@ -1002,6 +1017,12 @@ void                main(void)
                 extern u32 lc_frames, lc_near, lc_ladder, lc_bad;
 
                 vdp_printf(8, 8, c, "LADDER F%d NEAR%d ON%d BAD%d", lc_frames, lc_near, lc_ladder, lc_bad);
+            }
+#elif defined(ENTLIGHT_CHECK)
+            {
+                extern u32 el_checks, el_diffs;
+
+                vdp_printf(8, 8, c, "MODELS DRAWN %d STALE LIGHT %d", el_checks, el_diffs);
             }
 #else
             vdp_printf(8, 8, c, "FPS %d.%d  CPU %dMS  WAIT %d", 10000000 / (us_frame ? us_frame : 1) / 10,

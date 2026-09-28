@@ -130,6 +130,12 @@ s32                 r_lod_z = FIX(LOD_Z);
 #endif
 int                 r_model_far = MODEL_FAR;
 static u16          cell_all[MAX_ROW];      /* the cells' numbers, for the C doing a whole row */
+#define UPQ             (256)               /* texture uploads a CPU can queue in a frame (then it copies them itself) */
+#ifdef NO_DMA_UPLOADS
+bool                r_dma_uploads = false;
+#else
+bool                r_dma_uploads = true;
+#endif
 
 /* each CPU's own: its writer, scratch, statistics and half of the texture cache */
 typedef struct
@@ -156,6 +162,9 @@ typedef struct
     int             slot0, nslots, hand;
     bool            full;
     u16             *tex_slot;              /* per texture: its slot or 0xFFFF */
+    const void      *up_src[UPQ];           /* textures to copy into VRAM at the frame's end (tex_upload) */
+    u32             up_dst[UPQ];            /* VRAM offset << 8 | longs */
+    int             nup;
 }                   r_ctx;
 
 r_stats             rs;
@@ -503,6 +512,20 @@ void                render_init(void)
 }
 
 /* a texture into this CPU's part of the cache: -1 if no slot is free */
+/* A texture into its slot: queued for the SCU's DMA at the frame's end (the
+   cart to VDP1's VRAM on the SCU's own buses, not the CPUs'; a CPU's store
+   to VRAM is 111 cycles), or copied now if the queue's full */
+static void         tex_upload(r_ctx *x, u32 vram, const void *src, u32 bytes)
+{
+    if (r_dma_uploads && x->nup < UPQ && !(((u32)src | vram | bytes) & 3))
+    {
+        x->up_src[x->nup] = src;
+        x->up_dst[x->nup++] = vram << 8 | bytes >> 2;
+    }
+    else
+        memcpy((u8 *)VDP1_VRAM + vram, src, bytes);
+}
+
 s32                 tex_load(r_ctx *x, int t);      /* (src/mdraw.s calls it) */
 
 __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
@@ -536,7 +559,7 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
         tx = &lv.textures[t];
         slot_lut[s] = tx->lut;
         slot_w[s] = (u8)tx->w;
-        memcpy((u8 *)VDP1_VRAM + slot_vram + (u32)s * slot_bytes, lv.texdata + tx->ofs, (u32)tx->w * tx->h / 2);
+        tex_upload(x, slot_vram + (u32)s * slot_bytes, lv.texdata + tx->ofs, (u32)tx->w * tx->h / 2);
     }
     else
     {
@@ -553,8 +576,8 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
             {
                 const q_mtex *mt = &md->tex[k % md->ntex];
 
-                memcpy((u8 *)VDP1_VRAM + slot_vram + (u32)s * slot_bytes,
-                       md->texdata + (u32)(k / md->ntex) * md->per_skin + mt->ofs, (u32)mt->w * mt->h / 2);
+                tex_upload(x, slot_vram + (u32)s * slot_bytes,
+                           md->texdata + (u32)(k / md->ntex) * md->per_skin + mt->ofs, (u32)mt->w * mt->h / 2);
                 break;
             }
         }
@@ -2689,10 +2712,15 @@ static void         draw_item(r_ctx *x, int i, bool uncached)
         draw_face(x, f, m);
 }
 
+#ifdef UPLOAD_CHECK
+u32                 upload_checks, upload_diffs;
+#endif
+
 static void         part_begin(r_ctx *x)
 {
     memset(&x->st, 0, sizeof(x->st));
     x->full = false;
+    x->nup = 0;
 }
 
 void                render_slave(void)
@@ -2891,6 +2919,33 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
     draw_master();
     if (r_two_cpus)
         wait_signal();
+    /* both done: the textures they queued into VRAM (the slave's queue read
+       uncached: it wrote it), before VDP1 can draw them (after the swap) */
+    for (i = 0; i < 2; ++i)
+    {
+        r_ctx       *c = i ? (r_ctx *)UNCACHED(&ctx[1]) : &ctx[0];
+        int         n = c->nup, k;
+
+        for (k = 0; k < n; ++k)
+        {
+            u32 d = c->up_dst[k];
+
+            scu_dma0((void *)(VDP1_VRAM + (d >> 8)), c->up_src[k], (d & 255) * 4, true);
+            while (scu_dma0_busy())
+                ;
+#ifdef UPLOAD_CHECK
+            {
+                /* (OPT=-DUPLOAD_CHECK: read back and compared) */
+                extern u32 upload_checks, upload_diffs;
+
+                ++upload_checks;
+                if (memcmp((const void *)(VDP1_VRAM + (d >> 8)), c->up_src[k], (d & 255) * 4))
+                    ++upload_diffs;
+            }
+#endif
+        }
+        c->nup = 0;
+    }
     /* the totals (the slave's through the cache's back door: it wrote them) */
     for (i = 0; i < 2; ++i)
     {

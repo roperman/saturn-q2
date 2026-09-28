@@ -8,7 +8,7 @@ sleep ${BOOT:-45}
 w=$(xdotool search --class mednafen | tail -1)
 xdotool windowactivate --sync "$w"
 xdotool keydown Return; sleep 0.1; xdotool keydown e; sleep 0.12; xdotool keyup e; sleep 0.1; xdotool keyup Return
-sleep 18
+sleep ${RUN:-18}
 tools/emu.sh snap "$OUT" >/dev/null
 python3 - "$OUT" <<'PY'
 import sys

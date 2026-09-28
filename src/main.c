@@ -94,7 +94,13 @@ static const s32    bench_demo2[][5] = {
 };
 #define NBENCH          (6)                 /* views in each */
 static const s32    (*bench_views)[5];
-#define BENCH_FRAMES    (16)
+#ifdef TURN_BENCH
+/* (OPT=-DTURN_BENCH: at each view a full turn in 90 frames, textures and all:
+   the first column is then the texture uploads a frame, not the walk) */
+# define BENCH_FRAMES   (92)
+#else
+# define BENCH_FRAMES   (16)
+#endif
 static int          bench_view = -1, bench_frame;
 static u32          bench_acc[NBENCH][7];   /* walk, master, slave, cpu, frame (us, summed), vblanks waiting for VDP1, the lists' DMA */
 static u32          bench_prof[15];         /* setup, grid, cells, slow, models, nfast, nslow, faces, the models' light, verts, polys */
@@ -481,6 +487,9 @@ void                main(void)
             cam.pos[1] = FIX(bv[1]);
             cam.pos[2] = FIX(bv[2]);
             cam.yaw = (int)bv[3];
+#ifdef TURN_BENCH
+            cam.yaw = (cam.yaw + bench_frame * (65536 / 90)) & 0xFFFF;
+#endif
             cam.pitch = (int)bv[4];
             cam_update();
             render_sky();
@@ -504,7 +513,11 @@ void                main(void)
             {
                 u32 *a = bench_acc[bench_view];
 
+#ifdef TURN_BENCH
+                a[0] += (u32)rs.uploads * 100;
+#else
                 a[0] += (u32)rs.nodes;
+#endif
                 a[1] += rs.t_face;
                 a[2] += rs.t_grid;
                 a[3] += us_cpu;
@@ -595,7 +608,18 @@ void                main(void)
             u32 tot[5] = { 0, 0, 0, 0, 0 };
             int v, k, n = BENCH_FRAMES - 2;
 
+#ifdef TURN_BENCH
+            vdp_text(8, 96, RGB(255, 220, 120), "V UPLD MAST SLAV CPU FRM  WT DMA");
+# ifdef UPLOAD_CHECK
+            {
+                extern u32 upload_checks, upload_diffs;
+
+                vdp_printf(8, 30, RGB(255, 255, 120), "UPLOADS %d DIFF %d", upload_checks, upload_diffs);
+            }
+# endif
+#else
             vdp_text(8, 96, RGB(255, 220, 120), "V WALK MAST SLAV CPU FRM  WT DMA");
+#endif
             for (v = 0; v < NBENCH; ++v)
             {
                 u32 *a = bench_acc[v];

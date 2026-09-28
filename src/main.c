@@ -235,6 +235,79 @@ static void         game_step(void)
     us_game = frt_to_us((frt_read() - tg) & 0xFFFF);
 }
 
+static char         cur_map[16] = MAP_FILE; /* the level loaded ("DEMO1.MAP") */
+static u32          vram_base;              /* VRAM before the HUD's pictures: all a level's again */
+
+static bool         same(const char *a, const char *b)
+{
+    while (*a && *a == *b)
+        ++a, ++b;
+    return *a == *b;
+}
+
+/* "demo2" in place of this level, you at its start called spot (NULL, or not
+   found: the usual one); keep: you as you were (health, armour, weapons, ammo),
+   as from one of Quake's levels to the next. false: it's not on the disc */
+static bool         load_level(const char *name, const char *spot, bool keep)
+{
+    char            file[16], at[16];
+    g_client        was = client;
+    int             health = g_player ? g_player->health : 100, i;
+    u32             lba, size;
+    const s32       *origin = lv.start;
+    int             yaw = lv.start_yaw;
+
+    for (i = 0; name[i] && name[i] != '$' && i < 10; ++i)
+        file[i] = (char)(name[i] >= 'a' && name[i] <= 'z' ? name[i] - 32 : name[i]);
+    memcpy(file + i, ".MAP", 5);
+    if (!cd_find(file, &lba, &size))
+        return false;
+    for (i = 0; spot && spot[i] && i < 15; ++i)
+        at[i] = spot[i];                    /* (spot's in this level's strings: gone soon) */
+    at[i] = 0;
+    message("QUAKE II", "LOADING");
+    g_edicts = NULL;                        /* (they, and these, come out of the level's memory again) */
+    mover_gone = NULL;
+    if (!level_load(file))
+        for (;;)
+            message(file, "WON'T LOAD");
+    memcpy(cur_map, file, sizeof(cur_map));
+    bench_views = cur_map[4] == '2' ? bench_demo2 : bench_demo1;
+    models_load_all();
+    vdp_tex_release(vram_base);
+    hud_init();
+    render_init();
+    trace_init();
+    movers_init();
+    g_init();
+    render_sky_init();
+    models_hot();
+    fx_reset();
+    for (i = 0; i < MAX_ENTITIES; ++i)
+    {
+        ents[i].live = false;
+        ents[i].g_leaf = -1;
+    }
+    for (i = 0; spot && i < lv.nstarts; ++i)
+        if (same(lv.starts[i].name, at))
+        {
+            origin = lv.starts[i].origin;
+            yaw = (int)(((s64)lv.starts[i].angle * 0x10000 / 360) >> 16);
+        }
+    if (!spot)
+        yaw = lv.start_yaw;
+    pmove_spawn(origin);
+    cam.yaw = yaw & 0xFFFF;
+    cam.pitch = 0;
+    if (keep)
+    {
+        client = was;
+        client.fire_time = client.quad_until = client.invul_until = client.pickup_flash = 0;
+        g_player->health = health;
+    }
+    return true;
+}
+
 /* the level from the start: its movers, its monsters and items (at the skill chosen), you */
 static void         new_game(void)
 {
@@ -272,6 +345,7 @@ void                main(void)
     models_load_all();
     message("QUAKE II", "LOADING THE SOUNDS");
     s_init();
+    vram_base = vdp_tex_mark();
     hud_init();
     render_init();
     trace_init();
@@ -351,7 +425,9 @@ void                main(void)
         {
             menu_action a = menu_input((u16)(pad_now & ~pad_prev));
 
-            if (a == MA_NEW_GAME || a == MA_TITLE)
+            if (a == MA_NEW_GAME && !same(cur_map, "DEMO1.MAP"))
+                load_level("demo1", NULL, false);       /* a new game's from the first level */
+            else if (a == MA_NEW_GAME || a == MA_RESTART || a == MA_TITLE)
                 new_game();
             paused = menu_active();
             if (pad_now & PAD_START)
@@ -365,15 +441,36 @@ void                main(void)
             {
                 if (level_complete)
                 {
-                    movers_init();
-                    g_init();
+                    /* through the exit to the next level (its name, then the start you come in at);
+                       not on the disc (the demo's victory screen): the end, back to the title */
+                    const char *n = g_next_map, *spot = NULL, *d;
+
+                    if (n)
+                    {
+                        for (d = n; *d && *d != '$'; ++d)
+                            ;
+                        if (*d == '$')
+                            spot = d + 1;
+                    }
+                    if (!n || !load_level(n, spot, true))
+                    {
+                        if (!same(cur_map, "DEMO1.MAP"))
+                            load_level("demo1", NULL, false);
+                        else
+                            new_game();
+                        menu_open(MENU_MAIN);
+                    }
+                    g_next_map = NULL;
                 }
-                pmove_spawn(lv.start);
-                cam.yaw = lv.start_yaw;
-                cam.pitch = 0;
-                g_player->dead = false;
-                g_player->health = 100;
-                start_used = true;              /* not the stats too */
+                else
+                {
+                    pmove_spawn(lv.start);
+                    cam.yaw = lv.start_yaw;
+                    cam.pitch = 0;
+                    g_player->dead = false;
+                    g_player->health = 100;
+                }
+                start_used = true;              /* not the pause menu too */
             }
         }
         if (pad_now & PAD_START && pad_now & (PAD_A | PAD_B | PAD_C | PAD_X | PAD_Y | PAD_Z | PAD_L | PAD_R))
@@ -611,6 +708,21 @@ void                main(void)
             }
             continue;
         }
+#ifdef LEVEL_TEST
+        /* (OPT=-DLEVEL_TEST: each level's exit in turn, 80 frames in) */
+        if (!paused && !level_complete && !g_player->dead)
+        {
+            static int lt_frames, lt_n;
+            static const char *exits[] = { "demo2$base1", "demo3$base2a", "demo2$base3b", "victory.pcx" };
+
+            if (++lt_frames == 80 && lt_n < 4)
+            {
+                g_next_map = exits[lt_n++];
+                level_complete = true;
+                lt_frames = 0;
+            }
+        }
+#endif
         if (!paused)
         {
             movers_update(dt);
@@ -804,7 +916,9 @@ void                main(void)
             vdp_text(160 - 7 * 8, 60, RGB(255, 220, 120), "LEVEL COMPLETE");
             vdp_printf(160 - 9 * 8, 80, RGB(255, 255, 255), "KILLS   %d / %d", kills, total_monsters);
             vdp_printf(160 - 9 * 8, 92, RGB(255, 255, 255), "SECRETS %d / %d", found_secrets, total_secrets);
-            vdp_text(160 - 11 * 8, 116, RGB(200, 200, 200), "PRESS START TO GO AGAIN");
+            if (g_next_map && g_next_map[0] == 'v')
+                vdp_text(160 - 14 * 4, 116, RGB(255, 220, 120), "THE END OF THE DEMO");    /* ("victory.pcx") */
+            vdp_text(160 - 20 * 4, 132, RGB(200, 200, 200), "PRESS START TO GO ON");
         }
         {
             if (opt_stats)

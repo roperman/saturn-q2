@@ -455,6 +455,7 @@ void                g_init(void)
     g_player = &g_edicts[0];
     memset(g_edicts, 0, MAX_EDICTS * sizeof(g_ent));
     memset(&level, 0, sizeof(level));
+    ai_reset();
     for (i = 0; i < MON_GROUPS; ++i)
         level.mon_acc[i] = FRAMETIME * i / MON_GROUPS;
     kills = total_monsters = found_secrets = total_secrets = found_goals = total_goals = 0;

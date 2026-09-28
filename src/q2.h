@@ -76,6 +76,8 @@ typedef struct { u8 kind, flags; s16 team_next; u16 targetname, target; s32 move
 #define MF_SHOOT        (4)
 /* things placed in the map (tools/bake_map.py spawns()) */
 typedef struct { u16 kind, angle; u32 spawnflags; s32 origin[3]; } q_spawn;
+/* the player's starts, by name (tools/bake_map.py): a level's exit names the next's */
+typedef struct { char name[16]; s32 origin[3], angle; } q_start;
 #define SPAWN_SOLDIER_LIGHT (1)
 #define SPAWN_SOLDIER   (2)
 #define SPAWN_SOLDIER_SS (3)
@@ -131,6 +133,8 @@ typedef struct
     const u16       *sky;                   /* w, h, palette[16], above, below, zenith, then 4bpp pixels */
     const q_spawn   *spawns;
     int             nspawns;
+    const q_start   *starts;
+    int             nstarts;
     const u16       *leaflight;             /* per leaf: r g b brightness (8.8), pad */
     const void      *erecs;                 /* the map's entities (game.h q_erec) */
     int             nerecs;
@@ -236,6 +240,7 @@ void                fx_grenade(struct g_ent_s *owner, const s32 *start, const s3
 void                fx_rocket(struct g_ent_s *owner, const s32 *start, const s32 *dir, int damage, int radius_damage);
 void                fx_render(void);                       /* rockets and grenades into the renderer's entities */
 void                fx_update(s32 dt);                      /* moves things, then fills the lights and sprites */
+void                fx_reset(void);                         /* a new level: nothing in flight */
 
 /* model.c: MD2 models (tools/bake_md2.py) */
 typedef struct { u16 v[4], tex, flags; } q_mpoly;           /* flags 1: a triangle (v[3] == v[2]) */

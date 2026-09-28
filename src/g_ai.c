@@ -382,6 +382,15 @@ static int          sight_entity_framenum;
 g_ent               *sound_entity;
 int                 sound_entity_framenum;
 
+/* a new level (g_init): no one's seen or heard anything */
+void                ai_reset(void)
+{
+    sight_entity = NULL;
+    sight_entity_framenum = 0;
+    sound_entity = NULL;
+    sound_entity_framenum = 0;
+}
+
 void                FoundTarget(g_ent *self)
 {
     int             k;

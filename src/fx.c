@@ -264,6 +264,14 @@ static void         move_proj(t_proj *p, s32 dt)
     }
 }
 
+/* a new level: nothing flying, burning or glowing */
+void                fx_reset(void)
+{
+    memset(proj, 0, sizeof(proj));
+    memset(flashes, 0, sizeof(flashes));
+    memset(sparks, 0, sizeof(sparks));
+}
+
 void                fx_update(s32 dt)
 {
     int             i, k;

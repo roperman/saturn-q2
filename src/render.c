@@ -365,6 +365,7 @@ void                render_init(void)
     u32             base = vdp_tex_mark(), free = vdp_tex_free();
     u8              *vram = (u8 *)VDP1_VRAM;
 
+    view_cluster = -2;                      /* (a new level: work out what's visible again) */
     kx = CX * 65536 / FOCAL;
     ky = CY * 65536 / FOCAL;
     for (i = 0; i < MAX_ROW; ++i)

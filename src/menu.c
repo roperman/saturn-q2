@@ -147,7 +147,7 @@ menu_action         menu_input(u16 pressed)
                     options_from = MENU_PAUSE;
                     menu_open(MENU_OPTIONS);
                     break;
-                case 2: menu_cur = MENU_NONE; return MA_NEW_GAME;
+                case 2: menu_cur = MENU_NONE; return MA_RESTART;
                 case 3: menu_open(MENU_MAIN); return MA_TITLE;
             }
             break;

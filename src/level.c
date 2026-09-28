@@ -175,6 +175,8 @@ bool                level_load(const char *name)
     lv.lodfaces = (const q_lodface *)(b + h[50]);
     lv.lodcells = (const q_cell *)(b + h[52]);
     lv.lodlights = (const u16 *)(b + h[54]);
+    lv.starts = (const q_start *)(b + h[56]);
+    lv.nstarts = (int)h[57];
     cart_next = CART_BASE + (((u32)size + 2047) & ~2047u);
     hw_next = (u8 *)(((u32)_bss_end + 15) & ~15u);
     lw_next = LWRAM_BASE;

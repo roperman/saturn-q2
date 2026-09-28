@@ -298,9 +298,12 @@ static void         use_help(g_ent *self, g_ent *other, g_ent *activator)
     g_centerprint("Computer updated");
 }
 
+const char          *g_next_map;
+
 static void         use_changelevel(g_ent *self, g_ent *other, g_ent *activator)
 {
     level_complete = true;
+    g_next_map = self->message;             /* (the map key: where it leads) */
 }
 
 /* ---- misc_explobox: the barrel ---- */

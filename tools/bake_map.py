@@ -532,6 +532,14 @@ class Baker:
                 if "targetname" not in e:
                     break
         lump("start", struct.pack(">4i", fx(start[0]), fx(start[1]), fx(start[2]), fx(angle)))
+        # every start, by name (another level's exit names the one you arrive at: "demo2$base1")
+        starts = []
+        for e in b.parse_entities():
+            if e.get("classname") == "info_player_start":
+                o = [float(x) for x in e["origin"].split()]
+                starts.append(struct.pack(">16s4i", e.get("targetname", "").encode("latin-1")[:15],
+                                          fx(o[0]), fx(o[1]), fx(o[2]), fx(float(e.get("angle", 0)))))
+        lump("starts", b"".join(starts))
         movers = self.movers()
         lump("movers", b"".join(movers))
         lump("sky", self.sky())
@@ -560,7 +568,7 @@ class Baker:
         lump("leafbrushes", struct.pack(">%dH" % len(b.leafbrushes), *b.leafbrushes))
         order = ["planes", "nodes", "leafs", "marks", "faces", "cells", "lights", "textures", "texdata", "luts",
                  "vis", "models", "start", "brushes", "brushsides", "leafbrushes", "movers", "facevis", "sky", "spawns",
-                 "leaflight", "entities2", "strings", "axes", "quarts", "lodfaces", "lodcells", "lodlights"]
+                 "leaflight", "entities2", "strings", "axes", "quarts", "lodfaces", "lodcells", "lodlights", "starts"]
         counts = {"planes": len(b.planes), "nodes": len(b.nodes), "leafs": len(b.leafs), "marks": len(b.leaffaces),
                   "faces": len(faces), "cells": ncells, "lights": nlights, "textures": len(self.textures),
                   "texdata": len(tex_blob), "luts": len(self.tile_data), "vis": b.numclusters,
@@ -568,7 +576,8 @@ class Baker:
                   "brushsides": len(b.brushsides), "leafbrushes": len(b.leafbrushes), "movers": len(movers),
                   "facevis": len(rows), "sky": 1, "spawns": len(spawns), "leaflight": len(b.leafs),
                   "entities2": len(erecs), "strings": len(estrings), "axes": len(axes),
-                  "quarts": len(self.tile_data), "lodfaces": len(lods), "lodcells": nlc, "lodlights": nll}
+                  "quarts": len(self.tile_data), "lodfaces": len(lods), "lodcells": nlc, "lodlights": nll,
+                  "starts": len(starts)}
         hsize = (12 + 8 * len(order) + 31) & ~31
         final = bytearray(b"Q2SL" + struct.pack(">IHH", 1, T, self.N))
         for n in order:

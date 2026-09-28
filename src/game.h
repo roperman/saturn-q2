@@ -205,6 +205,8 @@ bool                visible(const g_ent *self, const g_ent *other);
 bool                infront(const g_ent *self, const g_ent *other);
 bool                FindTarget(g_ent *self);
 void                FoundTarget(g_ent *self);
+void                ai_reset(void);
+extern const char   *g_next_map;                /* the exit taken: "demo2$base1" (NULL: none) */
 
 /* src/sound.c: SND_ ids (obj/gen/sound_ids.h, tools/bake_sound.py); attenuations as Quake's */
 #include "sound_ids.h"
@@ -217,7 +219,7 @@ void                s_play(int id, const s32 *origin, int atten);
 
 /* src/menu.c */
 typedef enum { MENU_NONE, MENU_MAIN, MENU_SKILL, MENU_OPTIONS, MENU_PAUSE } menu_id;
-typedef enum { MA_NONE, MA_NEW_GAME, MA_RESUME, MA_TITLE } menu_action;
+typedef enum { MA_NONE, MA_NEW_GAME, MA_RESTART, MA_RESUME, MA_TITLE } menu_action;
 extern menu_id      menu_cur;
 extern int          g_skill;                    /* 0-2; -1: everything spawns */
 extern int          opt_volume;

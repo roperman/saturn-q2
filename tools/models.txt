@@ -30,3 +30,12 @@ g_machn   W_MACHN.MDL  models/weapons/g_machn/tris.md2   skin  -  sharedlut
 g_chain   W_CHAIN.MDL  models/weapons/g_chain/tris.md2   skin  -  sharedlut
 g_launch  W_LAUNCH.MDL models/weapons/g_launch/tris.md2  skin  -  sharedlut
 g_rocket  W_ROCKET.MDL models/weapons/g_rocket/tris.md2  skin  -  sharedlut
+# The gun in your hands (src/view.c): in the weapons' order (W_BLASTER ...), one loaded at a time.
+# Quake 2's frame numbers (Weapon_Generic's): raising, firing, the first idle frame (no fidgeting), lowering.
+v_blast   V_BLAST.MDL  models/weapons/v_blast/tris.md2   skin  active:#0-#4,fire:#5-#8,idle:#9-#9,putway:#53-#55     view
+v_shotg   V_SHOTG.MDL  models/weapons/v_shotg/tris.md2   skin  active:#0-#7,fire:#8-#18,idle:#19-#19,putway:#37-#39  view
+v_shotg2  V_SSG.MDL    models/weapons/v_shotg2/tris.md2  skin  active:#0-#6,fire:#7-#17,idle:#18-#18,putway:#58-#61  view
+v_machn   V_MACHN.MDL  models/weapons/v_machn/tris.md2   skin  active:#0-#3,fire:#4-#5,idle:#6-#6,putway:#46-#49     view
+v_chain   V_CHAIN.MDL  models/weapons/v_chain/tris.md2   skin  active:#0-#4,fire:#5-#31,idle:#32-#32,putway:#62-#64  view
+v_launch  V_LAUNCH.MDL models/weapons/v_launch/tris.md2  skin  active:#0-#5,fire:#6-#16,idle:#17-#17,putway:#60-#64  view
+v_rocket  V_ROCKET.MDL models/weapons/v_rocket/tris.md2  skin  active:#0-#4,fire:#5-#12,idle:#13-#13,putway:#51-#54  view

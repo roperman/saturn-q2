@@ -266,4 +266,11 @@ extern s32          center_until;
 /* m_soldier.c */
 void                SP_monster_x_soldier(g_ent *self, int skin);
 
+/* view.c: the gun in your hands */
+void                view_level_init(void);  /* a new level (after render_init): its slots, your gun in one */
+void                view_reset(void);       /* a new game, a restart: your gun (the blaster), up */
+void                view_update(s32 dt);    /* once a frame */
+void                view_fired(void);       /* a shot */
+bool                view_ready(void);       /* the gun's up: it can fire */
+
 #endif

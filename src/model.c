@@ -11,7 +11,7 @@
 */
 #include "q2.h"
 
-q_mdl               models[MDL_COUNT];
+q_mdl               models[MDL_COUNT + VIEW_SLOTS];
 int                 nmodels_loaded;
 static const char   *model_files[MDL_COUNT] = { MDL_FILES };
 q_entity            ents[MAX_ENTITIES];
@@ -20,10 +20,16 @@ int                 nents;
 bool                model_load(q_mdl *m, const char *file)
 {
     const u8        *b = cart_load(file);
+
+    return b && model_parse(m, b);
+}
+
+bool                model_parse(q_mdl *m, const u8 *b)
+{
     const u16       *h16;
     const u32       *h32;
 
-    if (!b || memcmp(b, "Q2MD", 4))
+    if (memcmp(b, "Q2MD", 4))
         return false;
     h16 = (const u16 *)(b + 4);
     h32 = (const u32 *)(b + 16);
@@ -121,9 +127,32 @@ int                 model_anim(const q_mdl *m, const char *name)
 
 _Static_assert(MODEL_K <= 16, "ents_light: its sums stay unsigned");
 
+/* the 162 normals' Gouraud colours: a leaf's light (ll: r g b, 8.8) times a yaw's shading */
+void                model_shade(u16 *out, const u8 *sh, const u16 *ll)
+{
+    u32             l0 = ll[0], l1 = ll[1], l2 = ll[2];
+    int             n;
+
+    for (n = 0; n < 162; ++n)
+    {
+        /* iclamp(16 + ((((l s) >> 7) - 256) MODEL_K >> 8), 0, 31) with the 16 inside the
+           shift: never negative then, so unsigned shifts (a signed one is a library call,
+           two a channel here) give the same, exactly (every l and s tried) */
+        u32 s = sh[n];
+        u32 g0 = (((l0 * s) >> 7) * MODEL_K + 256 * (16 - MODEL_K)) >> 8;
+        u32 g1 = (((l1 * s) >> 7) * MODEL_K + 256 * (16 - MODEL_K)) >> 8;
+        u32 g2 = (((l2 * s) >> 7) * MODEL_K + 256 * (16 - MODEL_K)) >> 8;
+
+        g0 = g0 > 31 ? 31 : g0;
+        g1 = g1 > 31 ? 31 : g1;
+        g2 = g2 > 31 ? 31 : g2;
+        out[n] = (u16)(0x8000 | g2 << 10 | g1 << 5 | g0);
+    }
+}
+
 void                ents_light(void)
 {
-    int             i, n;
+    int             i;
     /* only what can be drawn this frame is lit now: what's in a leaf of the PVS render_world
        walks (the one marked, if it's the camera's: not on a frame the camera's changed cluster,
        when everything is, as before). The rest keeps what it was lit for (g_litleaf, g_yaw),
@@ -154,24 +183,6 @@ void                ents_light(void)
         e->g_yaw = ys;
         ll = &lv.leaflight[leaf * 4];
         sh = e->mdl->shade + ys * 162;
-        {
-            u32 l0 = ll[0], l1 = ll[1], l2 = ll[2];
-
-            for (n = 0; n < 162; ++n)
-            {
-                /* iclamp(16 + ((((l s) >> 7) - 256) MODEL_K >> 8), 0, 31) with the 16 inside the
-                   shift: never negative then, so unsigned shifts (a signed one is a library call,
-                   two a channel here) give the same, exactly (every l and s tried) */
-                u32 s = sh[n];
-                u32 g0 = (((l0 * s) >> 7) * MODEL_K + 256 * (16 - MODEL_K)) >> 8;
-                u32 g1 = (((l1 * s) >> 7) * MODEL_K + 256 * (16 - MODEL_K)) >> 8;
-                u32 g2 = (((l2 * s) >> 7) * MODEL_K + 256 * (16 - MODEL_K)) >> 8;
-
-                g0 = g0 > 31 ? 31 : g0;
-                g1 = g1 > 31 ? 31 : g1;
-                g2 = g2 > 31 ? 31 : g2;
-                e->gbase[n] = (u16)(0x8000 | g2 << 10 | g1 << 5 | g0);
-            }
-        }
+        model_shade(e->gbase, sh, ll);
     }
 }

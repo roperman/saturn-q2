@@ -44,6 +44,22 @@ const u8            *cart_load(const char *name)
     return p;
 }
 
+u32                 cart_free(void)
+{
+    return (u32)(CART_BASE + CART_SIZE - cart_next);
+}
+
+u8                  *cart_alloc(u32 bytes)
+{
+    u8              *p = cart_next;
+
+    bytes = (bytes + 2047) & ~2047u;
+    if (p + bytes > CART_BASE + CART_SIZE)
+        out_of_ram("THE CART", (u32)(p + bytes - (CART_BASE + CART_SIZE)));
+    cart_next += bytes;
+    return p;
+}
+
 /* LWRAM kept free for what's allocated after the level (level_alloc_low: the
    game's entities, the BSP's parents): the brushes (only the traces read
    them) stay on the cart rather than take it */

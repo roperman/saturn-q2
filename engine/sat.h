@@ -178,6 +178,9 @@ bool                cd_init(void);
 bool                cd_read_sectors(u32 lba, u32 count, void *dst);
 bool                cd_find(const char *name, u32 *lba, u32 *size);
 int                 cd_load(const char *name, void *dst, u32 max);  /* size or -1; max: whole sectors */
+bool                cd_async_start(u32 lba, u32 count, void *dst);  /* a read in the background ... */
+int                 cd_async_poll(int max_sectors);                 /* ... on by a few sectors: 1 done, 0 not yet, -1 failed */
+bool                cd_async_busy(void);
 
 /* ---- lzss.c ---- */
 u32                 lzss_size(const u8 *src);

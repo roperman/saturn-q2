@@ -310,8 +310,8 @@ void                g_player_fire(bool held, const s32 *eye, int yaw, int pitch)
         client.weapon = client.newweapon;
         client.fire_time = level.time + FIX(0.3);   /* putting it up */
     }
-    if (!held || g_player->dead || level.time < client.fire_time)
-        return;
+    if (!held || g_player->dead || level.time < client.fire_time || !view_ready())
+        return;                             /* (the gun's still coming up) */
     w = client.weapon;
     if (!has_ammo(w))
     {
@@ -319,6 +319,7 @@ void                g_player_fire(bool held, const s32 *eye, int yaw, int pitch)
         return;
     }
     client.fire_time = level.time + weapons[w].refire;
+    view_fired();
     if (weapons[w].ammo != AMMO_NONE)
         client.ammo[weapons[w].ammo] -= weapons[w].per_shot;
     dmg_mul = level.time < client.quad_until ? 4 : 1;

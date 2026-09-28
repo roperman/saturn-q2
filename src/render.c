@@ -228,6 +228,15 @@ static u16          slot_lut[MAX_SLOTS];    /* a world texture's record (q_tex's
 static u8           slot_w[MAX_SLOTS];      /* the records are on the cart, 75 cycles a miss */
 static s32          kx, ky;                 /* CX / FOCAL, CY / FOCAL (16.16): the frustum's slopes */
 static s32          rcp[64];                /* 65536 / n */
+
+/* The gun's last drawing, kept (in low work RAM): most of the time it's still (up, not
+   firing), and then its polygons land where they did, in the same order. Its lighting can
+   still change (another leaf, turning), so the normals are kept, not the colours */
+typedef struct { u16 tex, size; u8 n[4]; u32 xy[4]; } view_kept;       /* 24 bytes */
+static view_kept    *view_keep;             /* (render_init: MAX_MPOLYS of them) */
+static int          view_nkeep, view_gen = 1;
+static struct { const q_mdl *m; int gen, f0, f1; s32 lerp; } view_key;
+
 static int          ntex_all;               /* the level's textures, then the models' */
 static u32          glow_vram, glow_lut;    /* the sprites' texture and its colours */
 static s32          rcp_n, wscale;          /* 1/N (16.16); 65536 / N^2 (interpolation weights) */
@@ -436,6 +445,8 @@ void                render_init(void)
     }
     /* brush models (doors, lifts...): each in the leaf its centre's in */
     leaf_model = level_alloc((u32)lv.nleafs * 2);
+    view_keep = level_alloc_low(MAX_MPOLYS * sizeof(view_kept));     /* (the gun's last drawing) */
+    view_key.m = NULL;
     model_next = level_alloc((u32)lv.nmodels * 2 + 2);
     for (i = 0; i < lv.nleafs; ++i)
         leaf_model[i] = -1;
@@ -507,6 +518,19 @@ void                render_init(void)
         memcpy(vram + base, md->luts, nl * 32);
         base += nl * 32;
         free -= nl * 32;
+    }
+    /* the guns' two slots (src/view.c): room for the biggest's textures and colour tables,
+       the tables uploaded as each gun's read in (r_view_slot) */
+    for (c = 0; c < VIEW_SLOTS; ++c)
+    {
+        q_mdl   *md = &models[MDL_VIEW0 + c];
+
+        md->loaded = false;
+        md->tex_id0 = ntex_all;
+        md->lut0 = (int)((base - lut_vram) / 32);
+        ntex_all += VIEW_MAX_TEX;
+        base += VIEW_MAX_TEX * 32;
+        free -= VIEW_MAX_TEX * 32;
     }
     /* the rest: tile-sized slots, half each */
     slot_bytes = (u32)(lv.N * lv.N / 2);
@@ -585,7 +609,7 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
         int m;
 
         ++x->st.muploads;
-        for (m = 0; m < nmodels_loaded; ++m)
+        for (m = 0; m < MDL_COUNT + VIEW_SLOTS; ++m)
         {
             const q_mdl *md = &models[m];
             int         k = t - md->tex_id0;
@@ -1816,6 +1840,305 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
     draw_grid(x, &g, f, model);
 }
 
+/* ---- the gun in your hands (src/view.c) ---- */
+
+#define VIEW_NEAR       FIX(4)              /* (Quake 2's near plane for its guns: they're close) */
+#define VIEW_FRONT      (1)                 /* the guns' triangles wind the other way from the monsters':
+                                               MODEL_FRONT draws their insides (seen side by side with a
+                                               z-buffered render on the PC; a soldier the same way matches) */
+
+/* a vertex of the gun's two frames, blended; the frames are in the eye's space (Quake's x
+   forward, y left, z up), so into the view's (x right, y up, z forward) as they are */
+static void         view_vertex(const u8 *f0, const u8 *f1, s32 lerp, int i, v3 *o)
+{
+    const s32       *s0 = (const s32 *)f0, *s1 = (const s32 *)f1;
+    const u8        *a = f0 + 24 + i * 4, *b = f1 + 24 + i * 4;
+    s32             p[3];
+    int             k;
+
+    for (k = 0; k < 3; ++k)
+    {
+        s32 u = s0[k] * a[k] + s0[3 + k], v = s1[k] * b[k] + s1[3 + k];
+
+        p[k] = u + fmul(v - u, lerp);
+    }
+    o->x = -p[1];
+    o->y = p[2];
+    o->z = p[0];
+}
+
+/* a polygon's corners on the screen. One behind the near plane is pulled along an edge to
+   a corner in front, to where the edge crosses the plane: the texture squeezes a little at
+   the screen's edge, rather than a hole there. false: all of it behind */
+static bool         view_poly_xy(r_ctx *x, const u8 *f0, const u8 *f1, s32 lerp, const q_mpoly *p, u32 *xy)
+{
+    int             k;
+
+    for (k = 0; k < 4; ++k)
+    {
+        int vi = p->v[k], f = -1, j;
+        v3  a, b;
+        s32 t;
+
+        if (!(x->moc[vi] & OC_NEAR))
+        {
+            xy[k] = x->mxy[vi];
+            continue;
+        }
+        for (j = 1; j < 4 && f < 0; ++j)
+        {
+            int o = p->v[(k + (j == 1 ? 1 : j == 2 ? 3 : 2)) & 3];     /* the neighbours, then across */
+
+            if (!(x->moc[o] & OC_NEAR))
+                f = o;
+        }
+        if (f < 0)
+            return false;
+        view_vertex(f0, f1, lerp, vi, &a);
+        view_vertex(f0, f1, lerp, f, &b);
+        t = fdiv(VIEW_NEAR - a.z, b.z - a.z);
+        xy[k] = project(x, a.x + fmul(b.x - a.x, t), a.y + fmul(b.y - a.y, t), VIEW_NEAR);
+    }
+    return true;
+}
+
+/* the gun, over the world (VDP1's overlay list, drawn after it): its polygons facing you,
+   farthest first, lit by the light where you are and the way you face (Quake's shading) */
+static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
+{
+    int             f0i, f1i, i, b, nv, np, ys = (int)((u32)cam.yaw >> 12) & 15;
+    s32             lerp, zmin = 0x7FFFFFFF, zmax = -0x7FFFFFFF, inv;
+    const q_mdl     *m = view_frame(&f0i, &f1i, &lerp);
+    const u8        *f0, *f1, *fn, *va, *vb;
+    const s32       *h0, *h1;
+    s32             s0[3], t0[3], s1[3], t1[3];
+    static u16      gt[162];
+    static const q_mdl *gt_m;
+    static int      gt_leaf = -1, gt_ys = -1;
+    vdp_writer      *w = x->w;
+    const q_mpoly   *polys;
+    u32             colr0;
+
+    if (!m || leaf < 0)
+        return;
+    nv = imin(m->nverts, MAX_MVERTS);
+    np = imin(m->npolys, MAX_MPOLYS);
+    if (m != gt_m || leaf != gt_leaf || ys != gt_ys)
+    {
+        model_shade(gt, m->shade + ys * 162, &lv.leaflight[leaf * 4]);
+        gt_m = m;
+        gt_leaf = leaf;
+        gt_ys = ys;
+    }
+    f0 = m->frames + (u32)f0i * m->frame_bytes;
+    f1 = m->frames + (u32)f1i * m->frame_bytes;
+    if (f1 == f0)
+        lerp = 0;
+    fn = lerp < FIX(0.5) ? f0 : f1;
+    h0 = (const s32 *)f0;
+    h1 = (const s32 *)f1;
+    for (i = 0; i < 3; ++i)
+    {
+        s0[i] = h0[i]; t0[i] = h0[3 + i];
+        s1[i] = h1[i]; t1[i] = h1[3 + i];
+    }
+    if (view_key.m == m && view_key.gen == view_gen && view_key.f0 == f0i && view_key.f1 == f1i
+        && view_key.lerp == lerp)
+    {
+        /* as last frame: out from what was kept */
+        const view_kept *k = view_keep;
+
+        colr0 = lut_vram + (u32)m->lut0 * 32;
+        for (i = 0; i < view_nkeep; ++i, ++k)
+        {
+            int     t = m->tex_id0 + k->tex, sl = x->tex_slot[t];
+            s32     vram;
+            u32     *dw;
+
+            if (sl != 0xFFFF)
+            {
+                slot_frame[sl] = frame;
+                vram = (s32)(slot_vram + (u32)sl * slot_bytes);
+            }
+            else if ((vram = tex_load(x, t)) < 0)
+                continue;
+            if (!(dw = (u32 *)vdp_overlay()))
+                return;
+            dw[0] = (u32)(0x1000 | VDP1_DISTORTED) << 16;
+            dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((colr0 + (m->nluts > 1 ? (u32)k->tex * 32 : 0)) >> 3);
+            dw[2] = ((u32)vram >> 3) << 16 | k->size;
+            dw[3] = k->xy[0];
+            dw[4] = k->xy[1];
+            dw[5] = k->xy[2];
+            dw[6] = k->xy[3];
+            dw[7] = (u32)vdp_gouraud_fast(w, (u32)gt[k->n[0]] << 16 | gt[k->n[1]], (u32)gt[k->n[2]] << 16 | gt[k->n[3]]) << 16;
+            ++x->st.mpolys;
+        }
+        return;
+    }
+    view_key.m = NULL;
+    view_nkeep = 0;
+    /* the vertices: blended (or the one frame), into the view (Quake's x forward, y left,
+       z up: x right = -y, y up = z, z forward = x), onto the screen */
+    va = f0 + 24;
+    vb = f1 + 24;
+    for (i = 0; i < nv; ++i, va += 4, vb += 4)
+    {
+        s32 px = s0[0] * va[0] + t0[0], py = s0[1] * va[1] + t0[1], pz = s0[2] * va[2] + t0[2];
+        u8  ni = fn[24 + i * 4 + 3];
+
+        if (lerp)
+        {
+            px += fmul(s1[0] * vb[0] + t1[0] - px, lerp);
+            py += fmul(s1[1] * vb[1] + t1[1] - py, lerp);
+            pz += fmul(s1[2] * vb[2] + t1[2] - pz, lerp);
+        }
+        x->mz[i] = px;
+        x->mg[i] = ni < 162 ? ni : 0;           /* (the normal: its colour at the end) */
+        if (px < VIEW_NEAR)
+            x->moc[i] = OC_NEAR;
+        else
+        {
+            x->moc[i] = 0;
+            x->mxy[i] = project(x, -py, pz, px);
+            if (px < zmin)
+                zmin = px;
+            if (px > zmax)
+                zmax = px;
+        }
+    }
+    if (zmax < zmin)
+        return;
+    inv = (s32)(((u32)(MBUCKETS - 1) << 16) / (u32)imax((zmax - zmin) >> 16, 1));
+    for (b = 0; b < MBUCKETS; ++b)
+        x->mhead[b] = -1;
+    /* facing you, and by depth */
+    polys = m->polys;
+    for (i = 0; i < np; ++i)
+    {
+        const q_mpoly   *p = &polys[i];
+        int             a = p->v[0], bb = p->v[1], c = p->v[2], d = p->v[3];
+        u32             xy[4];
+        s32             cross, z;
+
+        if ((x->moc[a] | x->moc[bb] | x->moc[c] | x->moc[d]) & OC_NEAR)
+        {
+            if (!view_poly_xy(x, f0, f1, lerp, p, xy))
+                continue;
+        }
+        else
+        {
+            xy[0] = x->mxy[a];
+            xy[1] = x->mxy[bb];
+            xy[2] = x->mxy[c];
+            xy[3] = x->mxy[d];
+        }
+        cross = (XY_X(xy[1]) - XY_X(xy[0])) * (XY_Y(xy[2]) - XY_Y(xy[0]))
+              - (XY_Y(xy[1]) - XY_Y(xy[0])) * (XY_X(xy[2]) - XY_X(xy[0]));
+        if (cross == 0 && !(p->flags & 1))
+            cross = (XY_X(xy[2]) - XY_X(xy[0])) * (XY_Y(xy[3]) - XY_Y(xy[0]))
+                  - (XY_Y(xy[2]) - XY_Y(xy[0])) * (XY_X(xy[3]) - XY_X(xy[0]));
+        if (cross * VIEW_FRONT <= 0)
+            continue;
+        z = (x->mz[a] >> 1) + (x->mz[c] >> 1);
+        b = z <= zmin ? 0 : iclamp((((z - zmin) >> 16) * inv) >> 16, 0, MBUCKETS - 1);
+        x->mnext[i] = x->mhead[b];
+        x->mhead[b] = (s16)i;
+    }
+    /* out, farthest first: the overlay list is drawn in order */
+    colr0 = lut_vram + (u32)m->lut0 * 32;
+    for (b = MBUCKETS - 1; b >= 0; --b)
+        for (i = x->mhead[b]; i >= 0; i = x->mnext[i])
+        {
+            const q_mpoly   *p = &polys[i];
+            const q_mtex    *mt = &m->tex[p->tex];
+            int             t = m->tex_id0 + p->tex, s = x->tex_slot[t];
+            s32             vram;
+            u32             *dw, xy[4];
+
+            if (s != 0xFFFF)
+            {
+                slot_frame[s] = frame;
+                vram = (s32)(slot_vram + (u32)s * slot_bytes);
+            }
+            else if ((vram = tex_load(x, t)) < 0)
+                continue;
+            if ((x->moc[p->v[0]] | x->moc[p->v[1]] | x->moc[p->v[2]] | x->moc[p->v[3]]) & OC_NEAR)
+            {
+                if (!view_poly_xy(x, f0, f1, lerp, p, xy))
+                    continue;
+            }
+            else
+            {
+                xy[0] = x->mxy[p->v[0]];
+                xy[1] = x->mxy[p->v[1]];
+                xy[2] = x->mxy[p->v[2]];
+                xy[3] = x->mxy[p->v[3]];
+            }
+            if (!(dw = (u32 *)vdp_overlay()))
+                return;
+            dw[0] = (u32)(0x1000 | VDP1_DISTORTED) << 16;       /* jump assign (the link's vdp_submit's), distorted sprite */
+            dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((colr0 + (m->nluts > 1 ? (u32)p->tex * 32 : 0)) >> 3);
+            dw[2] = ((u32)vram >> 3) << 16 | (u32)(((mt->w >> 3) << 8) | mt->h);
+            dw[3] = xy[0];
+            dw[4] = xy[1];
+            dw[5] = xy[2];
+            dw[6] = xy[3];
+            dw[7] = (u32)vdp_gouraud_fast(w, (u32)gt[x->mg[p->v[0]]] << 16 | gt[x->mg[p->v[1]]],
+                                          (u32)gt[x->mg[p->v[2]]] << 16 | gt[x->mg[p->v[3]]]) << 16;
+            ++x->st.mpolys;
+            if (view_nkeep < MAX_MPOLYS)
+            {
+                view_kept *k = &view_keep[view_nkeep++];
+
+                k->tex = p->tex;
+                k->size = (u16)dw[2];
+                k->n[0] = (u8)x->mg[p->v[0]];
+                k->n[1] = (u8)x->mg[p->v[1]];
+                k->n[2] = (u8)x->mg[p->v[2]];
+                k->n[3] = (u8)x->mg[p->v[3]];
+                k->xy[0] = xy[0];
+                k->xy[1] = xy[1];
+                k->xy[2] = xy[2];
+                k->xy[3] = xy[3];
+            }
+        }
+    view_key.m = m;
+    view_key.gen = view_gen;
+    view_key.f0 = f0i;
+    view_key.f1 = f1i;
+    view_key.lerp = lerp;
+}
+
+/* a slot's new gun (src/view.c): its textures' old copies forgotten (only the master draws
+   the gun, so only its half of the cache has them), its colour tables into VRAM. The slot's
+   last gun hasn't been drawn for a while (view.c sees to it): nothing in flight uses them */
+void                r_view_slot(int slot)
+{
+    const q_mdl     *md = &models[MDL_VIEW0 + slot];
+    r_ctx           *x = &ctx[0];
+    int             t;
+
+    ++view_gen;                             /* (what draw_viewmodel kept is another gun's) */
+    for (t = md->tex_id0; t < md->tex_id0 + VIEW_MAX_TEX; ++t)
+    {
+        int s = x->tex_slot[t];
+
+        if (s != 0xFFFF)
+        {
+            slot_tex[s] = 0xFFFF;
+            x->tex_slot[t] = 0xFFFF;
+        }
+    }
+    if (md->loaded)
+    {
+        scu_dma0((void *)(VDP1_VRAM + lut_vram + (u32)md->lut0 * 32), md->luts, (u32)(md->nskins * md->nluts) * 32,
+                 true);
+        while (scu_dma0_busy())
+            ;
+    }
+}
+
 /* Sharing the list. The slave starts as soon as the walk starts, taking
    faces from the front (nearest) as they're listed, pushed into bucket 1 (so
    drawn back to front). When its walk is done the master takes them from the
@@ -2882,6 +3205,8 @@ void                render_slave(void)
     x->st.t_face = frt_to_us((frt_read() - t0) & 0xFFFF);
 }
 
+static int          view_leaf;              /* (the camera's: the gun's light) */
+
 static void         draw_master(void)
 {
     r_ctx           *x = &ctx[0];
@@ -2889,6 +3214,12 @@ static void         draw_master(void)
     int             i;
 
     part_begin(x);
+    {
+        u32 tv = frt_read();
+
+        draw_viewmodel(x, view_leaf);       /* (first, so the slave takes more of the list) */
+        x->st.t_view += (frt_read() - tv) & 0xFFFF;
+    }
     if (!r_two_cpus)
     {
         /* on its own: all of it, pushed nearest first */
@@ -3193,6 +3524,7 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
        then draws from the back until they meet, so the slave takes more of it) */
     if (r_during)
         r_during();
+    view_leaf = leaf;
     draw_master();
     if (r_two_cpus)
         wait_signal();
@@ -3247,6 +3579,7 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.mcpu += s->mcpu;
         rs.mdsp = rs_mdsp;
         rs.t_models += frt_to_us(s->t_models);
+        rs.t_view += frt_to_us(s->t_view);
         rs.t_mfar += frt_to_us(s->t_mfar);
         rs.mfar += s->mfar;
         rs.t_mlight += frt_to_us(s->t_mlight);

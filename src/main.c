@@ -67,6 +67,7 @@ static u32          fight_tr[6];                /* trace.c's counts */
 static u32          fight_seg[6], fight_t[7];   /* the master's frame in parts (us): input, player, game, before, world, after */
 # define FT(k)          (fight_t[k] = frt_read())
 static u32          fight_tt[4];                /* a box trace's parts, 0.1 us */
+static u32          fight_gun;                  /* the gun in your hands (us) */
 static u32          fight_r[14];
 #ifdef R_PROFILE
 static u32          fight_p[13];                 /* the world: setup, grid, cells, slow cells (us); faces, cells, C cells */
@@ -310,6 +311,7 @@ static bool         load_level(const char *name, const char *spot, bool keep)
         client.fire_time = client.quad_until = client.invul_until = client.pickup_flash = 0;
         g_player->health = health;
     }
+    view_level_init();                      /* (the gun you hold: after the above) */
     return true;
 }
 
@@ -318,6 +320,7 @@ static void         new_game(void)
 {
     movers_init();
     g_init();
+    view_reset();
     pmove_spawn(lv.start);
     cam.yaw = lv.start_yaw;
     cam.pitch = 0;
@@ -367,6 +370,7 @@ void                main(void)
     g_init();
     render_sky_init();
     models_hot();
+    view_level_init();
     pmove_spawn(lv.start);
     cam.yaw = lv.start_yaw;
     cam.pitch = 0;
@@ -552,6 +556,7 @@ void                main(void)
                 fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
                 memset(fight_r, 0, sizeof(fight_r));
                 memset(fight_seg, 0, sizeof(fight_seg));
+                fight_gun = 0;
 #ifdef R_PROFILE
                 memset(fight_p, 0, sizeof(fight_p));
 #endif
@@ -786,7 +791,28 @@ void                main(void)
             cam.pos[1] = pl.origin[1];
             cam.pos[2] = pl.origin[2] + (g_player->dead ? FIX(-8) : FIX(22));   /* the eyes (dead: on the floor) */
         }
+#ifdef VIEW_TEST
+        {
+            /* (OPT=-DVIEW_TEST: no title; every gun, the next one every 2 seconds) */
+            static int vt;
+            int w;
+
+            if (menu_cur == MENU_MAIN)
+            {
+                menu_cur = MENU_NONE;
+                paused = false;
+            }
+            for (w = 0; w < W_COUNT; ++w)
+                client.have[w] = true;
+            client.ammo[AMMO_SHELLS] = client.ammo[AMMO_BULLETS] = client.ammo[AMMO_GRENADES] = 50;
+            client.ammo[AMMO_ROCKETS] = 50;
+            if (++vt % 50 == 0)
+                g_next_weapon();
+        }
+#endif
         cam_update();
+        view_on = bench_view < 0 && !(paused && menu_at_title());
+        view_update(paused ? 0 : dt);
         render_sky();
         fx_update(paused ? 0 : dt);
         g_render_ents();
@@ -944,8 +970,9 @@ void                main(void)
             vdp_printf(8, 187, RGB(255, 200, 160), "CROP %d EXACT %d SMALL %d", fight_p[9] / n, fight_p[10] / n,
                        fight_p[12] / n);
 #endif
-            vdp_printf(8, 169, RGB(160, 255, 160), "UPLOADS %d.%d, MODELS' %d.%d", fight_r[9] / 1000 * 10 / n / 10,
-                       fight_r[9] / 1000 * 10 / n % 10, fight_r[9] % 1000 * 10 / n / 10, fight_r[9] % 1000 * 10 / n % 10);
+            vdp_printf(8, 169, RGB(160, 255, 160), "UPLOADS %d.%d, MODELS' %d.%d GUN %d.%d", fight_r[9] / 1000 * 10 / n / 10,
+                       fight_r[9] / 1000 * 10 / n % 10, fight_r[9] % 1000 * 10 / n / 10, fight_r[9] % 1000 * 10 / n % 10,
+                       fight_gun / n / 1000, fight_gun / n / 100 % 10);
 #undef MS10
 #ifdef FIGHT_TRACES
             {
@@ -1127,6 +1154,7 @@ void                main(void)
                 fight_p[12] += (u32)rs.ns_small;
 #endif
                 fight_r[12] += rs.t_masm;
+                fight_gun += rs.t_view;
                 fight_r[13] += rs.t_mnorm;
                 fight_gmax = imax((s32)fight_gmax, (s32)us_game);
                 ++fight_n;

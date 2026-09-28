@@ -655,3 +655,45 @@ middle of the face list, so the master's saving is shared.)
   none elsewhere); low work RAM 7.7 KB more; the cart 12 KB less (the kept
   drawing, and 768 bytes more a gun). The static benchmark: CPU 1736 (1731
   to 1744 before, noise).
+
+## 16. The gun bob
+
+Quake 2's (p_view.c `SV_CalcGunOffset`): the gun turns a little against the
+view as you walk (yaw up to 2 degrees at a run, pitch and roll 1, the yaw
+and roll the other way every other step) and as you turn (it lags: 0.2 of a
+tenth of a second's turn). The angles are added to the view's, as Quake 2
+does, so looking down the walk's yaw turns it about the world's upright.
+OPTIONS: GUN BOB (on).
+
+The gun's drawn from its places on the screen, so it's turned there: each
+place's direction by the rotation, and projected again (exact, a divide a
+place; `vturn_asm`). The still gun's kept drawing is now its vertices'
+places before the bob, turned a vertex at a time; and it goes out in place:
+last frame's commands and colour tables are still in the staging, so only
+what's changed is written.
+
+| gun, fight benchmark (us a frame) | before the bob | now |
+|---|---|---|
+| still, standing | 535 | 425 |
+| still, walking (the bob turning it every frame) | | 1,200 |
+| firing, standing | 2,800 | 3,000 |
+| firing, walking | | 3,900 |
+
+The fight's frame: 40.9 ms standing (463 of 489 pictures at 40 ms); with
+the bob turning it every frame about 42.5 (407 of 470). The turn is ~130
+cycles a vertex even in assembly (the SH-2's multiplies and the divide),
+~150 vertices. Firing costs a little more than before: nothing's dropped for
+being off the screen now (the kept drawing has to hold what the bob might
+turn into view; VDP1 clips).
+
+- **Fixed on the way**: a polygon cut at the near plane had its corners in
+  front of it turned twice.
+- **Checked**: `VIEW_CHECK=1` (the C alongside, the C turn too): 0
+  differences in 133,112 commands, walking, turning and firing; `=2` (the
+  kept drawing, in place, against a full one): 0 in 246,569 (a polygon
+  turned edge-on can face the other way between the two: 332, counted
+  apart); `MODEL_CHECK` (the monsters' sort, changed for the gun): 0.
+  `OPT=-DVIEW_BOB_BENCH` holds a changing bob for the benchmark.
+- **Memory**: the code grew 2 KB; five files rarely run are now built
+  `-Os` (COLD in build.sh), 2.7 KB back. demo1 has 128 bytes more of the
+  monsters' records on the cart than before.

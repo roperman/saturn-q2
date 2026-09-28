@@ -344,3 +344,48 @@ Texture uploads go up from about 4 to 12 a frame (each CPU has its own
 half of the texture cache, and the slave now draws more), about 1.7 ms of
 it, counted in the above. Off by default, your call; OPT=-DGAME_DURING_DRAW
 builds it on.
+
+## 8. The world's drawing: five ideas tried
+
+Where it goes, in the fight (R_PROFILE, both CPUs, a frame): cells 24.9 ms
+(774 of them), the grid 9.3, face setup 3.5, the walk 8 (the master's). A
+cell's about 450 cycles on the fast path, and it's mostly memory: about 11
+stores (the command and its Gouraud table) on a bus both CPUs and the DSP
+share, and its cell and light records read from LWRAM.
+
+1. **Each face's cells and lights fetched ahead into HWRAM** by the SH-2's
+   own DMA while the one before is drawn: 2.5% *slower*, taken out. A test
+   (a register-only loop beside either DMA runs at full speed) says the DMA
+   doesn't stop the CPU; but it takes the bus for as long as the CPU's own
+   misses did (17 cycles a word against 15), and the bus is what's short.
+   Touching the lines first (a test build) saves 2.2 ms of the cells for
+   3.0 ms of touching.
+2. **The slow cells** (the C path, about 940 cycles each): 227 a frame in
+   the fight. 10 for a dynamic light (not worth special-casing), 59 exact
+   crops near the camera, 143 small crops interpolated on screen, 13 big
+   crops. The small crops in `cells.s` itself (not three C calls a cell)
+   would save about 1.2 ms a fight frame: next.
+3. **Texture uploads by the SCU's DMA** (the cart to VDP1's VRAM, on the
+   SCU's own buses): done, checked byte for byte (11,077 uploads). The
+   drawing's 1-2% quicker a CPU while turning; the CPU total's the same
+   (the master waits for the DMA at the frame's end, about 0.3 ms: at 15
+   uploads a frame there's little in it). A shared texture cache would cut
+   the uploads further, but there's little left to cut.
+4. **Gouraud tables reused** when a cell's matches: under 1% repeat the one
+   before. Not done.
+5. **Tighter visibility**: rendering from each sample point of a cluster
+   (tools/facevis.c's way) sees 64% of what the cluster's set allows, so a
+   third of what's drawn is hidden (a leaf's set would be 96% of its
+   cluster's: no help). A coverage mask (16 x 8 tiles, marked by the big
+   solid rectangular faces of the front-to-back list, `OPT=-DOCC_COUNT`)
+   culls only 2% of demo1's benchmark faces and 12% of demo2's: a face
+   only marks tiles it wholly covers, so the seams between faces leak.
+   Getting the third needs spans at pixel precision, or portals (Quake 2's
+   BSP doesn't keep them: they'd have to be made again from the tree).
+
+Also: `OPT=-DTURN_BENCH` (a full turn at each view, textures loading):
+demo1 while turning is 36-40 ms a frame with the CPUs at 20-25; a frame is
+whole vblanks, so VDP1 a little over 20 ms is enough to make most of them
+40. Coarse grids from 192 units or Gouraud off change VDP1's time by
+nothing measurable in Mednafen. The face list is 2,048 long now (busy
+views list about 500): 6 KB of HWRAM back.

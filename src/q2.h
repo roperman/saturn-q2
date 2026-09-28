@@ -297,7 +297,7 @@ void                hud_draw(void);
 typedef struct
 {
     int             faces, cells, culled, near, uploads, nocache, dropped, leaf, cluster, nodes, proj, gverts, seen;
-    int             models, mpolys, nfast, nslow, nexact, pieces, faces_out, cells_all, cells_384, cells_512, muploads, mcpu, mdsp, ns_dl, ns_crop, ns_exact, g_same, g_flat, occ_faces, occ_cells, occ_occluders;
+    int             models, mpolys, nfast, nslow, nexact, pieces, faces_out, cells_all, cells_384, cells_512, muploads, mcpu, mdsp, ns_dl, ns_crop, ns_exact, g_same, g_flat, occ_faces, occ_cells, occ_occluders, ns_small;
     u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys, t_mwait, t_masm, t_mnorm;
     u32             us_pre, us_mdsp, us_tree;   /* R_PROFILE: the walk's parts (the master's, us) */
     u32             t_mfar;                     /* R_PROFILE: models beyond 400 units: their time, */

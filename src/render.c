@@ -1100,6 +1100,7 @@ static __attribute__((noinline)) bool cell_corners(r_ctx *x, const q_cell *cell,
 
             if (r_debug == 1)
                 return false;
+            PROF(++x->st.ns_small);
 #define CORNER(n, TX, TY, BX, BY, F) \
             xy[n] = (u32)((TX) + ((((BX) - (TX)) * (F)) >> 16)) << 16 | (u16)((TY) + ((((BY) - (TY)) * (F)) >> 16));
             CORNER(0, tx0, ty0_, bx0, by0, fb0)
@@ -3142,6 +3143,7 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.ns_exact += s->ns_exact;
         rs.g_same += s->g_same;
         rs.g_flat += s->g_flat;
+        rs.ns_small += s->ns_small;
         rs.nexact += s->nexact;
         rs.pieces += s->pieces;
         rs.faces_out += s->faces_out;

@@ -701,8 +701,8 @@ void                main(void)
             vdp_printf(8, 178, RGB(255, 200, 160), "S%d G%d C%d L%d F%d C%d X%d L%d", MS10(fight_p[0]),
                        MS10(fight_p[1]), MS10(fight_p[2]), MS10(fight_p[3]), fight_p[4] / n, fight_p[5] / n,
                        fight_p[6] / n, fight_p[7] / n);
-            vdp_printf(8, 187, RGB(255, 200, 160), "DL %d CROP %d EXACT %d GSAME %d FLAT %d", fight_p[8] / n,
-                       fight_p[9] / n, fight_p[10] / n, fight_p[11] / n, fight_p[12] / n);
+            vdp_printf(8, 187, RGB(255, 200, 160), "CROP %d EXACT %d SMALL %d", fight_p[9] / n, fight_p[10] / n,
+                       fight_p[12] / n);
 #endif
             vdp_printf(8, 169, RGB(160, 255, 160), "UPLOADS %d.%d, MODELS' %d.%d", fight_r[9] / 1000 * 10 / n / 10,
                        fight_r[9] / 1000 * 10 / n % 10, fight_r[9] % 1000 * 10 / n / 10, fight_r[9] % 1000 * 10 / n % 10);
@@ -861,7 +861,7 @@ void                main(void)
                 fight_p[9] += (u32)rs.ns_crop;
                 fight_p[10] += (u32)rs.ns_exact;
                 fight_p[11] += (u32)rs.g_same;
-                fight_p[12] += (u32)rs.g_flat;
+                fight_p[12] += (u32)rs.ns_small;
 #endif
                 fight_r[12] += rs.t_masm;
                 fight_r[13] += rs.t_mnorm;

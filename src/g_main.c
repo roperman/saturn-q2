@@ -659,7 +659,15 @@ void                g_render_ents(void)
         {
             f = level.mon_acc[i % MON_GROUPS] * 10;
             for (k = 0; k < 3; ++k)
-                r->origin[k] = e->old_origin[k] + fmul(e->origin[k] - e->old_origin[k], f);
+            {
+                s32 o = e->old_origin[k] + fmul(e->origin[k] - e->old_origin[k], f);
+
+                if (o != r->origin[k])
+                {
+                    r->origin[k] = o;
+                    r->g_moved = true;
+                }
+            }
             r->yaw = (e->old_yaw + fmul((s16)((e->yaw - e->old_yaw) & 0xFFFF), f)) & 0xFFFF;
             r->skin = e->skinnum;
             r->oldframe = e->old_frame;
@@ -669,7 +677,11 @@ void                g_render_ents(void)
         else
         {
             for (k = 0; k < 3; ++k)
-                r->origin[k] = e->origin[k];
+                if (e->origin[k] != r->origin[k])
+                {
+                    r->origin[k] = e->origin[k];
+                    r->g_moved = true;
+                }
             r->yaw = e->kind == EK_ITEM ? (e->yaw + spin) & 0xFFFF : e->yaw;
             r->skin = 0;
             r->frame = r->oldframe = 0;

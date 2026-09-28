@@ -275,12 +275,14 @@ typedef struct
     s32             lerp;                   /* 0..1 from oldframe to frame (16.16) */
     int             anim;                   /* the q_manim playing */
     s32             anim_time;
-    bool            live;
+    u8              live;                   /* (bytes, not bools: they're ints here, and a q_entity stays 384) */
+    u8              g_moved;                /* its origin's changed since ents_light last looked (its leaf to find) */
     /* its light by normal, as Gouraud colours: the leaf's light and Quake's
        shading, remade when it changes leaf or turns (ents_light) */
     u16             gbase[162];
-    int             g_leaf, g_yaw;
+    int             g_leaf, g_yaw;          /* (g_leaf: the leaf it's in, after ents_light) */
 }                   q_entity;
+_Static_assert(sizeof(q_entity) == 384, "q_entity: g_moved in the padding");
 
 #define MAX_ENTITIES    (96)                /* 0..63: the game's entities; then projectiles */
 #include "q2models.h"

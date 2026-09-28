@@ -119,9 +119,11 @@ int                 model_anim(const q_mdl *m, const char *name)
    16 + (f - 1) * MODEL_K, sized for the skins' brightness. */
 #define MODEL_K         (12)
 
+_Static_assert(MODEL_K <= 16, "ents_light: its sums stay unsigned");
+
 void                ents_light(void)
 {
-    int             i, n, k;
+    int             i, n;
 
     for (i = 0; i < nents; ++i)
     {
@@ -132,21 +134,34 @@ void                ents_light(void)
 
         if (!e->live)
             continue;
-        leaf = level_leaf(e->origin);
-        ys = (e->yaw >> 12) & 15;
+        /* its leaf: again only if it's moved (items stand still; render_world uses it too) */
+        leaf = e->g_moved || e->g_leaf < 0 ? level_leaf(e->origin) : e->g_leaf;
+        e->g_moved = false;
+        ys = (int)((u32)e->yaw >> 12) & 15;
         if (leaf == e->g_leaf && ys == e->g_yaw)
             continue;
         e->g_leaf = leaf;
         e->g_yaw = ys;
         ll = &lv.leaflight[leaf * 4];
         sh = e->mdl->shade + ys * 162;
-        for (n = 0; n < 162; ++n)
         {
-            int g[3];
+            u32 l0 = ll[0], l1 = ll[1], l2 = ll[2];
 
-            for (k = 0; k < 3; ++k)
-                g[k] = iclamp(16 + (((((s32)ll[k] * sh[n]) >> 7) - 256) * MODEL_K >> 8), 0, 31);
-            e->gbase[n] = (u16)(0x8000 | g[2] << 10 | g[1] << 5 | g[0]);
+            for (n = 0; n < 162; ++n)
+            {
+                /* iclamp(16 + ((((l s) >> 7) - 256) MODEL_K >> 8), 0, 31) with the 16 inside the
+                   shift: never negative then, so unsigned shifts (a signed one is a library call,
+                   two a channel here) give the same, exactly (every l and s tried) */
+                u32 s = sh[n];
+                u32 g0 = (((l0 * s) >> 7) * MODEL_K + 256 * (16 - MODEL_K)) >> 8;
+                u32 g1 = (((l1 * s) >> 7) * MODEL_K + 256 * (16 - MODEL_K)) >> 8;
+                u32 g2 = (((l2 * s) >> 7) * MODEL_K + 256 * (16 - MODEL_K)) >> 8;
+
+                g0 = g0 > 31 ? 31 : g0;
+                g1 = g1 > 31 ? 31 : g1;
+                g2 = g2 > 31 ? 31 : g2;
+                e->gbase[n] = (u16)(0x8000 | g2 << 10 | g1 << 5 | g0);
+            }
         }
     }
 }

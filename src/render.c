@@ -3091,7 +3091,7 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         ent_leaf[i] = -1;
         if (!ents[i].live)
             continue;
-        l = level_leaf(ents[i].origin);
+        l = ents[i].g_leaf >= 0 && !ents[i].g_moved ? ents[i].g_leaf : level_leaf(ents[i].origin);  /* (ents_light's) */
         ent_leaf[i] = l;
         ent_next[i] = leaf_ent[l];
         leaf_ent[l] = (s16)i;

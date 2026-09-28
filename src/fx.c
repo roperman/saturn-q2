@@ -381,6 +381,7 @@ void                fx_render(void)
             r->g_leaf = -1;
         for (k = 0; k < 3; ++k)
             r->origin[k] = p->pos[k];
+        r->g_moved = true;
         if (p->kind == P_ROCKET)
         {
             s32 h[3];

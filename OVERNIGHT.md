@@ -519,8 +519,8 @@ none with stale light; the benchmark's views identical. Before the world
 2.0 -> 1.3 ms.
 
 Final numbers (default build): the static benchmark's CPU 1868 -> 1731
-(demo1; demo2 1545); the fight 50.6 -> 42.3-43.6 ms a frame, almost every
-picture up for 40 ms.
+(demo1; demo2 1545); the fight 50.6 -> 41.4 ms a frame, 445 of 448
+pictures up for 40 ms (25 a second on PAL), 3 for 60.
 
 Looked at and left:
 - **The traces in assembly**: about 9 leaves, 13 brushes, 94 sides a box

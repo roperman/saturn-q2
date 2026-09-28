@@ -509,6 +509,15 @@ player part 1.7 -> 1.4 ms. A kept copy of the last ground check (the same
 trace ends one pmove and starts the next) was tried and taken out: it hit
 57% of frames when exploring, never differed, but saved only 0.07 ms.
 
+**The entities' light, again**: after the unsigned sums it was still
+1.3 ms a fight frame, mostly relighting things you can't see (items
+spinning, monsters moving elsewhere). Now only what's in this frame's PVS
+is relit; the rest keeps the light it has, and which leaf and turn that's
+for, and is relit when it's next in the PVS. `OPT=-DENTLIGHT_CHECK`
+checks every model drawn (1,583 in the fight, 306 walking in circles):
+none with stale light; the benchmark's views identical. Before the world
+2.0 -> 1.3 ms.
+
 Final numbers (default build): the static benchmark's CPU 1868 -> 1731
 (demo1; demo2 1545); the fight 50.6 -> 42.3-43.6 ms a frame, almost every
 picture up for 40 ms.

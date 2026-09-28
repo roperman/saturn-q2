@@ -741,7 +741,7 @@ Gouraud tables `G`); `OPT=-DTEX_WSET` adds the textures each frame held.
 | fight, ~490 frames: ran out | 2 / every frame | 1 / 1 |
 | fight: the slave's commands (what it no longer skips) | 506 | 818 |
 | fight: texture uploads a frame | 4.8 | 0.6-0.9 |
-| slots (master / slave), demo1 | 385 / 385 | 400 / 602 |
+| slots (master / slave), demo1 | 385 / 385 | 450 / 551 |
 
 In the fight the slave's part was out every frame: about 300 of its polygons
 went undrawn, every frame. Frame times are within the fight's run-to-run
@@ -752,8 +752,15 @@ spread (39.8 and 41.5 ms, 41.3-42.2 before); the static benchmark's CPU 1684
   more of the list), the overlay 400 (was 1,300, 1,300, 400: busy views take
   941 and 1,076; demo2 the master's most). `VDP_WRITER1_CMDS` sets the
   second writer's; each writer has its `cmax`.
-- **The split**: the master's part 40%, the slave's 60% (the slave was out
-  far more; the gun, the master's, keeps its textures).
+- **The split**: the master's part 45%, the slave's 55% (`SPLIT_M`): the
+  slave draws more of the list, but the master has the gun's textures too.
+  The turning benchmark now turns with the gun up (as you play); ran out
+  (master / slave): at 40% 50 / 19, at 45% 16 / 21, at 50% 5 / 28; the
+  fight: at 40% 1 / 1, at 45% 0 / 1, at 50% 1 / 42. Tried, and taken out: the
+  split moved between frames towards the CPU that ran out. Moving slots
+  throws out textures the giver's using, so it misses and pulls them back
+  (turning 15 / 22, worse); moving only slots it hadn't used for 8 frames,
+  it never moved at all.
 - **The guns' colour tables**: one set in VRAM, not one a slot. The next gun's
   go in as it comes up, once the last one's three frames gone (`r_view_luts`,
   src/view.c): a weapon switch waits a frame more with no gun up.

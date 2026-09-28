@@ -228,6 +228,10 @@ static u8           fr_sign[4];
 static u32          lut_vram;               /* VRAM offset of colour table 0 */
 static u32          slot_vram, slot_bytes;
 static u16          slot_tex[MAX_SLOTS], slot_frame[MAX_SLOTS];
+#define SLOT_NONE       (0xFFFF)            /* slot_tex: none (free now) */
+#ifndef SPLIT_M
+# define SPLIT_M        (45)                /* the master's part of the texture cache, % (the slave draws more of the list; the gun is the master's) */
+#endif
 static u16          slot_lut[MAX_SLOTS];    /* a world texture's record (q_tex's lut, w) while it has the slot: */
 static u8           slot_w[MAX_SLOTS];      /* the records are on the cart, 75 cycles a miss */
 static s32          kx, ky;                 /* CX / FOCAL, CY / FOCAL (16.16): the frustum's slopes */
@@ -542,7 +546,7 @@ void                render_init(void)
     }
     base += VIEW_MAX_TEX * 32;
     free -= VIEW_MAX_TEX * 32;
-    /* the rest: tile-sized slots, in two parts (the master's 40%, the slave's 60%) */
+    /* the rest: tile-sized slots, in two parts, one each CPU's (SPLIT_M% the master's) */
     slot_bytes = (u32)(lv.N * lv.N / 2);
     slot_vram = base;
     i = (int)(free / slot_bytes);
@@ -553,14 +557,14 @@ void                render_init(void)
     {
         r_ctx *x = &ctx[c];
 
-        x->slot0 = c ? i * 2 / 5 : 0;             /* (the slave draws more of the list: 60% its) */
-        x->nslots = c ? i - i * 2 / 5 : i * 2 / 5;
+        x->slot0 = c ? i * SPLIT_M / 100 : 0;
+        x->nslots = c ? i - i * SPLIT_M / 100 : i * SPLIT_M / 100;
         x->hand = 0;
         x->tex_slot = level_alloc((u32)ntex_all * 2);
         memset(x->tex_slot, 0xFF, (u32)ntex_all * 2);
     }
     for (c = 0; c < MAX_SLOTS; ++c)
-        slot_tex[c] = 0xFFFF;
+        slot_tex[c] = SLOT_NONE;
 }
 
 /* a texture into this CPU's part of the cache: -1 if no slot is free */
@@ -592,7 +596,7 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
         s = x->slot0 + x->hand;
         if (++x->hand == x->nslots)
             x->hand = 0;
-        if (slot_tex[s] == 0xFFFF || (u16)(frame - slot_frame[s]) >= 3)     /* (two frames may be in flight) */
+        if (slot_tex[s] == SLOT_NONE || (u16)(frame - slot_frame[s]) >= 3)  /* (two frames may be in flight) */
             break;
     }
     if (n == x->nslots)
@@ -601,7 +605,7 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
         ++x->st.nocache;
         return -1;
     }
-    if (slot_tex[s] != 0xFFFF)
+    if (slot_tex[s] != SLOT_NONE)
         x->tex_slot[slot_tex[s]] = 0xFFFF;
     slot_tex[s] = (u16)t;
     x->tex_slot[t] = (u16)s;
@@ -2988,7 +2992,7 @@ void                r_view_slot(int slot)
 
         if (s != 0xFFFF)
         {
-            slot_tex[s] = 0xFFFF;
+            slot_tex[s] = SLOT_NONE;
             x->tex_slot[t] = 0xFFFF;
         }
     }

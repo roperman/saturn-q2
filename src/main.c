@@ -750,6 +750,7 @@ void                main(void)
             cam.yaw = (int)bv[3];
 #ifdef TURN_BENCH
             cam.yaw = (cam.yaw + bench_frame * (65536 / 90)) & 0xFFFF;
+            view_on = true;                 /* (the turns with the gun up: its textures in the cache too) */
 #endif
             cam.pitch = (int)bv[4];
             cam_update();
@@ -1173,7 +1174,15 @@ void                main(void)
             vdp_printf(8, 18, c, "FACES %d CELLS %d CULL %d NEAR %d", rs.faces, rs.cells, rs.culled, rs.near);
             vdp_printf(8, 28, c, "UPLOADS %d FULL %d DROP %d CMDS %d", rs.uploads, rs.nocache, rs.dropped,
                        vdp_cmd_count());
-            vdp_printf(8, 38, c, "WALK %d MASTER %d SLAVE %d", rs.nodes / 1000, rs.t_face / 1000, rs.t_grid / 1000);
+            vdp_printf(8, 38, c, "WALK %d MASTER %d SLAVE %d OUT %d %d", rs.nodes / 1000, rs.t_face / 1000,
+                       rs.t_grid / 1000, r_full[0], r_full[1]);
+#ifdef TEX_WSET
+            {
+                extern u32 r_wset[5];
+
+                vdp_printf(8, 150, c, "TEX MOST %d %d OF %d", r_wset[0], r_wset[1], r_wset[4]);
+            }
+#endif
             vdp_printf(8, 58, c, "MODELS %d POLYS %d %dUS", rs.models, rs.mpolys, rs.t_models);
             {
                 extern int g_ntraces;

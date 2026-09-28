@@ -21,7 +21,9 @@ from q2data import Pak, palette
 
 PICS = ["num_%d" % i for i in range(10)] + ["num_minus"] + ["anum_%d" % i for i in range(10)] + ["anum_minus"] + \
        ["i_health", "i_jacketarmor", "i_combatarmor", "i_bodyarmor", "a_shells", "a_bullets", "a_grenades",
-        "a_rockets", "a_blaster", "p_quad", "i_help"]
+        "a_rockets", "a_blaster", "p_quad", "i_help"] + \
+       ["m_main_game", "m_main_game_sel", "m_main_options", "m_main_options_sel", "m_main_plaque", "m_main_logo",
+        "pause"] + ["m_cursor%d" % i for i in range(0, 15, 2)]     # (the menus: every other cursor frame, for VRAM)
 
 
 def main():

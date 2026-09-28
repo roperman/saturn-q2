@@ -8,7 +8,7 @@
 #include "game.h"
 
 #define CRAM_BANK       (0x200)
-#define MAX_PICS        (40)
+#define MAX_PICS        (64)
 
 typedef struct { u16 srca, size, w, h; char name[12]; } t_pic;
 
@@ -78,6 +78,14 @@ static void         draw_pic(const t_pic *p, int x, int y)
     c->size = p->size;
     c->xa = (s16)x;
     c->ya = (s16)y;
+}
+
+int                 hud_pic(const char *name, int x, int y)
+{
+    const t_pic     *p = pic(name);
+
+    draw_pic(p, x, y);
+    return p ? p->w : 0;
 }
 
 /* a number right-aligned in a field of 3 (Quake's SCR_DrawField), 16 pixels a digit */

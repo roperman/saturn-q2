@@ -23,7 +23,6 @@
 #endif
 
 static u16          pad_now, pad_prev;
-static bool         show_stats = true;
 
 static bool         pressed(u16 b)
 {
@@ -222,9 +221,9 @@ static void         warp_trigger(void)
    game as it was a frame before, for the monsters; the view is this frame's) */
 static s32          game_dt;
 #ifdef GAME_DURING_DRAW
-static bool         game_during_draw = true;    /* START + UP switches it */
+bool                game_during_draw = true;    /* START + UP switches it; the options too */
 #else
-static bool         game_during_draw;
+bool                game_during_draw;
 #endif
 
 static void         game_step(void)
@@ -236,10 +235,21 @@ static void         game_step(void)
     us_game = frt_to_us((frt_read() - tg) & 0xFFFF);
 }
 
+/* the level from the start: its movers, its monsters and items (at the skill chosen), you */
+static void         new_game(void)
+{
+    movers_init();
+    g_init();
+    pmove_spawn(lv.start);
+    cam.yaw = lv.start_yaw;
+    cam.pitch = 0;
+}
+
 void                main(void)
 {
     u32             t_last, t0, us_frame = 0, us_cpu = 0;
     int             waited = 0;
+    bool            paused = false;
 
     frt_init();
 #ifndef NO_SLAVE
@@ -335,6 +345,18 @@ void                main(void)
         pad_now = pad_collect();
         pad_request();
         t0 = frt_read();
+        /* a menu up: it has the presses and the game stands still (START + R still starts a benchmark) */
+        paused = false;
+        if (menu_active() && !(pad_now & PAD_START && pressed(PAD_R)))
+        {
+            menu_action a = menu_input((u16)(pad_now & ~pad_prev));
+
+            if (a == MA_NEW_GAME || a == MA_TITLE)
+                new_game();
+            paused = menu_active();
+            if (pad_now & PAD_START)
+                start_used = true;              /* (letting go of a START that chose something isn't a pause) */
+        }
         if (g_player->dead || level_complete)
         {
             /* dead: START to go again (from the start, with what you had); level done: the level again */
@@ -358,116 +380,123 @@ void                main(void)
             start_used = true;
         if (pad_prev & PAD_START && !(pad_now & PAD_START))
         {
-            if (!start_used)
-                show_stats = !show_stats;               /* on letting go, unless it was START + A/B */
+            if (!start_used && !menu_active())
+            {
+                menu_open(MENU_PAUSE);              /* on letting go, unless it was START + A/B... */
+                s_play(SND_MENU_SELECT, NULL, ATTN_NONE);
+                paused = true;
+            }
             start_used = false;
         }
-        if (pressed(PAD_Y))
+        if (!paused)
         {
-            if (pad_now & PAD_START)
+            if (pressed(PAD_Y))
             {
-                pl.noclip = !pl.noclip;
+                if (pad_now & PAD_START)
+                {
+                    pl.noclip = !pl.noclip;
+                    start_used = true;
+                }
+                else
+                    g_next_weapon();
+            }
+            if (pressed(PAD_A) && (pad_now & PAD_START) && nents)
+                warp_ent(false);
+            if (pressed(PAD_C) && (pad_now & PAD_START) && nents)
+                warp_ent(true);
+            if (pressed(PAD_X) && (pad_now & PAD_START))
+                god = !god;
+            if (pressed(PAD_UP) && (pad_now & PAD_START))
+            {
+                game_during_draw = !game_during_draw;
+                g_centerprint(game_during_draw ? "Game during drawing: on" : "Game during drawing: off");
                 start_used = true;
             }
-            else
-                g_next_weapon();
-        }
-        if (pressed(PAD_A) && (pad_now & PAD_START) && nents)
-            warp_ent(false);
-        if (pressed(PAD_C) && (pad_now & PAD_START) && nents)
-            warp_ent(true);
-        if (pressed(PAD_X) && (pad_now & PAD_START))
-            god = !god;
-        if (pressed(PAD_UP) && (pad_now & PAD_START))
-        {
-            game_during_draw = !game_during_draw;
-            g_centerprint(game_during_draw ? "Game during drawing: on" : "Game during drawing: off");
-            start_used = true;
-        }
-#ifdef FIGHT_BENCH
-        if (pressed(PAD_R) && (pad_now & PAD_START))
-        {
-            static const s32 at[3] = { FIX(600), FIX(-428), FIX(-96) };
-            int         i;
-
-            god = true;
-            pmove_spawn(at);
-            for (i = 1; i < MAX_EDICTS; ++i)
+    #ifdef FIGHT_BENCH
+            if (pressed(PAD_R) && (pad_now & PAD_START))
             {
-                g_ent   *e = &g_edicts[i];
+                static const s32 at[3] = { FIX(600), FIX(-428), FIX(-96) };
+                int         i;
 
-                if (e->kind == EK_MONSTER && !e->inactive && e->health > 0 && !e->enemy
-                    && iabs(e->origin[0] - at[0]) < FIX(900) && iabs(e->origin[1] - at[1]) < FIX(900))
+                god = true;
+                pmove_spawn(at);
+                for (i = 1; i < MAX_EDICTS; ++i)
                 {
-                    e->enemy = g_player;
-                    FoundTarget(e);
+                    g_ent   *e = &g_edicts[i];
+
+                    if (e->kind == EK_MONSTER && !e->inactive && e->health > 0 && !e->enemy
+                        && iabs(e->origin[0] - at[0]) < FIX(900) && iabs(e->origin[1] - at[1]) < FIX(900))
+                    {
+                        e->enemy = g_player;
+                        FoundTarget(e);
+                    }
                 }
+                fight_frames = 0;
+                fight_done = false;
+                fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
+                memset(fight_r, 0, sizeof(fight_r));
+    #ifdef R_PROFILE
+                memset(fight_p, 0, sizeof(fight_p));
+    #endif
             }
-            fight_frames = 0;
-            fight_done = false;
-            fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
-            memset(fight_r, 0, sizeof(fight_r));
-#ifdef R_PROFILE
-            memset(fight_p, 0, sizeof(fight_p));
-#endif
-        }
-        if (fight_frames >= 0)
-        {
-            cam.yaw = 0x4000;                   /* standing still, looking into the room */
-            cam.pitch = 0;
-            pad_now &= PAD_START;
-        }
-#else
-        if (pressed(PAD_R) && (pad_now & PAD_START))
-        {
-            bench_view = 0;
-            bench_frame = 0;
-            bench_done = false;
-            memset(bench_acc, 0, sizeof(bench_acc));
-#ifdef R_PROFILE
+            if (fight_frames >= 0)
             {
-                extern int wk_nodes, wk_leaves, wk_ftests, wk_models;
-
-                wk_nodes = wk_leaves = wk_ftests = wk_models = 0;
+                cam.yaw = 0x4000;                   /* standing still, looking into the room */
+                cam.pitch = 0;
+                pad_now &= PAD_START;
             }
-#endif
-            memset(bench_prof, 0, sizeof(bench_prof));
-        }
-#endif
-        if (pressed(PAD_L) && (pad_now & PAD_START))
-            warp_trigger();
-        if (pressed(PAD_Z) && (pad_now & PAD_START))
-        {
-            int w;
+    #else
+            if (pressed(PAD_R) && (pad_now & PAD_START))
+            {
+                bench_view = 0;
+                bench_frame = 0;
+                bench_done = false;
+                memset(bench_acc, 0, sizeof(bench_acc));
+    #ifdef R_PROFILE
+                {
+                    extern int wk_nodes, wk_leaves, wk_ftests, wk_models;
 
-            for (w = 0; w < W_COUNT; ++w)
-                client.have[w] = true;
-            client.ammo[AMMO_SHELLS] = 100;
-            client.ammo[AMMO_BULLETS] = 200;
-            client.ammo[AMMO_GRENADES] = 50;
-            client.ammo[AMMO_ROCKETS] = 50;
-            g_centerprint("All weapons");
+                    wk_nodes = wk_leaves = wk_ftests = wk_models = 0;
+                }
+    #endif
+                memset(bench_prof, 0, sizeof(bench_prof));
+            }
+    #endif
+            if (pressed(PAD_L) && (pad_now & PAD_START))
+                warp_trigger();
+            if (pressed(PAD_Z) && (pad_now & PAD_START))
+            {
+                int w;
+
+                for (w = 0; w < W_COUNT; ++w)
+                    client.have[w] = true;
+                client.ammo[AMMO_SHELLS] = 100;
+                client.ammo[AMMO_BULLETS] = 200;
+                client.ammo[AMMO_GRENADES] = 50;
+                client.ammo[AMMO_ROCKETS] = 50;
+                g_centerprint("All weapons");
+            }
+            if (god)
+                g_player->health = imax(g_player->health, 100);
+            else if (pressed(PAD_B) && pad_now & PAD_START)
+                warp_next();
+            if (pad_now & PAD_LEFT)
+                cam.yaw += turn;
+            if (pad_now & PAD_RIGHT)
+                cam.yaw -= turn;
+            if (pad_now & PAD_X && !(pad_now & PAD_START))
+                cam.pitch = imax(cam.pitch - turn / 2, -0x3800);
+            if (pad_now & PAD_Z && !(pad_now & PAD_START))
+                cam.pitch = imin(cam.pitch + turn / 2, 0x3800);
+            if (pad_now & PAD_C && !(pad_now & PAD_START))
+                cam.pitch = 0;
+            cam.yaw &= 0xFFFF;
+            cmd.yaw = cam.yaw;
+            cmd.pitch = cam.pitch;
+            cmd.forward = pad_now & PAD_UP ? FIX(300) : pad_now & PAD_DOWN ? -FIX(300) : 0;
+            cmd.side = pad_now & PAD_R ? FIX(300) : pad_now & PAD_L ? -FIX(300) : 0;
+            cmd.up = pad_now & PAD_A && !(pad_now & PAD_START) ? FIX(300) : 0;
         }
-        if (god)
-            g_player->health = imax(g_player->health, 100);
-        else if (pressed(PAD_B) && pad_now & PAD_START)
-            warp_next();
-        if (pad_now & PAD_LEFT)
-            cam.yaw += turn;
-        if (pad_now & PAD_RIGHT)
-            cam.yaw -= turn;
-        if (pad_now & PAD_X && !(pad_now & PAD_START))
-            cam.pitch = imax(cam.pitch - turn / 2, -0x3800);
-        if (pad_now & PAD_Z && !(pad_now & PAD_START))
-            cam.pitch = imin(cam.pitch + turn / 2, 0x3800);
-        if (pad_now & PAD_C && !(pad_now & PAD_START))
-            cam.pitch = 0;
-        cam.yaw &= 0xFFFF;
-        cmd.yaw = cam.yaw;
-        cmd.pitch = cam.pitch;
-        cmd.forward = pad_now & PAD_UP ? FIX(300) : pad_now & PAD_DOWN ? -FIX(300) : 0;
-        cmd.side = pad_now & PAD_R ? FIX(300) : pad_now & PAD_L ? -FIX(300) : 0;
-        cmd.up = pad_now & PAD_A && !(pad_now & PAD_START) ? FIX(300) : 0;
         if (bench_view >= 0)
         {
             /* the benchmark: the camera where the table says, the game paused */
@@ -576,17 +605,35 @@ void                main(void)
             }
             continue;
         }
-        movers_update(dt);
-        pmove(&cmd, dt);
-        game_dt = dt;
-        if (!game_during_draw)
-            game_step();
-        cam.pos[0] = pl.origin[0];
-        cam.pos[1] = pl.origin[1];
-        cam.pos[2] = pl.origin[2] + (g_player->dead ? FIX(-8) : FIX(22));   /* the eyes (dead: on the floor) */
+        if (!paused)
+        {
+            movers_update(dt);
+            pmove(&cmd, dt);
+            game_dt = dt;
+            if (!game_during_draw)
+                game_step();
+        }
+        if (paused && menu_at_title())
+        {
+            /* the title: turning slowly where the level starts */
+            static int title_yaw;
+
+            title_yaw = (title_yaw + (int)fmul(dt, 0x0C00)) & 0xFFFF;
+            cam.pos[0] = lv.start[0];
+            cam.pos[1] = lv.start[1];
+            cam.pos[2] = lv.start[2] + FIX(22);
+            cam.yaw = (lv.start_yaw + title_yaw) & 0xFFFF;
+            cam.pitch = 0;
+        }
+        else
+        {
+            cam.pos[0] = pl.origin[0];
+            cam.pos[1] = pl.origin[1];
+            cam.pos[2] = pl.origin[2] + (g_player->dead ? FIX(-8) : FIX(22));   /* the eyes (dead: on the floor) */
+        }
         cam_update();
         render_sky();
-        fx_update(dt);
+        fx_update(paused ? 0 : dt);
         g_render_ents();
         fx_render();
         ents_light();
@@ -620,12 +667,15 @@ void                main(void)
 #ifdef ONE_CPU
             r_two_cpus = false;             /* (OPT=-DONE_CPU: the master alone, to see what sharing gains) */
 #endif
-        if (game_during_draw)
+        if (game_during_draw && !paused)
             r_during = game_step;
         render_world(vdp_get_writer(0), vdp_get_writer(1));
         r_during = NULL;
-        /* the status bar and messages */
-        hud_draw();
+        /* the status bar and messages; a menu over them */
+        if (!(paused && menu_at_title()))
+            hud_draw();
+        if (paused)
+            menu_draw();
         if (bench_done)
         {
             u32 tot[5] = { 0, 0, 0, 0, 0 };
@@ -751,13 +801,13 @@ void                main(void)
             vdp_text(160 - 11 * 8, 116, RGB(200, 200, 200), "PRESS START TO GO AGAIN");
         }
         {
-            if (show_stats)
+            if (opt_stats)
                 vdp_printf(8, 190, RGB(255, 255, 255), "LINE %d POINTBOX %d BOX %d SHORT %d", bench_us[0], bench_us[1],
                            bench_us[2], bench_us[3]);
             if (g_player->dead)
                 vdp_text(160 - 11 * 8, 100, RGB(255, 80, 60), "YOU DIED - PRESS START");
         }
-        if (show_stats)
+        if (opt_stats)
         {
             u16 c = RGB(255, 255, 255);
 

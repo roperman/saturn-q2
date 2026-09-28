@@ -214,6 +214,20 @@ void                FoundTarget(g_ent *self);
 #define ATTN_STATIC     (3)
 void                s_init(void);
 void                s_play(int id, const s32 *origin, int atten);
+
+/* src/menu.c */
+typedef enum { MENU_NONE, MENU_MAIN, MENU_SKILL, MENU_OPTIONS, MENU_PAUSE } menu_id;
+typedef enum { MA_NONE, MA_NEW_GAME, MA_RESUME, MA_TITLE } menu_action;
+extern menu_id      menu_cur;
+extern int          g_skill;                    /* 0-2; -1: everything spawns */
+extern int          opt_volume;
+extern bool         opt_stats;
+bool                menu_active(void);
+bool                menu_at_title(void);
+void                menu_open(menu_id m);
+menu_action         menu_input(u16 pressed);
+void                menu_draw(void);
+int                 hud_pic(const char *name, int x, int y);   /* (hud.c) its width, 0 if there's none */
 void                M_ChangeYaw(g_ent *ent);
 bool                M_walkmove(g_ent *ent, int yaw, s32 dist);
 void                M_MoveFrame(g_ent *self);

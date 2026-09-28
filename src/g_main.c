@@ -476,6 +476,8 @@ void                g_init(void)
 
         if (c == C_INFO_PLAYER_START || c == C_PATH_CORNER || c == C_POINT_COMBAT || c == C_TARGET_SPEAKER)
             continue;
+        if (g_skill >= 0 && r->spawnflags & (0x100 << g_skill))
+            continue;                       /* not at this skill (Quake's SPAWNFLAG_NOT_EASY, _MEDIUM, _HARD) */
         if ((c >= C_FUNC_DOOR && c <= C_FUNC_WATER && c != C_FUNC_EXPLOSIVE) || c == C_MISC_TELEPORTER_DEST)
             continue;                       /* movers.c has them */
         if (!(e = g_spawn()))

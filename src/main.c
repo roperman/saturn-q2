@@ -64,12 +64,16 @@ static u32          fight_us, fight_cpu, fight_game, fight_gmax, fight_n, fight_
 static bool         fight_done;
 static g_trace_site fight_sites[16];            /* the traces' call sites, most time first */
 static u32          fight_tr[6];                /* trace.c's counts */
+static u32          fight_seg[6], fight_t[7];   /* the master's frame in parts (us): input, player, game, before, world, after */
+# define FT(k)          (fight_t[k] = frt_read())
 static u32          fight_tt[4];                /* a box trace's parts, 0.1 us */
 static u32          fight_r[14];
 #ifdef R_PROFILE
 static u32          fight_p[13];                 /* the world: setup, grid, cells, slow cells (us); faces, cells, C cells */
 #endif                /* the drawing: master, slave; models, their polygons; the
                                                    models' light, vertices, polygons, commands (cumulative), DSP wait */
+#else
+# define FT(k)          ((void)0)
 #endif
 static u32          us_game, bench_us[5];
 
@@ -401,6 +405,8 @@ void                main(void)
         s32         dt = (s32)(((u64)imax(imin((s32)us_frame, 100000), 10000) << 16) / 1000000);
         int         turn = (int)fmul(dt, 0x6000);   /* 135 degrees a second */
 
+        FT(0);
+
 #ifdef SOUND_TEST
         {
             /* (OPT=-DSOUND_TEST: the blaster hard left, then hard right, then an explosion in the middle) */
@@ -535,6 +541,7 @@ void                main(void)
                 fight_done = false;
                 fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
                 memset(fight_r, 0, sizeof(fight_r));
+                memset(fight_seg, 0, sizeof(fight_seg));
 #ifdef R_PROFILE
                 memset(fight_p, 0, sizeof(fight_p));
 #endif
@@ -723,14 +730,19 @@ void                main(void)
             }
         }
 #endif
+        FT(1);
         if (!paused)
         {
             movers_update(dt);
             pmove(&cmd, dt);
+            FT(2);
             game_dt = dt;
             if (!game_during_draw)
                 game_step();
         }
+        else
+            FT(2);
+        FT(3);
         if (paused && menu_at_title())
         {
             /* the title: turning slowly where the level starts */
@@ -780,6 +792,7 @@ void                main(void)
                 flashing = false;
             }
         }
+        FT(4);
         vdp_begin();
         r_two_cpus = slave_ok;
 #ifdef ONE_CPU
@@ -789,6 +802,7 @@ void                main(void)
             r_during = game_step;
         render_world(vdp_get_writer(0), vdp_get_writer(1));
         r_during = NULL;
+        FT(5);
         /* the status bar and messages; a menu over them */
         if (!(paused && menu_at_title()))
             hud_draw();
@@ -824,9 +838,9 @@ void                main(void)
             vdp_printf(8, 106 + NBENCH * 9, RGB(255, 220, 120), "A %4d %4d %4d %4d %4d", tot[0] / 100,
                        tot[1] / 100, tot[2] / 100, tot[3] / 100, tot[4] / 100);
             n *= NBENCH;
-            vdp_printf(8, 106 + (NBENCH + 1) * 9, RGB(160, 255, 160), "S%d G%d C%d K%d L%d M%d",
+            vdp_printf(8, 106 + (NBENCH + 1) * 9, RGB(160, 255, 160), "S%d G%d C%d K%d L%d M%d T%d",
                        bench_prof[0] / n / 100, bench_prof[1] / n / 100, bench_prof[2] / n / 100, bench_prof[12] / n / 100,
-                       bench_prof[3] / n / 100, bench_prof[4] / n / 100);
+                       bench_prof[3] / n / 100, bench_prof[4] / n / 100, bench_prof[5] / n / 100);
             {
 #ifdef WALK_CHECK
                 {
@@ -880,6 +894,9 @@ void                main(void)
                        fight_game / n / 100 % 10, fight_gmax / 1000, fight_gmax / 100 % 10);
             vdp_printf(8, 124, RGB(255, 255, 255), "TRACES %d A FRAME, %d.%d MS", fight_ntr / n,
                        fight_ttr / n / 1000, fight_ttr / n / 100 % 10);
+            vdp_printf(8, 133, RGB(255, 255, 255), "I%d P%d G%d B%d W%d A%d", fight_seg[0] / n / 100,
+                       fight_seg[1] / n / 100, fight_seg[2] / n / 100, fight_seg[3] / n / 100, fight_seg[4] / n / 100,
+                       fight_seg[5] / n / 100);
 #define MS10(v)     (int)((v) / n / 100)
             vdp_printf(8, 142, RGB(160, 255, 160), "(0.1 MS) MASTER %d SLAVE %d", MS10(fight_r[0]), MS10(fight_r[1]));
             vdp_printf(8, 151, RGB(160, 255, 160), "MODELS %d.%d CPU %d.%d DSP %d.%d: %d", fight_r[2] * 10 / n / 10,
@@ -993,6 +1010,7 @@ void                main(void)
             }
 
         }
+        FT(6);
         us_cpu = frt_to_us((frt_read() - t0) & 0xFFFF);
         waited = vdp_submit();
         t0 = frt_read();
@@ -1029,6 +1047,12 @@ void                main(void)
                 fight_us += us_frame;
                 fight_cpu += us_cpu;
                 fight_game += us_game;
+                {
+                    int k;
+
+                    for (k = 0; k < 6; ++k)
+                        fight_seg[k] += frt_to_us((fight_t[k + 1] - fight_t[k]) & 0xFFFF);
+                }
                 fight_r[0] += rs.t_face;
                 fight_r[1] += rs.t_grid;
                 fight_r[2] += (u32)rs.models;

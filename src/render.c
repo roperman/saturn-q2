@@ -1404,6 +1404,9 @@ static __attribute__((noinline)) void cell_c(r_ctx *x, const q_cell *cell, gv *t
         return;
     }
     PROF(++x->st.nslow);
+    PROF(x->st.ns_dl += (tex & CELL_FULL) != 0);    /* (whole tiles here only for a dynamic light) */
+    PROF(x->st.ns_crop += !(tex & CELL_FULL));
+    PROF(x->st.ns_exact += (tex & (CELL_FULL | CELL_EXACT)) == CELL_EXACT);
     if (tex & (CELL_FULL | CELL_EXACT))
     {
         ty0 = ((const q_cell_fast *)cell)->ty0;
@@ -1475,6 +1478,7 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
     int             count0 = x->w->count;
 #ifdef R_PROFILE
     u32             pt = frt_read(), pt2;
+    int             gc0 = x->w->gcount;
 #endif
 
     /* the dynamic lights close enough to its plane (and in front of it) */
@@ -1599,6 +1603,19 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
         }
     }
     x->st.cells += x->w->count - count0;    /* once a face, not a store a cell */
+#ifdef R_PROFILE
+    {
+        /* (profile: Gouraud tables the same as the one before, and flat ones) */
+        const u32   *gs = x->w->gst;
+        int         k;
+
+        for (k = gc0 + 1; k < x->w->gcount; ++k)
+        {
+            x->st.g_same += gs[k * 2] == gs[k * 2 - 2] && gs[k * 2 + 1] == gs[k * 2 - 1];
+            x->st.g_flat += gs[k * 2] == gs[k * 2 + 1] && (gs[k * 2] >> 16) == (gs[k * 2] & 0xFFFF);
+        }
+    }
+#endif
 }
 
 
@@ -2775,6 +2792,146 @@ static void         draw_master(void)
     x->st.t_face = frt_to_us((frt_read() - t0) & 0xFFFF);
 }
 
+#ifdef OCC_COUNT
+/* (OPT=-DOCC_COUNT: how much a coverage mask would cull, counted after the
+   frame's drawing. The list is front to back: each big solid rectangular
+   face marks the screen tiles (16 x 8) it covers wholly; a face whose
+   screen box is all marked tiles is behind them) */
+static u32          occ_rows[SCREEN_H / 8];
+
+/* the quad's x extent at scanline y (false: it misses it) */
+static bool         quad_span(const s32 *qx, const s32 *qy, s32 y, s32 *l, s32 *r)
+{
+    int             k, n = 0;
+
+    *l = 0x7FFFFFFF;
+    *r = -0x7FFFFFFF;
+    for (k = 0; k < 4; ++k)
+    {
+        s32 x0 = qx[k], y0 = qy[k], x1 = qx[(k + 1) & 3], y1 = qy[(k + 1) & 3], xx;
+
+        if ((y < y0 && y < y1) || (y > y0 && y > y1))
+            continue;
+        xx = y1 == y0 ? (x0 < x1 ? x0 : x1) : x0 + (s32)(((s64)(y - y0) * (x1 - x0)) / (y1 - y0));
+        if (y1 == y0)
+        {
+            if (x0 < *l) *l = x0;
+            if (x1 < *l) *l = x1;
+            if (x0 > *r) *r = x0;
+            if (x1 > *r) *r = x1;
+        }
+        if (xx < *l) *l = xx;
+        if (xx > *r) *r = xx;
+        ++n;
+    }
+    return n > 0;
+}
+
+static void         occ_count(void)
+{
+    int             k;
+
+    memset(occ_rows, 0, sizeof(occ_rows));
+    for (k = 0; k < nvis; ++k)
+    {
+        int             m = vis_model[k], nu, nv, c, r, r0, r1, t0, t1, W, H, N = lv.N;
+        const q_face    *f;
+        s32             d[3], qx[4], qy[4], minx, maxx, miny, maxy;
+        v3              o, du, dv, P[4];
+        bool            hidden = true, solid;
+
+        if (m == SPRITE || m == ENTITY)
+            continue;
+        f = &lv.faces[vis_faces[k]];
+        if (f->flags & (FF_SKY | FF_NODRAW))
+            continue;
+        nu = f->nu;
+        nv = f->nv;
+        d[0] = f->origin[0] + mover_ofs[m][0] - cam.pos[0];
+        d[1] = f->origin[1] + mover_ofs[m][1] - cam.pos[1];
+        d[2] = f->origin[2] + mover_ofs[m][2] - cam.pos[2];
+        to_view(d, &o);
+        to_view(&lv.axes[f->axes * 6], &du);
+        to_view(&lv.axes[f->axes * 6 + 3], &dv);
+        /* the face's own rectangle: its grid's edge columns and rows are narrower */
+        W = nu == 1 ? f->eu1 - f->eu0 : (N - f->eu0) + (nu - 2) * N + f->eu1;
+        H = nv == 1 ? f->ev1 - f->ev0 : (N - f->ev0) + (nv - 2) * N + f->ev1;
+        {
+            s32 fu = W * rcp_n, fv = H * rcp_n;     /* in cells, 16.16 */
+            s32 ux = fmul(du.x, fu), uy = fmul(du.y, fu), uz = fmul(du.z, fu);
+            s32 vx = fmul(dv.x, fv), vy = fmul(dv.y, fv), vz = fmul(dv.z, fv);
+
+            P[0] = o;
+            P[1].x = o.x + ux; P[1].y = o.y + uy; P[1].z = o.z + uz;
+            P[2].x = o.x + ux + vx; P[2].y = o.y + uy + vy; P[2].z = o.z + uz + vz;
+            P[3].x = o.x + vx; P[3].y = o.y + vy; P[3].z = o.z + vz;
+        }
+        for (c = 0; c < 4; ++c)
+            if (P[c].z < NEAR_Z)
+                break;
+        if (c < 4)
+            continue;                       /* (across the near plane: neither) */
+        minx = miny = 0x7FFFFFFF;
+        maxx = maxy = -0x7FFFFFFF;
+        for (c = 0; c < 4; ++c)
+        {
+            s32 rz = fdiv(FOCAL << 16, P[c].z);
+
+            qx[c] = CX + (s32)(((s64)P[c].x * rz) >> 32);
+            qy[c] = CY - (s32)(((s64)P[c].y * rz) >> 32);
+            minx = imin(minx, qx[c]); maxx = imax(maxx, qx[c]);
+            miny = imin(miny, qy[c]); maxy = imax(maxy, qy[c]);
+        }
+        if (maxx < 0 || minx >= SCREEN_W || maxy < 0 || miny >= SCREEN_H)
+            continue;
+        t0 = imax(minx, 0) >> 4;
+        t1 = imin(maxx, SCREEN_W - 1) >> 4;
+        r0 = imax(miny, 0) >> 3;
+        r1 = imin(maxy, SCREEN_H - 1) >> 3;
+        {
+            u32 mask = (t1 >= 31 ? 0xFFFFFFFF : (2u << t1) - 1) & ~((1u << t0) - 1);
+
+            for (r = r0; r <= r1; ++r)
+                if ((occ_rows[r] & mask) != mask)
+                    hidden = false;
+        }
+        if (hidden)
+        {
+            ++rs.occ_faces;
+            rs.occ_cells += nu * nv;
+            continue;
+        }
+        /* an occluder: the world's, opaque, and wholly its rectangle (no cropped cells) */
+        solid = m == 0 && !(f->flags & (FF_TRANS33 | FF_TRANS66 | FF_WARP)) && maxx - minx >= 32 && maxy - miny >= 16;
+        for (c = 0; solid && c < nu * nv; ++c)
+        {
+            int t = lv.cells[f->firstcell + c].tex;
+
+            if (t == CELL_EMPTY || !(t & (CELL_FULL | CELL_EXACT)))
+                solid = false;
+        }
+        if (!solid)
+            continue;
+        ++rs.occ_occluders;
+        for (r = r0; r <= r1; ++r)
+        {
+            s32 l0, rr0, l1, rr1, a, b;
+
+            if (!quad_span(qx, qy, r * 8, &l0, &rr0) || !quad_span(qx, qy, r * 8 + 7, &l1, &rr1))
+                continue;
+            a = imax(l0, l1);
+            b = imin(rr0, rr1);
+            a = (a + 15) >> 4;              /* whole tiles within [a, b] */
+            b = (b + 1) >> 4;               /* (tiles < b) */
+            if (a < 0) a = 0;
+            if (b > SCREEN_W / 16) b = SCREEN_W / 16;
+            if (b > a)
+                occ_rows[r] |= ((b >= 32 ? 0xFFFFFFFF : (1u << b) - 1)) & ~((1u << a) - 1);
+        }
+    }
+}
+#endif
+
 void                (*r_during)(void);
 
 void                render_world(vdp_writer *w0, vdp_writer *w1)
@@ -2946,6 +3103,9 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         }
         c->nup = 0;
     }
+#ifdef OCC_COUNT
+    occ_count();
+#endif
     /* the totals (the slave's through the cache's back door: it wrote them) */
     for (i = 0; i < 2; ++i)
     {
@@ -2977,6 +3137,11 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.t_mnorm += frt_to_us(s->t_mnorm);
         rs.nfast += s->nfast;
         rs.nslow += s->nslow;
+        rs.ns_dl += s->ns_dl;
+        rs.ns_crop += s->ns_crop;
+        rs.ns_exact += s->ns_exact;
+        rs.g_same += s->g_same;
+        rs.g_flat += s->g_flat;
         rs.nexact += s->nexact;
         rs.pieces += s->pieces;
         rs.faces_out += s->faces_out;

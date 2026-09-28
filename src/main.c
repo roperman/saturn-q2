@@ -68,7 +68,7 @@ static u32          fight_tr[6];                /* trace.c's counts */
 static u32          fight_tt[4];                /* a box trace's parts, 0.1 us */
 static u32          fight_r[14];
 #ifdef R_PROFILE
-static u32          fight_p[8];                 /* the world: setup, grid, cells, slow cells (us); faces, cells, C cells */
+static u32          fight_p[13];                 /* the world: setup, grid, cells, slow cells (us); faces, cells, C cells */
 #endif                /* the drawing: master, slave; models, their polygons; the
                                                    models' light, vertices, polygons, commands (cumulative), DSP wait */
 #endif
@@ -539,6 +539,13 @@ void                main(void)
                 bench_prof[14] += (u32)rs.mfar;
                 bench_prof[12] += (u32)rs.models;
                 bench_prof[5] += rs.us_tree;
+#ifdef OCC_COUNT
+                bench_prof[0] += (u32)rs.occ_faces * 100;
+                bench_prof[1] += (u32)rs.occ_cells * 100;
+                bench_prof[2] += (u32)rs.occ_occluders * 100;
+                bench_prof[3] += (u32)rs.faces * 100;
+                bench_prof[12] += (u32)rs.cells * 100;
+#endif
 
             }
             if (++bench_frame == BENCH_FRAMES)
@@ -694,6 +701,8 @@ void                main(void)
             vdp_printf(8, 178, RGB(255, 200, 160), "S%d G%d C%d L%d F%d C%d X%d L%d", MS10(fight_p[0]),
                        MS10(fight_p[1]), MS10(fight_p[2]), MS10(fight_p[3]), fight_p[4] / n, fight_p[5] / n,
                        fight_p[6] / n, fight_p[7] / n);
+            vdp_printf(8, 187, RGB(255, 200, 160), "DL %d CROP %d EXACT %d GSAME %d FLAT %d", fight_p[8] / n,
+                       fight_p[9] / n, fight_p[10] / n, fight_p[11] / n, fight_p[12] / n);
 #endif
             vdp_printf(8, 169, RGB(160, 255, 160), "UPLOADS %d.%d, MODELS' %d.%d", fight_r[9] / 1000 * 10 / n / 10,
                        fight_r[9] / 1000 * 10 / n % 10, fight_r[9] % 1000 * 10 / n / 10, fight_r[9] % 1000 * 10 / n % 10);
@@ -848,6 +857,11 @@ void                main(void)
                 fight_p[5] += (u32)rs.cells;
                 fight_p[6] += (u32)rs.nexact;
                 fight_p[7] += (u32)rs.nslow;
+                fight_p[8] += (u32)rs.ns_dl;
+                fight_p[9] += (u32)rs.ns_crop;
+                fight_p[10] += (u32)rs.ns_exact;
+                fight_p[11] += (u32)rs.g_same;
+                fight_p[12] += (u32)rs.g_flat;
 #endif
                 fight_r[12] += rs.t_masm;
                 fight_r[13] += rs.t_mnorm;

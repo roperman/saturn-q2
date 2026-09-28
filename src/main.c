@@ -412,12 +412,15 @@ void                main(void)
                 g_centerprint(game_during_draw ? "Game during drawing: on" : "Game during drawing: off");
                 start_used = true;
             }
-    #ifdef FIGHT_BENCH
+#ifdef FIGHT_BENCH
             if (pressed(PAD_R) && (pad_now & PAD_START))
             {
                 static const s32 at[3] = { FIX(600), FIX(-428), FIX(-96) };
                 int         i;
 
+                menu_cur = MENU_NONE;           /* (from anywhere: the level afresh, everything in it) */
+                g_skill = -1;
+                new_game();
                 god = true;
                 pmove_spawn(at);
                 for (i = 1; i < MAX_EDICTS; ++i)
@@ -435,9 +438,9 @@ void                main(void)
                 fight_done = false;
                 fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
                 memset(fight_r, 0, sizeof(fight_r));
-    #ifdef R_PROFILE
+#ifdef R_PROFILE
                 memset(fight_p, 0, sizeof(fight_p));
-    #endif
+#endif
             }
             if (fight_frames >= 0)
             {
@@ -445,23 +448,26 @@ void                main(void)
                 cam.pitch = 0;
                 pad_now &= PAD_START;
             }
-    #else
+#else
             if (pressed(PAD_R) && (pad_now & PAD_START))
             {
+                menu_cur = MENU_NONE;           /* (from anywhere: the level afresh, everything in it) */
+                g_skill = -1;
+                new_game();
                 bench_view = 0;
                 bench_frame = 0;
                 bench_done = false;
                 memset(bench_acc, 0, sizeof(bench_acc));
-    #ifdef R_PROFILE
+#ifdef R_PROFILE
                 {
                     extern int wk_nodes, wk_leaves, wk_ftests, wk_models;
 
                     wk_nodes = wk_leaves = wk_ftests = wk_models = 0;
                 }
-    #endif
+#endif
                 memset(bench_prof, 0, sizeof(bench_prof));
             }
-    #endif
+#endif
             if (pressed(PAD_L) && (pad_now & PAD_START))
                 warp_trigger();
             if (pressed(PAD_Z) && (pad_now & PAD_START))

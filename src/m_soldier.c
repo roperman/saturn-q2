@@ -118,11 +118,13 @@ static void         soldier_fire(g_ent *self)
         aim[2] += u;
         g_fire_blaster(self, start, aim, 5, FIX(600));
         g_muzzle_flash(start, 12, 10, 3);
+        s_play(SND_SOL_BLASTER, start, ATTN_NORM);
     }
     else if (self->skinnum <= 3)
     {
         g_fire_hitscan(self, start, aim, 2, 1000, 500, 12);
         g_muzzle_flash(start, 13, 10, 4);
+        s_play(SND_SOL_SHOTGUN, start, ATTN_NORM);
     }
     else
     {
@@ -131,6 +133,7 @@ static void         soldier_fire(g_ent *self)
             self->pausetime = level.time + (3 + (int)(rng() % 8)) * FRAMETIME;
         g_fire_hitscan(self, start, aim, 2, 300, 500, 1);
         g_muzzle_flash(start, 13, 11, 5);
+        s_play(SND_SOL_MACHINEGUN, start, ATTN_NORM);
         if (level.time >= self->pausetime)
             self->aiflags &= ~AI_HOLD_FRAME;
         else
@@ -171,7 +174,13 @@ static void         soldier_pain(g_ent *self, g_ent *other, int damage)
     if (level.time < self->pain_debounce)
         return;
     self->pain_debounce = level.time + FIX(3);
+    s_play(rng() & 1 ? SND_SOL_PAIN1 : SND_SOL_PAIN2, self->origin, ATTN_NORM);
     set_move(self, frandom() < FIX(0.5) ? &soldier_move_pain1 : &soldier_move_pain2);
+}
+
+static void         soldier_sight(g_ent *self)
+{
+    s_play(SND_SOL_SIGHT, self->origin, ATTN_NORM);
 }
 
 static void         soldier_dead(g_ent *self)
@@ -186,6 +195,7 @@ static void         soldier_die(g_ent *self, g_ent *attacker, int damage, const 
     if (self->dead)
         return;
     self->dead = true;
+    s_play(rng() & 1 ? SND_SOL_DEATH1 : SND_SOL_DEATH2, self->origin, ATTN_NORM);
     self->skinnum |= 1;
     self->aiflags &= ~AI_HOLD_FRAME;
     set_move(self, &soldier_move_death1);
@@ -216,6 +226,6 @@ void                SP_monster_x_soldier(g_ent *self, int skin)
     self->attack = soldier_attack;
     self->pain = soldier_pain;
     self->die = soldier_die;
-    self->sight = NULL;
+    self->sight = soldier_sight;
     monster_start(self);
 }

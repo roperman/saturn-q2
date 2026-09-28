@@ -91,6 +91,17 @@ void                snd_sfx(int id)
         post(SND_CMD_SFX, id);
 }
 
+/* an effect at a volume (0-127, times its own) and pan (-15 left .. 15 right) */
+void                snd_sfx_at(int id, int vol, int pan)
+{
+    if (id < 0)
+        return;
+    vol = vol < 0 ? 0 : vol > 127 ? 127 : vol;
+    pan = pan < -15 ? -15 : pan > 15 ? 15 : pan;
+    post(SND_CMD_SFXVP, vol << 5 | (pan + 15));
+    post(SND_CMD_SFX, id);
+}
+
 /* straight to a song, no crossfade (a battle starting) */
 void                snd_music_cut(int id)
 {

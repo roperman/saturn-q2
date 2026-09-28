@@ -172,6 +172,7 @@ void                snd_music_cut(int song);            /* no crossfade */
 void                snd_reverb(int level);              /* 0 dry .. 7 */
 int                 snd_music_playing(void);
 void                snd_sfx(int id);
+void                snd_sfx_at(int id, int vol, int pan);   /* vol 0-127 (times its own), pan -15 left .. 15 right */
 void                snd_music_volume(int v);            /* 0-15 */
 bool                cd_init(void);
 bool                cd_read_sectors(u32 lba, u32 count, void *dst);

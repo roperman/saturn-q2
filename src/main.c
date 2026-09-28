@@ -260,6 +260,8 @@ void                main(void)
             message(cart_mb < 4 ? "THIS NEEDS THE 4MB RAM CART" : MAP_FILE " WON'T LOAD", NULL);
     message("QUAKE II", "LOADING THE MODELS");
     models_load_all();
+    message("QUAKE II", "LOADING THE SOUNDS");
+    s_init();
     hud_init();
     render_init();
     trace_init();
@@ -315,6 +317,20 @@ void                main(void)
         s32         dt = (s32)(((u64)imax(imin((s32)us_frame, 100000), 10000) << 16) / 1000000);
         int         turn = (int)fmul(dt, 0x6000);   /* 135 degrees a second */
 
+#ifdef SOUND_TEST
+        {
+            /* (OPT=-DSOUND_TEST: the blaster hard left, then hard right, then an explosion in the middle) */
+            static int sf;
+
+            ++sf;
+            if (sf == 60)
+                snd_sfx_at(SND_BLASTER, 127, -15);
+            if (sf == 120)
+                snd_sfx_at(SND_BLASTER, 127, 15);
+            if (sf == 180)
+                snd_sfx_at(SND_EXPLOSION, 127, 0);
+        }
+#endif
         pad_prev = pad_now;
         pad_now = pad_collect();
         pad_request();

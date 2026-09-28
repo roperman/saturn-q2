@@ -345,6 +345,7 @@ static void         categorize(void)
 {
     s32             point[3];
     int             cont;
+    bool            was_in;
 
     point[0] = pl.origin[0];
     point[1] = pl.origin[1];
@@ -368,11 +369,15 @@ static void         categorize(void)
         else
         {
             if (!pl.on_ground && pl.velocity[2] < -FIX(200))
+            {
                 pl.land_time = pl.velocity[2] < -FIX(400) ? 25 : 18;   /* no jumping for a moment */
+                s_play(pl.velocity[2] < -FIX(400) ? SND_PLAYER_FALL : SND_PLAYER_LAND, NULL, ATTN_NONE);
+            }
             pl.on_ground = true;
         }
     }
     /* how deep in water: feet, waist, eyes */
+    was_in = pl.waterlevel != 0;
     pl.waterlevel = 0;
     point[2] = pl.origin[2] + p_mins[2] + FIX(1);
     cont = point_contents(point, 0);
@@ -389,6 +394,10 @@ static void         categorize(void)
                 pl.waterlevel = 3;
         }
     }
+    if (!was_in && pl.waterlevel)
+        s_play(SND_WATER_IN, NULL, ATTN_NONE);
+    else if (was_in && !pl.waterlevel)
+        s_play(SND_WATER_OUT, NULL, ATTN_NONE);
 }
 
 static void         check_jump(bool jump)
@@ -414,6 +423,27 @@ static void         check_jump(bool jump)
     pl.jump_held = true;
     pl.on_ground = false;
     pl.velocity[2] = imax(pl.velocity[2] + PM_JUMP, PM_JUMP);
+    s_play(SND_PLAYER_JUMP, NULL, ATTN_NONE);
+}
+
+/* a footstep every 64 units walked on the ground (Quake's bob cycle, near enough) */
+static void         footsteps(void)
+{
+    static s32      walked;
+    s32             speed;
+
+    if (!pl.on_ground || pl.waterlevel >= 2)
+        return;
+    speed = (iabs(pl.velocity[0]) > iabs(pl.velocity[1]) ? iabs(pl.velocity[0]) + (iabs(pl.velocity[1]) >> 1)
+                                                          : iabs(pl.velocity[1]) + (iabs(pl.velocity[0]) >> 1));
+    if (speed < FIX(100))
+        return;
+    walked += fmul(speed, frametime);
+    if (walked >= FIX(64))
+    {
+        walked -= FIX(64);
+        s_play(SND_STEP1 + (int)(rng() & 3), NULL, ATTN_NONE);
+    }
 }
 
 void                pmove(const q_usercmd *cmd, s32 dt)
@@ -507,6 +537,7 @@ void                pmove(const q_usercmd *cmd, s32 dt)
         }
     }
     categorize();
+    footsteps();
 }
 
 /* put the player down at a spawn point: nudged up out of the floor */

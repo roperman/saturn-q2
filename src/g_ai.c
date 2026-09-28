@@ -390,6 +390,8 @@ void                FoundTarget(g_ent *self)
     {
         sight_entity = self;                /* other monsters that see this one wake up too */
         sight_entity_framenum = level.framenum;
+        if (self->sight)
+            self->sight(self);              /* (its "there you are") */
     }
     self->show_hostile = level.time + FIX(1);
     for (k = 0; k < 3; ++k)

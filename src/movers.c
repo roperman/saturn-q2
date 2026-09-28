@@ -11,6 +11,7 @@
 ** Trains, rotating things and shootable buttons don't move yet.
 */
 #include "q2.h"
+#include "game.h"
 
 enum { M_REST, M_GOING, M_AT_END, M_RETURNING };
 
@@ -79,6 +80,21 @@ static bool         player_in(const s32 *mins, const s32 *maxs)
     return true;
 }
 
+/* a mover's sound, from its middle: starting off, or arriving */
+static void         mover_sound(int m, bool start)
+{
+    const q_model   *mo = &lv.models[m];
+    int             kind = lv.movers[m].kind, k;
+    s32             p[3];
+
+    if (kind == MV_BUTTON && !start)
+        return;
+    for (k = 0; k < 3; ++k)
+        p[k] = (mo->mins[k] >> 1) + (mo->maxs[k] >> 1) + mover_ofs[m][k];
+    s_play(kind == MV_BUTTON ? SND_BUTTON : kind == MV_PLAT ? (start ? SND_PLAT_START : SND_PLAT_END)
+                                                           : (start ? SND_DOOR_START : SND_DOOR_END), p, ATTN_STATIC);
+}
+
 /* set a mover (and its team) going */
 static void         activate(int m)
 {
@@ -86,6 +102,8 @@ static void         activate(int m)
 
     do
     {
+        if (ms[i].state == M_REST)
+            mover_sound(i, true);
         if (ms[i].state == M_REST || ms[i].state == M_RETURNING)
             ms[i].state = M_GOING;
         else if (ms[i].state == M_AT_END && lv.movers[i].wait >= 0)
@@ -165,7 +183,10 @@ void                movers_update(s32 dt)
                     break;
                 s->timer -= dt;
                 if (s->timer <= 0)
+                {
                     s->state = M_RETURNING;
+                    mover_sound(m, true);
+                }
                 break;
             case M_RETURNING:
                 if (triggered && mv->kind == MV_DOOR)
@@ -218,6 +239,7 @@ void                movers_update(s32 dt)
         }
         if (nf == target)
         {
+            mover_sound(m, false);
             if (s->state == M_GOING)
             {
                 s->state = M_AT_END;

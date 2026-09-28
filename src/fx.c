@@ -162,6 +162,7 @@ void                fx_grenade(g_ent *owner, const s32 *start, const s32 *dir, i
 
 static void         explode(t_proj *p, g_ent *direct)
 {
+    s_play(p->kind == P_ROCKET ? SND_EXPLOSION : SND_GRENADE_EXPLODE, p->pos, ATTN_NORM);
     if (p->kind == P_ROCKET)
     {
         if (direct)
@@ -229,6 +230,8 @@ static void         move_proj(t_proj *p, s32 dt)
             for (k = 0; k < 3; ++k)
                 q[k] = t.endpos[k] - fmul(p->vel[k], FIX(0.008));
             fx_flash(q, FIX(240), FIX(0.35), 13, 8, 2);
+            if (!hit)
+                s_play(SND_BLASTER_HIT, q, ATTN_NORM);
             if (hit == g_player)
                 last_flash->sprite = false;             /* not in your face */
             p->live = false;
@@ -247,6 +250,8 @@ static void         move_proj(t_proj *p, s32 dt)
             }
             if (t.plane)
             {
+                if (vlen(p->vel) > FIX(100))
+                    s_play(SND_GRENADE_BOUNCE, p->pos, ATTN_NORM);
                 bounce(p->vel, t.plane->n);
                 /* on a floor and slow: it stops (still ticking) */
                 if (t.plane->n[2] > FIX(0.7) && vlen(p->vel) < FIX(60))

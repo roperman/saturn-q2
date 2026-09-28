@@ -33,10 +33,13 @@ typedef unsigned long   u32;
 #define KYONEX          0x1000
 #define KYONB           0x0800
 #define LPCTL_LOOP      0x0020
+#define PCM8B           0x0010              /* 8-bit samples (flags 4) */
 
 #define MAX_CH          8
-#define SFX_FIRST       24
-#define SFX_SLOTS       8
+#ifndef SFX_FIRST
+#define SFX_FIRST       16                  /* (with no songs, 16 of them; with songs, keep them clear of the decks) */
+#endif
+#define SFX_SLOTS       (32 - SFX_FIRST)
 
 #define MBOX            ((volatile u16 *)SND_MBOX)
 #define BANK            ((const u8 *)SND_BANK_BASE)
@@ -115,7 +118,7 @@ static int              slot_setup(int s, const t_inst *in, u16 pitch, int vol, 
     int                 t = tl + fade_att;
     u16                 pn = (u16)(pan < 0 ? (0x10 | (-pan & 0xF)) : (pan & 0xF));
 
-    SLOT(s, 0x00) = (u16)(((in->flags & 1) ? LPCTL_LOOP : 0) | ((in->sa >> 16) & 0xF));
+    SLOT(s, 0x00) = (u16)(((in->flags & 1) ? LPCTL_LOOP : 0) | ((in->flags & 4) ? PCM8B : 0) | ((in->sa >> 16) & 0xF));
     SLOT(s, 0x02) = (u16)in->sa;
     SLOT(s, 0x04) = in->lsa;
     SLOT(s, 0x06) = in->lea;
@@ -312,20 +315,31 @@ static void             deck_tick(t_deck *d)
     }
 }
 
+/* the next effect's volume (0-127, times its own) and pan, if SND_CMD_SFXVP set them */
+static int              vp_vol = -1, vp_pan;
+
 static void             play_sfx(int id)
 {
     const u8            *e;
-    int                 s;
+    int                 s, vol, pan;
 
     if (id < 0 || id >= n_sfx)
         return;
     e = sfx_tab + id * 4;
+    vol = e[2];
+    pan = (s8)e[3];
+    if (vp_vol >= 0)
+    {
+        vol = (vol * vp_vol) >> 7;
+        pan = vp_pan;
+        vp_vol = -1;
+    }
     s = SFX_FIRST + sfx_next;
     sfx_next = (sfx_next + 1) % SFX_SLOTS;
     slot_off(s);
     key_exec();
     pause();
-    slot_setup(s, &insts[e[0]], insts[e[0]].pitch, e[2], (s8)e[3], 0);
+    slot_setup(s, &insts[e[0]], insts[e[0]].pitch, vol, pan, 0);
     SLOT(s, 0x00) = (u16)(SLOT(s, 0x00) | KYONB);
     key_exec();
 }
@@ -344,6 +358,7 @@ static void             take_commands(void)
             case SND_CMD_STOP: play_song(-1, 0); break;
             case SND_CMD_REVERB: reverb = arg > 7 ? 7 : arg; break;
             case SND_CMD_SFX: play_sfx(arg); break;
+            case SND_CMD_SFXVP: vp_vol = arg >> 5; vp_pan = (int)(arg & 31) - 15; break;
             case SND_CMD_VOLUME: music_vol = arg > 15 ? 15 : arg; break;
         }
         MBOX[MB_READ] = (u16)((r + 1) % SND_RING);

@@ -254,11 +254,22 @@ void                g_damage(g_ent *targ, g_ent *attacker, int damage, const s32
         return;
     if (targ->kind == EK_PLAYER)
     {
+        static s32 pain_time;               /* (a pain sound at most every 0.7 s, as Quake) */
+
         damage = g_armor_absorb(damage);
         targ->health -= damage;
         player_flash = imin(player_flash + damage * 12, 200);
         if (targ->health <= 0)
+        {
             targ->dead = true;
+            s_play(SND_PLAYER_DEATH, NULL, ATTN_NONE);
+        }
+        else if (damage > 0 && (level.time >= pain_time || level.time < pain_time - FIX(1)))
+        {
+            pain_time = level.time + FIX(0.7);
+            s_play(targ->health < 25 ? SND_PLAYER_PAIN25 : targ->health < 50 ? SND_PLAYER_PAIN50
+                   : targ->health < 75 ? SND_PLAYER_PAIN75 : SND_PLAYER_PAIN100, NULL, ATTN_NONE);
+        }
         return;
     }
     if (!targ->takedamage)
@@ -351,6 +362,8 @@ void                g_fire_hitscan(g_ent *self, const s32 *start, const s32 *dir
                 g_damage(g_ent_for_model(mid.ent), self, damage, pend);  /* a func_explosive */
             if (mid.fraction < FIX(1) && (n & 1))
                 fx_spark(pend);             /* every other one: enough to see */
+            if (mid.fraction < FIX(1) && n == 0 && !(rng() & 3))
+                s_play(SND_RICOCHET1 + (int)(rng() % 3), pend, ATTN_NORM);     /* now and then, as Quake */
         }
     }
 }

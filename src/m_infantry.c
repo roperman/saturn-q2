@@ -121,6 +121,7 @@ static void         InfantryMachineGun(g_ent *self)
     }
     g_fire_hitscan(self, start, aim, 3, 300, 500, 1);
     g_muzzle_flash(start, 13, 11, 5);
+    s_play(SND_INF_MACHINEGUN, start, ATTN_NORM);
 }
 
 static void         infantry_cock_gun(g_ent *self)
@@ -141,7 +142,10 @@ static void         infantry_fire(g_ent *self)
 static void         infantry_smack(g_ent *self)
 {
     if (self->enemy && range(self, self->enemy) == RANGE_MELEE && infront(self, self->enemy))
+    {
+        s_play(SND_INF_MELEE, self->origin, ATTN_NORM);
         g_damage(self->enemy, self, 5 + (int)(rng() % 5), self->enemy->origin);
+    }
 }
 
 static void         infantry_attack(g_ent *self)
@@ -156,7 +160,13 @@ static void         infantry_pain(g_ent *self, g_ent *other, int damage)
     if (level.time < self->pain_debounce)
         return;
     self->pain_debounce = level.time + FIX(3);
+    s_play(rng() & 1 ? SND_INF_PAIN1 : SND_INF_PAIN2, self->origin, ATTN_NORM);
     self->move = rng() & 1 ? &infantry_move_pain1 : &infantry_move_pain2;
+}
+
+static void         infantry_sight(g_ent *self)
+{
+    s_play(SND_INF_SIGHT, self->origin, ATTN_NORM);
 }
 
 static void         infantry_dead(g_ent *self)
@@ -171,6 +181,7 @@ static void         infantry_die(g_ent *self, g_ent *attacker, int damage, const
     if (self->dead)
         return;
     self->dead = true;
+    s_play(SND_INF_DEATH1, self->origin, ATTN_NORM);
     self->aiflags &= ~AI_HOLD_FRAME;
     self->move = rng() & 1 ? &infantry_move_death1 : &infantry_move_death2;
 }
@@ -199,6 +210,6 @@ void                SP_monster_infantry(g_ent *self)
     self->attack = infantry_attack;
     self->pain = infantry_pain;
     self->die = infantry_die;
-    self->sight = NULL;
+    self->sight = infantry_sight;
     monster_start(self);
 }

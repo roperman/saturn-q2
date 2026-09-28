@@ -145,6 +145,11 @@ static bool         pickup(const g_item *it)
             client.keys |= 1;
             break;
     }
+    s_play(it->kind == IT_HEALTH ? (it->cls == C_ITEM_HEALTH_SMALL ? SND_HEALTH_SMALL : it->cls == C_ITEM_HEALTH_LARGE
+                                    ? SND_HEALTH_LARGE : it->cls == C_ITEM_HEALTH_MEGA ? SND_HEALTH_MEGA : SND_HEALTH)
+           : it->kind == IT_ARMOR ? (it->cls == C_ITEM_ARMOR_SHARD ? SND_ARMOUR_SHARD : SND_ARMOUR)
+           : it->kind == IT_AMMO ? SND_AMMO : it->kind == IT_WEAPON ? SND_WEAPON
+           : it->cls == C_ITEM_QUAD ? SND_QUAD : SND_PICKUP, NULL, ATTN_NONE);
     say_pickup(it->name);
     client.pickup_flash = FIX(0.3);
     return true;
@@ -301,10 +306,12 @@ void                g_player_fire(bool held, const s32 *eye, int yaw, int pitch)
         case W_BLASTER:
             fx_bolt(g_player, start, fwd, 15 * dmg_mul, FIX(1000));
             g_muzzle_flash(start, 9, 7, 2);
+            s_play(SND_BLASTER, NULL, ATTN_NONE);
             break;
         case W_SHOTGUN:
             g_fire_hitscan(g_player, start, fwd, 4 * dmg_mul, 500, 500, 12);
             g_muzzle_flash(start, 12, 10, 4);
+            s_play(SND_SHOTGUN, NULL, ATTN_NONE);
             break;
         case W_SSHOTGUN:
         {
@@ -322,20 +329,24 @@ void                g_player_fire(bool held, const s32 *eye, int yaw, int pitch)
                 g_fire_hitscan(g_player, start, d, 6 * dmg_mul, 1000, 500, 10);
             }
             g_muzzle_flash(start, 14, 11, 4);
+            s_play(SND_SSHOTGUN, NULL, ATTN_NONE);
             break;
         }
         case W_MACHINEGUN:
         case W_CHAINGUN:
             g_fire_hitscan(g_player, start, fwd, (w == W_MACHINEGUN ? 8 : 6) * dmg_mul, 300, 500, 1);
             g_muzzle_flash(start, 12, 10, 4);
+            s_play(w == W_MACHINEGUN ? SND_MACHINEGUN : SND_CHAINGUN, NULL, ATTN_NONE);
             break;
         case W_GLAUNCHER:
             fx_grenade(g_player, start, fwd, 120 * dmg_mul, FIX(600));
             g_muzzle_flash(start, 10, 8, 3);
+            s_play(SND_GRENADE_FIRE, NULL, ATTN_NONE);
             break;
         case W_RLAUNCHER:
             fx_rocket(g_player, start, fwd, (100 + (int)(rng() % 21)) * dmg_mul, 120 * dmg_mul);
             g_muzzle_flash(start, 12, 9, 3);
+            s_play(SND_ROCKET_FIRE, NULL, ATTN_NONE);
             break;
     }
 }

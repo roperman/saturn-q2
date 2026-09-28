@@ -22,6 +22,7 @@
 #define SND_CMD_VOLUME      4       /* argument: 0-15 */
 #define SND_CMD_REVERB      5       /* argument: 0 (dry) - 7 (cathedral) */
 #define SND_CMD_CUT         6       /* argument: song id - start at once, no crossfade */
+#define SND_CMD_SFXVP       7       /* argument: vol (0-127) << 5 | pan + 15 (0-30), for the next SND_CMD_SFX */
 #define SND_RING            32
 
 /* the mailbox, as 16-bit words (offsets in words from SND_MBOX) */

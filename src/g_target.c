@@ -66,7 +66,10 @@ void                G_UseTargets(g_ent *ent, g_ent *activator)
         return;
     }
     if (ent->message && activator == g_player)
+    {
         g_centerprint(ent->message);
+        s_play(SND_TALK, NULL, ATTN_NONE);
+    }
     if (ent->killtarget)
         for (i = 1; i < MAX_EDICTS; ++i)
             if (g_edicts[i].kind != EK_FREE && g_edicts[i].targetname == ent->killtarget)
@@ -236,6 +239,8 @@ void                T_RadiusDamage(const s32 *p, g_ent *inflictor, g_ent *attack
 void                g_explosion(const s32 *p, g_ent *inflictor, g_ent *attacker, int damage, s32 radius, g_ent *ignore)
 {
     fx_explosion(p);
+    if (inflictor)
+        s_play(SND_EXPLOSION, p, ATTN_NORM);   /* (a rocket's or a grenade's: fx.c, its own) */
     if (damage)
         T_RadiusDamage(p, inflictor, attacker, damage, ignore, radius);
 }
@@ -276,6 +281,7 @@ static void         use_splash(g_ent *self, g_ent *other, g_ent *activator)
 static void         use_secret(g_ent *self, g_ent *other, g_ent *activator)
 {
     ++found_secrets;
+    s_play(SND_SECRET, NULL, ATTN_NONE);
     G_UseTargets(self, activator);
     self->kind = EK_FREE;
 }

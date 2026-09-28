@@ -205,6 +205,15 @@ bool                visible(const g_ent *self, const g_ent *other);
 bool                infront(const g_ent *self, const g_ent *other);
 bool                FindTarget(g_ent *self);
 void                FoundTarget(g_ent *self);
+
+/* src/sound.c: SND_ ids (obj/gen/sound_ids.h, tools/bake_sound.py); attenuations as Quake's */
+#include "sound_ids.h"
+#define ATTN_NONE       (0)                     /* heard everywhere the same */
+#define ATTN_NORM       (1)
+#define ATTN_IDLE       (2)
+#define ATTN_STATIC     (3)
+void                s_init(void);
+void                s_play(int id, const s32 *origin, int atten);
 void                M_ChangeYaw(g_ent *ent);
 bool                M_walkmove(g_ent *ent, int yaw, s32 dist);
 void                M_MoveFrame(g_ent *self);

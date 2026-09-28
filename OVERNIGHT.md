@@ -548,3 +548,32 @@ Looked at and left:
   call.
 - Other library calls for shifts and divides: in code that runs a few
   times a frame (the sky, a model's setup, the C's near cells).
+
+## 13. Portals: measured before building
+
+`tools/portal_estimate.py` makes the BSP's leaf-to-leaf portals again (as
+qbsp does), flows each benchmark view through them with screen rectangles,
+and counts the cells that would still be drawn; `--check` renders each view
+with a z-buffer on the PC to prove nothing seen is culled (none, in all
+twelve views). Cells kept, against today's list:
+
+| | exact flow | one rectangle a leaf | leaf boxes | cluster boxes |
+|---|---|---|---|---|
+| demo1 (6 views) | 73% | 74% | 78% | 82% |
+| demo1 the round room | 32% | 34% | 48% | 48% |
+| demo2 (6 views) | 74% | 79% | 80% | 80% |
+| demo2 the big room (2 views) | 23-29% | 23-29% | 23-29% | 23-29% |
+
+The exact flow is far too slow (up to 33,000 projections a view). One
+rectangle a leaf, each portal projected once: 44-650 projections. Stored
+as the Saturn could afford (`tools/portal_clusters.py`: each portal a box,
+merged per pair of clusters: 3,400-5,300 of them, about 85 KB a level;
+leaf by leaf 6,600-7,400, ~150 KB, more than demo3's cart has left):
+150-470 box projections a frame, roughly 2-6 ms of one CPU.
+
+So: a big cut where a wall hides a lot (the fight room, demo2's big room:
+also where VDP1 is the limit), next to nothing in the open views, where
+the flow is pure cost. The walk would get cheaper too (only the nodes
+above reached leaves). Worth building only with the flow off the master's
+path (the slave, while the master does the sky, effects and entities) or
+kept to a budget.

@@ -722,3 +722,49 @@ reads at the top of the picture, and `pad_collect` takes the last answer it
 finished without waiting. Checked: three runs of 60 steps, none stopped, the
 pause menu and options answer. Builds without the swap by interrupt ask as
 before.
+
+## 18. Walls going missing: the texture cache
+
+Walls went missing now and then, most when turning. The texture cache (VDP1
+VRAM, 16x16 slots, a part for each CPU) had run out: a CPU whose part is full
+skips every texture it hasn't got for the rest of that frame, and the cells
+that need them. Each part had 385 slots, and VRAM went mostly elsewhere:
+the two command lists (3,000 commands each, 192 KB) and colour tables (the
+soldier's six skins 67 KB, the infantry's 27, the level's 22, the guns' 15).
+The benchmarks now show, from start to end, the frames each CPU ran out
+(`OUT`) and the most commands each part of the list took (`CMD`, and its
+Gouraud tables `G`); `OPT=-DTEX_WSET` adds the textures each frame held.
+
+| | before | after |
+|---|---|---|
+| turning benchmark, 552 frames: ran out (master / slave) | 10 / 57 | 5 / 19 |
+| fight, ~490 frames: ran out | 2 / every frame | 1 / 1 |
+| fight: the slave's commands (what it no longer skips) | 506 | 818 |
+| fight: texture uploads a frame | 4.8 | 0.6-0.9 |
+| slots (master / slave), demo1 | 385 / 385 | 400 / 602 |
+
+In the fight the slave's part was out every frame: about 300 of its polygons
+went undrawn, every frame. Frame times are within the fight's run-to-run
+spread (39.8 and 41.5 ms, 41.3-42.2 before); the static benchmark's CPU 1684
+(1736 before).
+
+- **The lists**: the master's 1,100 commands, the slave's 1,300 (it takes
+  more of the list), the overlay 400 (was 1,300, 1,300, 400: busy views take
+  941 and 1,076; demo2 the master's most). `VDP_WRITER1_CMDS` sets the
+  second writer's; each writer has its `cmax`.
+- **The split**: the master's part 40%, the slave's 60% (the slave was out
+  far more; the gun, the master's, keeps its textures).
+- **The guns' colour tables**: one set in VRAM, not one a slot. The next gun's
+  go in as it comes up, once the last one's three frames gone (`r_view_luts`,
+  src/view.c): a weapon switch waits a frame more with no gun up.
+- **The monsters' colour tables**: one table kept where the same in every
+  skin (tools/bake_md2.py; the texture's record says which, its last field;
+  the guns keep one a polygon, `--keeplut`): the soldier 355 to 330 a skin,
+  the infantry 436 to 360. Checked: the old bake against the new, every
+  polygon in every skin, the same 16 colours (and the same textures and
+  frames); `MODEL_CHECK` 0 differences in 163,213 vertices and 1,411 commands.
+- **Memory**: the command staging is in HWRAM: demo1 1.1 KB more free and 4.3
+  KB more of the monsters' records there (COLD 12,980 to 8,720); the carts 12
+  KB more; all three levels load.
+- Left: fast turning still runs out now and then (the slave, 19 of 552 in the
+  benchmark), since textures three frames back are still in flight.

@@ -442,8 +442,8 @@ M_FRAME  = 40
 M_SVRAM  = 44                           ! the slots' VRAM
 M_SBYTES = 48                           ! a slot's size
 M_LB     = 52                           ! the list's LINK for command 0
-M_DW1    = 56                           ! the command's second word, for texture 0
-M_LUTS4  = 60                           ! 4 if each texture has its own colour table (the colr step), else 0
+M_DW1    = 56                           ! the command's second word, for colour table 0
+M_LUTS4  = 60                           ! 4 if the textures have tables of their own (the colr step: times the record's lut), else 0
 M_GMAX   = 64
 M_GB     = 68                           ! the Gouraud tables' VRAM / 8
 M_FIFO   = 72                           ! appended (in order) rather than pushed
@@ -454,7 +454,7 @@ M_TAIL   = 88
 M_GC     = 92
 M_DROP   = 96                           ! out: none left in the list
 M_HEADS  = 100                          ! mhead
-M_WCMDS  = 104                          ! WRITER_CMDS
+M_WCMDS  = 104                          ! the writer's room (its cmax)
 
 _mcmds_asm:
         mov.l   r8,@-r15
@@ -573,17 +573,19 @@ _mcmds_asm:
         mov.l   .Lctrl,r0
         or      r4,r0
         mov.l   r0,@r2                  ! jump-assign, distorted sprite; LINK
-        mov.l   @(M_LUTS4,r14),r0
-        mulu.w  r6,r0
-        mov.l   @(M_DW1,r14),r1
-        sts     macl,r0
-        add     r1,r0
-        mov.l   r0,@(4,r2)              ! PMOD, COLR
         mov.l   @(M_TEX,r14),r1
         mov     r6,r0
         shll2   r0
         add     r0,r0
-        add     r0,r1
+        add     r0,r1                   ! its texture's record
+        mov.w   @(6,r1),r0              ! its colour table (of its skin's: tools/bake_md2.py)
+        extu.w  r0,r0
+        mov.l   @(M_LUTS4,r14),r4
+        mulu.w  r4,r0
+        mov.l   @(M_DW1,r14),r4
+        sts     macl,r0
+        add     r4,r0
+        mov.l   r0,@(4,r2)              ! PMOD, COLR
         add     #4,r1
         mov.b   @r1+,r4                 ! w
         mov.b   @r1,r1                  ! h

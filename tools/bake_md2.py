@@ -225,7 +225,9 @@ def main():
     per_skin = ofs
     texdata = bytearray()
     luts = bytearray()
+    skin_luts = []                          # (each skin's tables, a polygon's each, before they're merged)
     for sk in skins:
+        skin_luts.append([])
         pcx = Image.open(io.BytesIO(pak.read("%s/%s.pcx" % (base, sk))))
         skin = pcx.convert("RGB")
         block = bytearray()
@@ -241,11 +243,35 @@ def main():
             else:
                 q = img.quantize(colors=15, method=Image.Quantize.MEDIANCUT, dither=Image.Dither.NONE)
                 p = (q.getpalette() + [0] * 45)[:45]
-                luts += struct.pack(">16H", 0, *[rgb555((p[i * 3], p[i * 3 + 1], p[i * 3 + 2])) for i in range(15)])
+                skin_luts[-1].append(struct.pack(">16H", 0, *[rgb555((p[i * 3], p[i * 3 + 1], p[i * 3 + 2]))
+                                                              for i in range(15)]))
             idx = [min(i, 14) + 1 for i in q.getdata()]
             data = bytes((idx[i] << 4) | idx[i + 1] for i in range(0, len(idx), 2))
             block += data.ljust((len(data) + 7) & ~7, b"\0")
         texdata += block
+    # the colour tables, in VRAM for good (src/render.c render_init): a polygon's each, but the
+    # same table isn't kept twice where it's the same in every skin (the texture's record says
+    # which it uses: its last field); --keeplut: one a polygon still (the gun: its kept drawing
+    # takes the texture's number for the table's)
+    if shared:
+        nluts = 1
+        lut_of = [0] * len(polys)
+    else:
+        lut_of = list(range(len(polys)))
+        order = list(range(len(polys)))
+        if "keeplut" not in opts:
+            first = {}
+            order = []
+            for t in range(len(polys)):
+                key = tuple(sl[t] for sl in skin_luts)
+                if key not in first:
+                    first[key] = len(order)
+                    order.append(t)
+                lut_of[t] = first[key]
+        nluts = len(order)
+        for sl in skin_luts:
+            luts += b"".join(sl[t] for t in order)
+    tex_table = [rec[:6] + struct.pack(">H", lut_of[t]) for t, rec in enumerate(tex_table)]
     # frames: scale and translate (16.16), then the byte vertices
     fdata = bytearray()
     for f in frames:
@@ -285,7 +311,7 @@ def main():
         offs.append(o)
         o += (len(p) + 15) & ~15
     hdr = b"Q2MD" + struct.pack(">6H8I", m.nverts, npolys, len(frames), len(anims), len(skins), len(polys),
-                                *offs[:8]) + struct.pack(">2I", per_skin, 1 if shared else len(polys)) \
+                                *offs[:8]) + struct.pack(">2I", per_skin, nluts) \
         + struct.pack(">2I", offs[8], len(lpolys))              # (at 56: the far mesh's polygons, how many)
     out = bytearray(hdr.ljust(hdr_size, b"\0"))
     for p in parts:
@@ -295,9 +321,9 @@ def main():
         fo.write(out)
     ntri = sum(1 for xyz, _ in polys[:npolys] if xyz[2] == xyz[3])
     print("%s: %d verts, %d triangles -> %d polygons (%d quads, %d triangles), far %d, %d frames, %d skins, "
-          "textures %d bytes a skin, total %dK" % (args[2], m.nverts, len(m.tris), npolys, npolys - ntri,
-                                                   ntri, len(lpolys), len(frames), len(skins), per_skin,
-                                                   len(out) // 1024))
+          "textures %d bytes a skin, %d colour tables a skin, total %dK" % (
+              args[2], m.nverts, len(m.tris), npolys, npolys - ntri, ntri, len(lpolys), len(frames), len(skins),
+              per_skin, nluts, len(out) // 1024))
 
 
 if __name__ == "__main__":

@@ -37,7 +37,7 @@
 #define JP_SKIP_ASSIGN  (0x5000)
 #define CMD_END         (0x8000)
 
-#define OVL_FIRST       (1 + 2 * WRITER_CMDS)
+#define OVL_FIRST       (1 + WRITER_CMDS + WRITER1_CMDS)
 #define OVL_MAX         (MAX_CMDS - OVL_FIRST - 1)
 
 static vdp1_cmd     staging[MAX_CMDS] __attribute__((aligned(16)));
@@ -57,6 +57,7 @@ static bool         hw_erase;           /* VDP1 erases the displayed buffer in t
 static bool         no_hw_erase;
 static void         (*vblank_hook)(void);
 u32                 vdp_us_dma, vdp_us_wait;
+int                 vdp_peak[5];
 u32                 late_frames;        /* frames that had to clear with a polygon */
 
 /* Erase decision, made in the timer-0 interrupt a few lines before the
@@ -360,7 +361,8 @@ void                vdp_begin(void)
     {
         vdp_writer *wr = &writers[w];
 
-        wr->first = 1 + w * WRITER_CMDS;
+        wr->first = w ? 1 + WRITER_CMDS : 1;
+        wr->cmax = w ? WRITER1_CMDS : WRITER_CMDS;
         wr->cmds = &staging[wr->first];
         wr->link_base = link_to(wr->first);
         wr->count = 0;
@@ -654,6 +656,11 @@ int                 vdp_submit(void)
     }
     staging[OVL_FIRST + overlay_count].ctrl = CMD_END;
     prev->link = link_to(OVL_FIRST + overlay_count);
+    vdp_peak[0] = writers[0].count > vdp_peak[0] ? writers[0].count : vdp_peak[0];
+    vdp_peak[1] = writers[1].count > vdp_peak[1] ? writers[1].count : vdp_peak[1];
+    vdp_peak[2] = overlay_count > vdp_peak[2] ? overlay_count : vdp_peak[2];
+    vdp_peak[3] = writers[0].gcount > vdp_peak[3] ? writers[0].gcount : vdp_peak[3];
+    vdp_peak[4] = writers[1].gcount > vdp_peak[4] ? writers[1].gcount : vdp_peak[4];
 
     if (pipelined)
     {

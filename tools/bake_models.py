@@ -33,6 +33,7 @@ def main():
         cmd += ["--" + o for o in opts if o != "view"]
         if "view" in opts:
             cmd.append("--spare=%d" % VIEW_SUBS)
+            cmd.append("--keeplut")     # (src/render.c: the gun's kept drawing takes a texture's table as its own)
         subprocess.check_call(cmd)
     gen = os.path.join(ROOT, "obj", "gen")
     os.makedirs(gen, exist_ok=True)

@@ -24,4 +24,4 @@ python3 tools/bake_models.py data/pak0.pak cd
 # built small (engine/build.inc.sh): start-up, menus, saving, the CD, trigger targets
 COLD="main.c menu.c bup.c cd.c g_target.c ${COLD_MORE:-}" \
 engine_build QUAKE2 "src/main.c src/math.c src/level.c src/render.c src/trace.c src/pmove.c src/movers.c src/fx.c src/model.c src/g_main.c src/g_ai.c src/m_soldier.c src/m_infantry.c src/g_target.c src/g_items.c src/hud.c src/sound.c src/menu.c src/view.c src/cycles.c src/grid.s src/cells.s src/walk.s src/mdraw.s" \
-    "-DVDP_MAX_CMDS=3000 -DVDP_WRITER_CMDS=1300 -DVDP_GOURAUD_MAX=2800 -DMAP_FILE=\"$MAPFILE\" ${OPT}"
+    "-DVDP_MAX_CMDS=2802 -DVDP_WRITER_CMDS=1100 -DVDP_WRITER1_CMDS=1300 -DVDP_GOURAUD_MAX=2800 -DMAP_FILE=\"$MAPFILE\" ${OPT}"

@@ -247,7 +247,7 @@ void                fx_reset(void);                         /* a new level: noth
 
 /* model.c: MD2 models (tools/bake_md2.py) */
 typedef struct { u16 v[4], tex, flags; } q_mpoly;           /* flags 1: a triangle (v[3] == v[2]) */
-typedef struct { u32 ofs; u8 w, h; u16 pad; } q_mtex;
+typedef struct { u32 ofs; u8 w, h; u16 lut; } q_mtex;       /* lut: its colour table (of its skin's) */
 typedef struct { char name[12]; u16 first, count; } q_manim;
 typedef struct
 {
@@ -307,8 +307,10 @@ void                model_shade(u16 *out, const u8 *sh, const u16 *ll);    /* 16
 extern bool         view_on;                /* drawn at all (not at the title, nor in the benchmark's views) */
 extern s32          view_bob[3];            /* its bob: pitch (down), yaw (left), roll (right side down), radians 16.16 */
 const q_mdl         *view_frame(int *f0, int *f1, s32 *lerp);   /* what to draw now, or NULL */
-void                r_view_slot(int slot);  /* (render.c) a slot's new gun: its old textures forgotten, its colour tables up */
+void                r_view_slot(int slot);  /* (render.c) a slot's new gun: its old textures forgotten */
+void                r_view_luts(int slot);  /* (render.c) the gun to be drawn: its colour tables up */
 void                r_view_level(void);     /* (render.c) a new level (the gun's) */
+extern u32          r_full[2];              /* (render.c) frames each CPU's texture cache ran out */
 void                ents_light(void);                       /* their base lighting, before drawing (master) */
 
 /* hud.c */

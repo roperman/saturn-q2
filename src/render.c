@@ -190,6 +190,10 @@ bool                r_two_cpus;
 q_cam               cam;
 
 static r_ctx        ctx[2];
+u32                 r_full[2];              /* frames each CPU's part of the texture cache ran out (the benchmarks) */
+#ifdef TEX_WSET
+u32                 r_wset[5];              /* most textures a frame, each CPU; their sums; the slots each */
+#endif
 static u16          frame = 1, visframe;
 static u16          *node_vis, *leaf_vis;
 static u8           *face_vis;              /* the camera cluster's visible faces, a bit each */
@@ -525,8 +529,8 @@ void                render_init(void)
         base += nl * 32;
         free -= nl * 32;
     }
-    /* the guns' two slots (src/view.c): room for the biggest's textures and colour tables,
-       the tables uploaded as each gun's read in (r_view_slot) */
+    /* the guns' two slots (src/view.c): room for the biggest's textures; and one gun's colour
+       tables, the one to be drawn's (r_view_luts: the other's three frames gone by then) */
     for (c = 0; c < VIEW_SLOTS; ++c)
     {
         q_mdl   *md = &models[MDL_VIEW0 + c];
@@ -535,10 +539,10 @@ void                render_init(void)
         md->tex_id0 = ntex_all;
         md->lut0 = (int)((base - lut_vram) / 32);
         ntex_all += VIEW_MAX_TEX;
-        base += VIEW_MAX_TEX * 32;
-        free -= VIEW_MAX_TEX * 32;
     }
-    /* the rest: tile-sized slots, half each */
+    base += VIEW_MAX_TEX * 32;
+    free -= VIEW_MAX_TEX * 32;
+    /* the rest: tile-sized slots, in two parts (the master's 40%, the slave's 60%) */
     slot_bytes = (u32)(lv.N * lv.N / 2);
     slot_vram = base;
     i = (int)(free / slot_bytes);
@@ -549,8 +553,8 @@ void                render_init(void)
     {
         r_ctx *x = &ctx[c];
 
-        x->slot0 = c * (i / 2);
-        x->nslots = i / 2;
+        x->slot0 = c ? i * 2 / 5 : 0;             /* (the slave draws more of the list: 60% its) */
+        x->nslots = c ? i - i * 2 / 5 : i * 2 / 5;
         x->hand = 0;
         x->tex_slot = level_alloc((u32)ntex_all * 2);
         memset(x->tex_slot, 0xFF, (u32)ntex_all * 2);
@@ -843,7 +847,7 @@ static inline u32   *cmd_alloc(r_ctx *x, u32 *link)
     vdp_writer      *w = x->w;
     int             i = w->count, b = x->bucket;
 
-    if (i >= WRITER_CMDS)
+    if (i >= w->cmax)
     {
         ++x->st.dropped;
         return NULL;
@@ -1667,7 +1671,7 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
     fast_ok = r_cells_asm && (!x->dmask || x->lit) && !r_debug;
     if (fast_ok)
         cells_face(x, stride, row_cells);
-    if (whole && fast_ok && w->count + nu * nv <= WRITER_CMDS && w->gcount + nu * nv <= w->gmax)
+    if (whole && fast_ok && w->count + nu * nv <= w->cmax && w->gcount + nu * nv <= w->gmax)
     {
         /* the common cells of the whole face in assembly, then the C for what it left */
         int n, li;
@@ -1716,7 +1720,7 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
             lrow = lit;
         }
         /* a row at a time: the common cells in assembly if there's room in the lists */
-        if (fast_ok && w->count + nu <= WRITER_CMDS && w->gcount + nu <= w->gmax)
+        if (fast_ok && w->count + nu <= w->cmax && w->gcount + nu <= w->gmax)
         {
             x->ca.cell0 = row_cells;
             x->ca.cl0 = (u32)eu0; x->ca.cr1 = (u32)eu1; x->ca.ct0 = (u32)ct; x->ca.cb1 = (u32)cb;
@@ -2227,7 +2231,7 @@ static __attribute__((noinline)) void draw_viewmodel_ref(r_ctx *x, const q_mdl *
             if (!(dw = (u32 *)vdp_overlay()))
                 return;
             dw[0] = (u32)(0x1000 | VDP1_DISTORTED) << 16;
-            dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((colr0 + (m->nluts > 1 ? (u32)p->tex * 32 : 0)) >> 3);
+            dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((colr0 + (m->nluts > 1 ? (u32)mt->lut * 32 : 0)) >> 3);
             dw[2] = ((u32)vram >> 3) << 16 | (u32)(((mt->w >> 3) << 8) | mt->h);
             dw[3] = xy[0];
             dw[4] = xy[1];
@@ -2268,7 +2272,7 @@ static u8           *view_scratch(vdp_writer *w0, u32 bytes)
 {
     u8              *p = (u8 *)(((u32)(w0->cmds + w0->count) + 15) & ~15u);
 
-    return p + bytes <= (u8 *)(w0->cmds + WRITER_CMDS) ? p : NULL;
+    return p + bytes <= (u8 *)(w0->cmds + w0->cmax) ? p : NULL;
 }
 
 static u32          view_rbytes(const q_mdl *m)
@@ -2546,7 +2550,7 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
                 if (!in_place)
                 {
                     dw[0] = (u32)(0x1000 | VDP1_DISTORTED) << 16;
-                    dw[1] = dw1 + (u32)(kp->tex * luts4);
+                    dw[1] = dw1 + (u32)(kp->tex * luts4);     /* (a gun's table is its texture's: --keeplut) */
                 }
                 if (!in_place || dw[2] >> 16 != vram >> 3)
                     dw[2] = (vram >> 3) << 16 | kp->size;
@@ -2969,8 +2973,8 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
 }
 
 /* a slot's new gun (src/view.c): its textures' old copies forgotten (only the master draws
-   the gun, so only its half of the cache has them), its colour tables into VRAM. The slot's
-   last gun hasn't been drawn for a while (view.c sees to it): nothing in flight uses them */
+   the gun, so only its part of the cache has them). The slot's last gun hasn't been drawn for
+   a while (view.c sees to it): nothing in flight uses them */
 void                r_view_slot(int slot)
 {
     const q_mdl     *md = &models[MDL_VIEW0 + slot];
@@ -2988,13 +2992,21 @@ void                r_view_slot(int slot)
             x->tex_slot[t] = 0xFFFF;
         }
     }
-    if (md->loaded)
-    {
-        scu_dma0((void *)(VDP1_VRAM + lut_vram + (u32)md->lut0 * 32), md->luts, (u32)(md->nskins * md->nluts) * 32,
-                 true);
-        while (scu_dma0_busy())
-            ;
-    }
+}
+
+/* the gun to be drawn next (src/view.c): its colour tables into VRAM, where the guns share
+   one set. The last gun drawn from there is gone from the frames in flight (view.c sees to it) */
+void                r_view_luts(int slot)
+{
+    const q_mdl     *md = &models[MDL_VIEW0 + slot];
+
+    if (!md->loaded)
+        return;
+    while (scu_dma0_busy())
+        ;                                   /* (the gun's fetch may be under way: not cut short) */
+    scu_dma0((void *)(VDP1_VRAM + lut_vram + (u32)md->lut0 * 32), md->luts, (u32)(md->nskins * md->nluts) * 32, true);
+    while (scu_dma0_busy())
+        ;
 }
 
 /* Sharing the list. The slave starts as soon as the walk starts, taking
@@ -3796,7 +3808,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             const q_mpoly   *p = &polys[i];
             const q_mtex    *mt = &m->tex[p->tex];
             int             id = e->skin * m->ntex + p->tex;
-            int             lut = m->lut0 + e->skin * m->nluts + (m->nluts > 1 ? p->tex : 0);
+            int             lut = m->lut0 + e->skin * m->nluts + (m->nluts > 1 ? mt->lut : 0);
             s32             vram = tex_vram(x, m->tex_id0 + id);
             u32             *dw, link;
             u16             grda;
@@ -3854,7 +3866,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         a.gc = w->gcount;
         a.drop = 0;
         a.mhead = x->mhead;
-        a.wcmds = WRITER_CMDS;
+        a.wcmds = w->cmax;
         mcmds_asm(&a);
         x->st.mpolys += a.cnt - w->count;
         x->st.dropped += a.drop;
@@ -3905,7 +3917,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
                 }
                 else if ((vram = tex_load(x, t)) < 0)
                     continue;
-                if (cnt >= WRITER_CMDS)
+                if (cnt >= w->cmax)
                 {
                     ++x->st.dropped;
                     continue;
@@ -3928,7 +3940,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
                 }
                 dw = &cmds[cnt++ * 8];
                 dw[0] = 0x10020000u | link;
-                dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((colr0 + (luts ? (u32)p->tex * 32 : 0)) >> 3);
+                dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((colr0 + (luts ? (u32)mt->lut * 32 : 0)) >> 3);
                 dw[2] = ((u32)vram >> 3) << 16 | (u32)(((mt->w >> 3) << 8) | mt->h);
                 dw[3] = mxy[p->v[0]];
                 dw[4] = mxy[p->v[1]];
@@ -4388,6 +4400,20 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.near += s->near;
         rs.uploads += s->uploads;
         rs.nocache += s->nocache;
+        r_full[i] += s->nocache > 0;
+#ifdef TEX_WSET
+        {
+            /* (OPT=-DTEX_WSET: the textures each CPU's part of the cache held for this frame) */
+            const u16   *sf = (const u16 *)UNCACHED(slot_frame);
+            int         k, nw = 0;
+
+            for (k = ctx[i].slot0; k < ctx[i].slot0 + ctx[i].nslots; ++k)
+                nw += sf[k] == frame;
+            r_wset[i] = (u32)imax((s32)r_wset[i], nw);
+            r_wset[2 + i] += (u32)nw;
+            r_wset[4] = (u32)ctx[0].nslots;
+        }
+#endif
         rs.dropped += s->dropped;
         rs.proj += s->proj;
         rs.gverts += s->gverts;

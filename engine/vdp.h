@@ -15,7 +15,7 @@
 ** buckets, so the CPUs never contend; vdp_submit() interleaves them bucket by
 ** bucket. Overlays (HUD, text) are drawn after everything, in call order.
 **
-** Sizes are compile-time: -DVDP_MAX_CMDS=n -DVDP_WRITER_CMDS=n -DVDP_GOURAUD_MAX=n
+** Sizes are compile-time: -DVDP_MAX_CMDS=n -DVDP_WRITER_CMDS=n (-DVDP_WRITER1_CMDS=n) -DVDP_GOURAUD_MAX=n
 */
 #ifndef __VDP_H__
 #define __VDP_H__
@@ -37,11 +37,15 @@ typedef struct
 #ifndef VDP_WRITER_CMDS
 # define VDP_WRITER_CMDS (1400)
 #endif
+#ifndef VDP_WRITER1_CMDS
+# define VDP_WRITER1_CMDS VDP_WRITER_CMDS   /* (the second writer's, if it's to differ) */
+#endif
 #ifndef ZBUCKETS
 # define ZBUCKETS       (512)
 #endif
 #define MAX_CMDS        VDP_MAX_CMDS
-#define WRITER_CMDS     VDP_WRITER_CMDS
+#define WRITER_CMDS     VDP_WRITER_CMDS     /* the first writer's room (the master's) */
+#define WRITER1_CMDS    VDP_WRITER1_CMDS    /* the second's (the slave's) */
 
 #define RGB(r, g, b)    ((u16)(0x8000 | (((b) >> 3) << 10) | (((g) >> 3) << 5) | ((r) >> 3)))
 
@@ -68,6 +72,7 @@ typedef struct
     int             gcount, gmax;
     u32             *gst;               /* ...staged in work RAM; vdp_submit DMAs them over with the list */
     s16             head[ZBUCKETS], tail[ZBUCKETS];
+    int             cmax;               /* commands it has room for */
 }                   vdp_writer;
 
 /* a texture in VDP1 VRAM */
@@ -139,6 +144,7 @@ void                vdp_color_offset_off(void);
 void                vdp_color_offset_all(int r, int g, int b);   /* every layer: fades */
 
 extern u32          vdp_us_dma, vdp_us_wait;            /* last submit: list DMA, waiting for VDP1 */
+extern int          vdp_peak[5];                        /* most commands sent: master's, slave's, overlay; Gouraud tables: master's, slave's */
 void                vdp_set_pipelined(bool on);         /* submit returns at once, the swap's by interrupt (vdp.c) */
 bool                vdp_get_pipelined(void);            /* the swap by interrupt (and the vblank interrupt with it) */
 u32                 vdp_frame_no(void);                 /* frames submitted so far: the one being built */
@@ -154,7 +160,7 @@ static inline vdp1_cmd  *vdp_poly(vdp_writer *w, int z)
     int             i = w->count;
     vdp1_cmd        *c;
 
-    if (i >= WRITER_CMDS)
+    if (i >= w->cmax)
         return NULL;
     c = &w->cmds[i];
     c->ctrl = 0x1004;

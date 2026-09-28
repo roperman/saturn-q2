@@ -53,6 +53,38 @@ static void         message(const char *a, const char *b)
 }
 
 static bool         slave_ok, start_used;
+static u32          at_end[12];             /* (the benchmarks) the texture cache's counts at the end: r_full, vdp_peak, r_wset */
+
+static void         counts_reset(void)
+{
+    memset(r_full, 0, sizeof(r_full));
+    memset(vdp_peak, 0, sizeof(vdp_peak));
+#ifdef TEX_WSET
+    {
+        extern u32 r_wset[5];
+
+        memset(r_wset, 0, sizeof(r_wset));
+    }
+#endif
+}
+
+static void         counts_at_end(void)
+{
+    int             k;
+
+    at_end[0] = r_full[0];
+    at_end[1] = r_full[1];
+    for (k = 0; k < 5; ++k)
+        at_end[2 + k] = (u32)vdp_peak[k];
+#ifdef TEX_WSET
+    {
+        extern u32 r_wset[5];
+
+        for (k = 0; k < 5; ++k)
+            at_end[7 + k] = r_wset[k];
+    }
+#endif
+}
 
 #ifdef LEVEL_TEST
 u32                 lt_hw[4][4], lt_nhw;
@@ -576,6 +608,7 @@ void                main(void)
                 }
                 fight_frames = 0;
                 fight_done = false;
+                counts_reset();
                 fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
                 memset(fight_r, 0, sizeof(fight_r));
                 memset(fight_seg, 0, sizeof(fight_seg));
@@ -605,6 +638,7 @@ void                main(void)
                 bench_frame = 0;
                 bench_done = false;
                 memset(bench_acc, 0, sizeof(bench_acc));
+                counts_reset();
 #ifdef R_PROFILE
                 {
                     extern int wk_nodes, wk_leaves, wk_ftests, wk_models;
@@ -782,6 +816,7 @@ void                main(void)
                 {
                     bench_view = -1;
                     bench_done = true;
+                    counts_at_end();
                     pmove_spawn(pl.origin);
                 }
             }
@@ -945,6 +980,14 @@ void                main(void)
 #endif
                 vdp_printf(8, 106 + (NBENCH + 2) * 9, RGB(160, 255, 160), "MODELS %d, FAR %d: %d.%dMS", bench_prof[12] / n,
                            bench_prof[14] / n, bench_prof[13] / n / 1000, bench_prof[13] / n / 100 % 10);
+                vdp_printf(8, 106 + (NBENCH + 3) * 9, RGB(255, 200, 160), "OUT M%d S%d OF %d CMD %d %d %d G %d %d",
+                           at_end[0], at_end[1], NBENCH * BENCH_FRAMES, at_end[2], at_end[3], at_end[4], at_end[5],
+                           at_end[6]);
+#ifdef TEX_WSET
+                vdp_printf(8, 106 + (NBENCH + 4) * 9, RGB(255, 200, 160), "TEX M%d/%d S%d/%d OF %d",
+                           at_end[9] / (NBENCH * BENCH_FRAMES), at_end[7], at_end[10] / (NBENCH * BENCH_FRAMES), at_end[8],
+                           at_end[11]);
+#endif
             }
         }
 #ifdef FIGHT_BENCH
@@ -1017,6 +1060,12 @@ void                main(void)
                        fight_gun / n / 1000, fight_gun / n / 100 % 10);
             vdp_printf(8, 196, RGB(255, 200, 160), "GUN US V%d S%d C%d K%d", fight_vph[0] / n, fight_vph[1] / n,
                        fight_vph[2] / n, fight_vph[3] / n);
+            vdp_printf(8, 205, RGB(255, 200, 160), "OUT M%d S%d OF %d CMD %d %d %d G %d %d", at_end[0], at_end[1],
+                       fight_n + FIGHT_SKIP, at_end[2], at_end[3], at_end[4], at_end[5], at_end[6]);
+#ifdef TEX_WSET
+            vdp_printf(8, 214, RGB(255, 200, 160), "TEX M%d/%d S%d/%d OF %d", at_end[9] / (fight_n + FIGHT_SKIP),
+                       at_end[7], at_end[10] / (fight_n + FIGHT_SKIP), at_end[8], at_end[11]);
+#endif
 #undef MS10
 #ifdef FIGHT_TRACES
             {
@@ -1251,6 +1300,7 @@ void                main(void)
                     }
                     fight_frames = -1;
                     fight_done = true;
+                    counts_at_end();
                 }
             }
         }

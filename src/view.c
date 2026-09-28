@@ -26,10 +26,11 @@ enum { VS_ACTIVATE, VS_IDLE, VS_FIRE, VS_PUTAWAY, VS_WAIT };
 static const char   *view_files[VIEW_COUNT] = { VIEW_FILES };
 static u8           *buf[VIEW_SLOTS];
 static int          nslots;                     /* 2, or 1 where the cart's short */
-static int          gone;                       /* frames the gun's been down (one slot: wait for 3) */
+static int          gone;                       /* frames the gun's been down (the next one's tables wait for 2; one slot for 3) */
 static int          slot_weapon[VIEW_SLOTS];    /* the gun in each slot, or -1 */
 static int          cur;                        /* the slot shown */
 static int          loading = -1, load_weapon;  /* the slot being read into, and its gun */
+static int          lut_slot = -1;              /* the slot whose colour tables are in VRAM (they share one set) */
 static int          state = VS_WAIT, idx;       /* where in the animation */
 static s32          acc, vclock, last_shot;     /* seconds (16.16) */
 static bool         ok;                         /* anything to draw with */
@@ -46,7 +47,6 @@ static bool         bob_fresh = true;           /* (a new level or game: no turn
 static const s8     fire_loop[VIEW_COUNT][2] = { { -1, -1 }, { -1, -1 }, { -1, -1 }, { 0, 1 }, { 10, 16 },
                                                   { -1, -1 }, { -1, -1 } };
 
-void                r_view_slot(int slot);      /* (render.c: its textures forgotten, its colour tables up) */
 
 static const q_manim *anim(int slot, const char *name)
 {
@@ -64,6 +64,8 @@ static bool         load_now(int w, int slot)
     if (n < 64 || !model_parse(&models[MDL_VIEW0 + slot], buf[slot]))
         return false;
     r_view_slot(slot);
+    r_view_luts(slot);                      /* (a new level: no gun's been drawn for a while) */
+    lut_slot = slot;
     slot_weapon[slot] = w;
     return true;
 }
@@ -116,6 +118,7 @@ void                view_level_init(void)
         models[MDL_VIEW0 + k].loaded = false;
     }
     cur = 0;
+    lut_slot = -1;
     ok = load_now(client.weapon, 0);
     state = VS_IDLE;
     idx = 0;
@@ -134,6 +137,11 @@ void                view_reset(void)
         loading = -1;
         s = nslots > 1 ? cur ^ 1 : 0;
         ok = load_now(client.weapon, s);
+    }
+    if (s != lut_slot && s >= 0)
+    {
+        r_view_luts(s);                     /* (the old gun's frames in flight: a restart's picture changes anyway) */
+        lut_slot = s;
     }
     cur = s;
     state = VS_IDLE;
@@ -276,6 +284,8 @@ void                view_update(s32 dt)
 
         if (r != 0)
         {
+            if (lut_slot == loading)
+                lut_slot = -1;              /* (another gun in it: its tables aren't up) */
             if (r > 0 && model_parse(&models[MDL_VIEW0 + loading], buf[loading]))
             {
                 r_view_slot(loading);
@@ -309,8 +319,15 @@ void                view_update(s32 dt)
         else if (nslots == 1 && state == VS_WAIT && gone > 3)
             load_later(client.weapon, 0);           /* (the one slot: its gun's off the screen) */
     }
-    if (state == VS_WAIT && (s = slot_of(client.weapon)) >= 0)
+    /* up it comes: its colour tables in first, where the last gun's were, once that's three
+       frames gone (the last drawn, two frames before, is still in flight till then) */
+    if (state == VS_WAIT && (s = slot_of(client.weapon)) >= 0 && (s == lut_slot || gone >= 2))
     {
+        if (s != lut_slot)
+        {
+            r_view_luts(s);
+            lut_slot = s;
+        }
         cur = s;
         state = VS_ACTIVATE;
         idx = 0;

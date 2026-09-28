@@ -44,6 +44,15 @@ typedef struct { s32 mins[3], maxs[3]; s32 headnode; int m; } t_mover;
 static t_mover      *tmov;
 static int          ntmov;
 
+/* the ladders (brushes with CONTENTS_LADDER, 1 or 2 a level): bounds from their axial sides
+   (each's the brush's back), so check_ladder can leave out its trace when you're nowhere near */
+#define MAX_LADDERS     (8)
+static s32          lad_lo[MAX_LADDERS][3], lad_hi[MAX_LADDERS][3];
+static int          nladders;               /* -1: more than MAX_LADDERS, always trace */
+#ifdef LADDER_CHECK
+u32                 lc_frames, lc_near, lc_ladder, lc_bad;
+#endif
+
 void                trace_world_init(void)
 {
     int             m, k;
@@ -64,6 +73,67 @@ void                trace_world_init(void)
             t->headnode = lv.models[m].headnode;
             t->m = m;
         }
+    nladders = 0;
+    for (m = 0; m < lv.nbrushes; ++m)
+    {
+        const q_brush   *b = &lv.brushes[m];
+        int             i;
+
+        if (!(b->contents & CONTENTS_LADDER))
+            continue;
+        if (nladders == MAX_LADDERS)
+        {
+            nladders = -1;
+            break;
+        }
+        for (k = 0; k < 3; ++k)
+        {
+            lad_lo[nladders][k] = -0x7FFFFFFF;  /* (no side on an axis: no bound on it) */
+            lad_hi[nladders][k] = 0x7FFFFFFF;
+        }
+        for (i = 0; i < b->numsides; ++i)
+        {
+            const q_plane *pl = &lv.planes[lv.brushsides[b->firstside + i].plane];
+            int           ty = pl->type;
+
+            if (ty >= 3)
+                continue;
+            if (pl->n[ty] > 0)
+                lad_hi[nladders][ty] = imin(lad_hi[nladders][ty], pl->dist);
+            else
+                lad_lo[nladders][ty] = imax(lad_lo[nladders][ty], -pl->dist);
+        }
+        ++nladders;
+    }
+}
+
+/* could a box moving within lo..hi touch a ladder, or a mover (which might carry one)? */
+static bool         ladder_near(const s32 *lo, const s32 *hi)
+{
+    int             i, k;
+
+    if (nladders < 0)
+        return true;
+    for (i = 0; i < nladders; ++i)
+    {
+        for (k = 0; k < 3; ++k)
+            if (hi[k] < lad_lo[i][k] || lo[k] > lad_hi[i][k])
+                break;
+        if (k == 3)
+            return true;
+    }
+    for (i = 0; i < ntmov; ++i)
+    {
+        const t_mover   *mo = &tmov[i];
+        const s32       *o = mover_ofs[mo->m];
+
+        for (k = 0; k < 3; ++k)
+            if (mo->maxs[k] + o[k] < lo[k] || mo->mins[k] + o[k] > hi[k])
+                break;
+        if (k == 3 && !mover_gone[mo->m])
+            return true;
+    }
+    return false;
 }
 
 /* the world, then each solid brush model where it is now (Quake 2's SV_Trace) */
@@ -286,6 +356,38 @@ static void         check_ladder(int yaw)
     spot[0] = pl.origin[0] + fcos(yaw);
     spot[1] = pl.origin[1] + fsin(yaw);
     spot[2] = pl.origin[2];
+    {
+        /* nowhere near a ladder (more than a unit clear of its bounds: DIST_EPSILON's 1/32, so
+           no side of it can clip the move): the trace couldn't say ladder, so it's left out */
+        s32 lo[3], hi[3];
+        int k;
+
+        for (k = 0; k < 3; ++k)
+        {
+            lo[k] = imin(pl.origin[k], spot[k]) + p_mins[k] - FIX(1);
+            hi[k] = imax(pl.origin[k], spot[k]) + p_maxs[k] + FIX(1);
+        }
+#ifdef LADDER_CHECK
+        {
+            /* (OPT=-DLADDER_CHECK: the trace always, against what leaving it out would have said) */
+            extern u32 lc_frames, lc_near, lc_ladder, lc_bad;
+            bool near = ladder_near(lo, hi);
+
+            t = pm_trace(pl.origin, spot);
+            ladder = t.fraction < FIX(1) && (t.contents & CONTENTS_LADDER);
+            ++lc_frames;
+            lc_near += near;
+            lc_ladder += ladder;
+            lc_bad += !near && ladder;
+            return;
+        }
+#endif
+        if (!ladder_near(lo, hi))
+        {
+            ladder = false;
+            return;
+        }
+    }
     t = pm_trace(pl.origin, spot);
     ladder = t.fraction < FIX(1) && (t.contents & CONTENTS_LADDER);
 }

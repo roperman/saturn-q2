@@ -320,6 +320,15 @@ static void         new_game(void)
     pmove_spawn(lv.start);
     cam.yaw = lv.start_yaw;
     cam.pitch = 0;
+#ifdef LADDER_CHECK
+    {
+        /* (in front of demo1's ladder, facing it) */
+        static const s32 at[3] = { FIX(388), FIX(-60), FIX(-200) };
+
+        pmove_spawn(at);
+        cam.yaw = 0x4000;
+    }
+#endif
 }
 
 void                main(void)
@@ -606,6 +615,13 @@ void                main(void)
             cmd.forward = pad_now & PAD_UP ? FIX(300) : pad_now & PAD_DOWN ? -FIX(300) : 0;
             cmd.side = pad_now & PAD_R ? FIX(300) : pad_now & PAD_L ? -FIX(300) : 0;
             cmd.up = pad_now & PAD_A && !(pad_now & PAD_START) ? FIX(300) : 0;
+#ifdef LADDER_CHECK
+            if (!paused)
+            {
+                cmd.forward = FIX(300);         /* (into the ladder, and up it) */
+                cmd.up = FIX(300);
+            }
+#endif
         }
         if (bench_view >= 0)
         {
@@ -981,8 +997,16 @@ void                main(void)
             vdp_printf(8, 48, c, "%d %d %d %X%s%s%s W%d", pl.origin[0] >> 16, pl.origin[1] >> 16, pl.origin[2] >> 16,
                        cam.yaw, pl.on_ground ? " GROUND" : "", pl.noclip ? " NOCLIP" : "", god ? " GOD" : "",
                        pl.waterlevel);
+#ifdef LADDER_CHECK
+            {
+                extern u32 lc_frames, lc_near, lc_ladder, lc_bad;
+
+                vdp_printf(8, 8, c, "LADDER F%d NEAR%d ON%d BAD%d", lc_frames, lc_near, lc_ladder, lc_bad);
+            }
+#else
             vdp_printf(8, 8, c, "FPS %d.%d  CPU %dMS  WAIT %d", 10000000 / (us_frame ? us_frame : 1) / 10,
                        10000000 / (us_frame ? us_frame : 1) % 10, us_cpu / 1000, waited);
+#endif
             vdp_printf(8, 18, c, "FACES %d CELLS %d CULL %d NEAR %d", rs.faces, rs.cells, rs.culled, rs.near);
             vdp_printf(8, 28, c, "UPLOADS %d FULL %d DROP %d CMDS %d", rs.uploads, rs.nocache, rs.dropped,
                        vdp_cmd_count());

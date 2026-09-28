@@ -129,6 +129,10 @@ _Static_assert(__builtin_offsetof(cell_args, cell0) == 96 && __builtin_offsetof(
 void                cells_asm(cell_args *a);
 bool                r_cells_asm = true;
 bool                r_nosplit;              /* (for comparing: whole tiles near the camera in one piece) */
+bool                r_dl_verts = true;      /* dynamic lights added once a grid point (not at each cell's corners) */
+#ifdef DL_CHECK
+u32                 dl_checks, dl_diffs;    /* (OPT=-DDL_CHECK: the corners' sums as well, compared) */
+#endif
 #ifndef LOD_Z
 #define LOD_Z           (384)               /* a face wholly beyond this uses its coarse grid (OPT=-DLOD_Z=...) */
 #endif
@@ -159,6 +163,8 @@ typedef struct
     int             fnu, fnv;
     v3              dut, dvt;               /* the face's axes, one stored texel apart (view space) */
     u8              dmask;                  /* the dynamic lights reaching this face */
+    bool            lit;                    /* ...added to the face's lights at its grid points already */
+    const u16       *raw_light;             /* (then: the face's own lights, for cell_split) */
     /* a model being drawn: its vertices (screen xy, view z, outcodes, Gouraud) and polygons by depth */
     u32             mxy[MAX_MVERTS];
     s32             mz[MAX_MVERTS];
@@ -885,7 +891,7 @@ static __attribute__((noinline)) void cell_emit(r_ctx *x, const q_cell *cell, in
     lb = light[1];
     lc = light[stride + 1];
     ld = light[stride];
-    if (x->dmask)
+    if (x->dmask && !x->lit)
     {
         v3 P[4];
 
@@ -949,6 +955,52 @@ static __attribute__((noinline)) void cell_pos(const r_ctx *x, int i, int j, v3 
     P[2].x = x->fo.x + a1.x + b1.x; P[2].y = x->fo.y + a1.y + b1.y; P[2].z = x->fo.z + a1.z + b1.z;
     P[3].x = x->fo.x + a0.x + b1.x; P[3].y = x->fo.y + a0.y + b1.y; P[3].z = x->fo.z + a0.z + b1.z;
 }
+
+/* Row j of the face's lights with the dynamic lights added: at the grid
+   points cell_pos finds (the same steps, summed the same way), so each
+   corner comes out as cell_emit's did, once a point rather than once a
+   corner (up to four times a point). Out to out[0..fnu] */
+static __attribute__((noinline)) void dl_row(const r_ctx *x, u16 *out, const u16 *raw, int j)
+{
+    const v3        *f = (const v3 *)&x->gk[GK_F0];
+    v3              a, b, V;
+    int             i, n = x->fnu;
+
+    grid_step(&b, &f[0], &f[1], &f[2], x->fnv, j);
+    a.x = a.y = a.z = 0;
+    for (i = 0; i <= n; ++i)
+    {
+        if (i == 1)
+            a = x->ga.e0;
+        else if (i > 1)
+        {
+            const v3 *st = i < n ? &x->ga.d : &x->ga.e1;       /* (grid_step's e0 + d (i - 1), + e1 at the end) */
+
+            a.x += st->x; a.y += st->y; a.z += st->z;
+        }
+        V.x = x->fo.x + a.x + b.x; V.y = x->fo.y + a.y + b.y; V.z = x->fo.z + a.z + b.z;
+        out[i] = dlight_add(x->dmask, &V, raw[i]);
+    }
+}
+
+#ifdef DL_CHECK
+/* (the old way, each cell's corners, against rows j and j + 1 of the lit lights) */
+static void         dl_check(const r_ctx *x, const u16 *lit, const u16 *raw, int stride, int j)
+{
+    int             i;
+    v3              P[4];
+
+    for (i = 0; i < x->fnu; ++i)
+    {
+        cell_pos(x, i, j, P);
+        dl_checks += 4;
+        dl_diffs += dlight_add(x->dmask, &P[0], raw[i]) != lit[i];
+        dl_diffs += dlight_add(x->dmask, &P[1], raw[i + 1]) != lit[i + 1];
+        dl_diffs += dlight_add(x->dmask, &P[2], raw[stride + i + 1]) != lit[stride + i + 1];
+        dl_diffs += dlight_add(x->dmask, &P[3], raw[stride + i]) != lit[stride + i];
+    }
+}
+#endif
 
 /* A whole tile too near the camera, or reaching too far off the screen, to
    draw in one piece: VDP1 goes over all of a polygon, on the screen or off
@@ -1380,10 +1432,10 @@ static __attribute__((noinline)) void cell_c(r_ctx *x, const q_cell *cell, gv *t
     {
         /* a whole tile too near, or too big on the screen: in pieces */
         cell_pos(x, i, j, P);
-        cell_split(x, (const q_cell_fast *)cell, P, light + i, stride);
+        cell_split(x, (const q_cell_fast *)cell, P, (x->lit ? x->raw_light + j * stride : light) + i, stride);
         return;
     }
-    if (tex & CELL_FULL && !(oo & (OC_NEAR | OC_FAR)) && !x->dmask)
+    if (tex & CELL_FULL && !(oo & (OC_NEAR | OC_FAR)) && (!x->dmask || x->lit))
     {
         /* the common case, all here: a whole tile, in front, no dynamic light */
         int         t = tex & CELL_TEX, s = x->tex_slot[t];
@@ -1490,6 +1542,7 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
     const q_cell    *row_cells = gp->cells;
     vdp_writer      *w = x->w;
     int             count0 = x->w->count;
+    u16             lit[2 * MAX_ROW];       /* the lights with the dynamic lights added: the whole face's, or two rows */
 #ifdef R_PROFILE
     u32             pt = frt_read(), pt2;
     int             gc0 = x->w->gcount;
@@ -1554,7 +1607,25 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
     rowp = o;
     PROF((x->st.gverts += (nu + 1) * (nv + 1), x->st.seen += nu * nv));
     PROF((pt2 = frt_read(), x->st.p_grid += (pt2 - pt) & 0xFFFF, pt = pt2));
-    fast_ok = r_cells_asm && !x->dmask && !r_debug;
+    /* dynamic lights: added to the lights at each grid point, then drawn as any other face */
+    x->lit = x->dmask && r_dl_verts;
+    if (x->lit)
+    {
+        x->raw_light = light;
+        if (whole)
+        {
+            for (j = 0; j <= nv; ++j)
+                dl_row(x, lit + j * stride, light + j * stride, j);
+#ifdef DL_CHECK
+            for (j = 0; j < nv; ++j)
+                dl_check(x, lit + j * stride, light + j * stride, stride, j);
+#endif
+            light = lit;
+        }
+        else
+            dl_row(x, lit, light, 0);       /* (row 0; each row's next as it comes) */
+    }
+    fast_ok = r_cells_asm && (!x->dmask || x->lit) && !r_debug;
     if (fast_ok)
         cells_face(x, stride, row_cells);
     if (whole && fast_ok && w->count + nu * nv <= WRITER_CMDS && w->gcount + nu * nv <= w->gmax)
@@ -1581,7 +1652,7 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
     {
         const v3    *step = j == 0 ? &f0 : j == nv - 1 ? &f1 : &dv;
         int         n = nu, li;
-        const u16   *list = cell_all;
+        const u16   *list = cell_all, *lrow = light;
 
         ct = j == 0 ? ev0 : 0;
         cb = j == nv - 1 ? ev1 : N;
@@ -1596,21 +1667,32 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
             else
                 grid_row(bot, nu + 1, &rowp, &du, &e0, &e1, dtx, dty);
         }
+        if (x->lit && !whole)
+        {
+            /* the lit lights: rows j and j + 1 */
+            dl_row(x, lit + stride, x->raw_light + (j + 1) * stride, j + 1);
+#ifdef DL_CHECK
+            dl_check(x, lit, x->raw_light + j * stride, stride, j);
+#endif
+            lrow = lit;
+        }
         /* a row at a time: the common cells in assembly if there's room in the lists */
         if (fast_ok && w->count + nu <= WRITER_CMDS && w->gcount + nu <= w->gmax)
         {
             x->ca.cell0 = row_cells;
             x->ca.cl0 = (u32)eu0; x->ca.cr1 = (u32)eu1; x->ca.ct0 = (u32)ct; x->ca.cb1 = (u32)cb;
             x->ca.rows0 = 1;
-            n = cells_run(x, top, bot, row_cells, light, nu, 1);
+            n = cells_run(x, top, bot, row_cells, lrow, nu, 1);
             list = x->ca.def;
             PROF((x->st.nexact += n));
         }
         for (li = 0; li < n; ++li)
         {
             i = list[li];
-            cell_c(x, row_cells + i, top, bot, light, stride, i, j, i == 0 ? eu0 : 0, i == nu - 1 ? eu1 : N, ct, cb);
+            cell_c(x, row_cells + i, top, bot, lrow, stride, i, j, i == 0 ? eu0 : 0, i == nu - 1 ? eu1 : N, ct, cb);
         }
+        if (x->lit && !whole)
+            memcpy(lit, lit + stride, (u32)stride * 2);     /* (row j + 1 is the next's first) */
         PROF((pt2 = frt_read(), x->st.p_cells += (pt2 - pt) & 0xFFFF, pt = pt2));
         if (whole)
         {

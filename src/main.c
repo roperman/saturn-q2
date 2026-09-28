@@ -854,6 +854,13 @@ void                main(void)
                            model_checks[2]);
             }
 #endif
+#ifdef DL_CHECK
+            {
+                extern u32 dl_checks, dl_diffs;
+
+                vdp_printf(8, 30, RGB(255, 255, 120), "DLIGHT CORNERS %d DIFF %d", dl_checks, dl_diffs);
+            }
+#endif
 #ifdef TRACE_CHECK
             {
                 extern u32 trace_checks, trace_diffs, trace_dkind[4], trace_later;

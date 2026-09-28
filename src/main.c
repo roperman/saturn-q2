@@ -434,6 +434,7 @@ void                main(void)
     }
     cycles_measure();
     t_last = frt_read();
+    pad_by_vblank(vdp_get_pipelined());       /* (the SMPC's reads in the picture: engine/sys.c) */
     pad_request();
     for (;;)
     {

@@ -108,10 +108,13 @@ static int          fields;
 
 void                swap_isr(void);
 void                vblank_isr(void);
+void                vblank_out_isr(void);
 extern void         swap_isr_w(void);
 extern void         vblank_isr_w(void);
+extern void         vblank_out_isr_w(void);
 ISR_WRAP(swap_isr_w, swap_isr);
 ISR_WRAP(vblank_isr_w, vblank_isr);
+ISR_WRAP(vblank_out_isr_w, vblank_out_isr);
 
 void                swap_isr(void)
 {
@@ -140,6 +143,12 @@ void                vblank_isr(void)
     }
 }
 
+/* the pad (sys.c): the SMPC reads at the top of the picture */
+void                vblank_out_isr(void)
+{
+    pad_vblank();
+}
+
 void                vdp_set_pipelined(bool on)
 {
     if (hw_erase)
@@ -149,7 +158,13 @@ void                vdp_set_pipelined(bool on)
     {
         scu_timer0_start(SWAP_LINE, swap_isr_w);
         scu_vblank_in_start(vblank_isr_w);
+        scu_vblank_out_start(vblank_out_isr_w);
     }
+}
+
+bool                vdp_get_pipelined(void)
+{
+    return pipelined;
 }
 
 u32                 vdp_frame_no(void)

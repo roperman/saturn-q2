@@ -140,6 +140,7 @@ void                vdp_color_offset_all(int r, int g, int b);   /* every layer:
 
 extern u32          vdp_us_dma, vdp_us_wait;            /* last submit: list DMA, waiting for VDP1 */
 void                vdp_set_pipelined(bool on);         /* submit returns at once, the swap's by interrupt (vdp.c) */
+bool                vdp_get_pipelined(void);            /* the swap by interrupt (and the vblank interrupt with it) */
 u32                 vdp_frame_no(void);                 /* frames submitted so far: the one being built */
 extern volatile u32 vdp_shown;                          /* in the vblank hook: the frame now on screen */
 extern volatile u32 vdp_swap_fields[8];                 /* how long pictures stayed up: 1, 2, ... 7+ fields */

@@ -202,11 +202,23 @@ void                wait_vblank_out(void)
 /* Pad 1. The SMPC takes milliseconds over an INTBACK (5.7 in Mednafen), so
    a game loop asks at the end of a frame (pad_request, just after the swap)
    and picks the answer up at the start of the next (pad_collect), while
-   the CPUs get on with other things. pad_read does both, waiting. */
-void                pad_request(void)
+   the CPUs get on with other things. pad_read does both, waiting.
+
+   The SMPC calls a read off if a vblank starts during it (Mednafen too), and
+   leaves its last answer in place. With the swap by interrupt (vdp.c) that
+   was every read: the swap's at line 216, a frame that waited for it asked
+   right then, 8 lines before the vblank, and once the frames fell into step
+   with it the pad stood still for good (what was held stayed held, nothing
+   else came through: the game looked hung). So with the interrupts on
+   (pad_by_vblank), the end of each vblank asks (at its start is no good in
+   Mednafen: a read asked for before the SMPC's seen the vblank is called off
+   at once) and the SMPC reads at the top of the picture; pad_collect takes
+   the last answer it finished (the one before, if a read's under way). */
+static bool         by_vblank;
+static u16          pad_last;
+
+static void         intback(void)
 {
-    while (SMPC_SF & 1)
-        ;
     SMPC_SF = 1;
     SMPC_IREG(0) = 0x00;        /* no SMPC status */
     SMPC_IREG(1) = 0x0A;        /* peripheral data, 15-byte mode, no time optimisation */
@@ -214,16 +226,45 @@ void                pad_request(void)
     SMPC_COMREG = 0x10;         /* INTBACK */
 }
 
+void                pad_request(void)
+{
+    if (by_vblank)
+        return;
+    while (SMPC_SF & 1)
+        ;
+    intback();
+}
+
+/* (the vblank-out interrupt, vdp.c) */
+void                pad_vblank(void)
+{
+    if (by_vblank && !(SMPC_SF & 1))
+        intback();
+}
+
+/* on: the vblank-out interrupt's running (vdp_set_pipelined) and nothing else asks the SMPC for anything */
+void                pad_by_vblank(bool on)
+{
+    by_vblank = on;
+}
+
 u16                 pad_collect(void)
 {
     u16             buttons = 0;
 
-    while (SMPC_SF & 1)
-        ;
+    if (by_vblank)
+    {
+        if (SMPC_SF & 1)
+            return pad_last;
+    }
+    else
+        while (SMPC_SF & 1)
+            ;
     /* port 1 direct: OREG0 = 0xF1 (1 device), OREG1 = 0x02 (digital pad) */
     if (SMPC_OREG(0) == 0xF1 && (SMPC_OREG(1) >> 4) == 0x0)
         buttons = (u16)~((SMPC_OREG(2) << 8) | SMPC_OREG(3));
-    return (u16)(buttons & 0xFFF8);
+    pad_last = (u16)(buttons & 0xFFF8);
+    return pad_last;
 }
 
 u16                 pad_read(void)
@@ -280,6 +321,18 @@ void                scu_vblank_in_start(void (*isr)(void))
     mask_chg(0xFFFFFFFF, 1u << 0);
     ihr_set(0x40, isr);
     mask_chg(~(1u << 0), 0);
+    __asm__ volatile ("ldc %0, sr" : : "r" (0xB0));
+}
+
+/* ...and VBLANK-OUT (vector 0x41, level 14) */
+void                scu_vblank_out_start(void (*isr)(void))
+{
+    void            (*ihr_set)(u32, void (*)(void)) = *(void (**)(u32, void (*)(void)))0x06000300;
+    void            (*mask_chg)(u32, u32) = *(void (**)(u32, u32))0x06000344;
+
+    mask_chg(0xFFFFFFFF, 1u << 1);
+    ihr_set(0x41, isr);
+    mask_chg(~(1u << 1), 0);
     __asm__ volatile ("ldc %0, sr" : : "r" (0xB0));
 }
 

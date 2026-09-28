@@ -697,3 +697,28 @@ turn into view; VDP1 clips).
 - **Memory**: the code grew 2 KB; five files rarely run are now built
   `-Os` (COLD in build.sh), 2.7 KB back. demo1 has 128 bytes more of the
   monsters' records on the cart than before.
+
+## 17. The "hang": the pad stopped
+
+Played for a while, the game seemed to hang: the picture stood still and
+nothing answered. It hadn't hung. It went on drawing (148 frames in six
+seconds, two save states apart), but the pad had stopped: the SMPC's last
+answer (UP held) stayed in its registers for good, so you walked into a wall
+and nothing else came through. Walking in a circle from the start
+(tools: a script holding UP and LEFT, a snapshot a step) did it within 8 to
+33 steps, every time, as far back as 135f5c2 (before the gun); with the swap
+by interrupt off (`NO_PIPE`) or faster fights off it didn't in 60.
+
+Why (Mednafen's smpc.c, and the SMPC's own rule): a vblank starting during an
+INTBACK's read calls the read off and leaves the last answer. The pad was
+asked for just after the frame's swap, and a frame that waited for the swap
+(the interrupt's at line 216) asked 8 lines before the vblank; once the
+frames fell into step with it, every read was called off.
+
+Now the end of each vblank asks (a new SCU interrupt, `vblank_out_isr` in
+engine/vdp.c; at the vblank's start is no good either, in Mednafen a read
+asked before the SMPC has seen the vblank is called off at once), the SMPC
+reads at the top of the picture, and `pad_collect` takes the last answer it
+finished without waiting. Checked: three runs of 60 steps, none stopped, the
+pause menu and options answer. Builds without the swap by interrupt ask as
+before.

@@ -150,6 +150,8 @@ void                wait_vblank_out(void);
 u16                 pad_read(void);                          /* call once per frame, in active display */
 void                pad_request(void);                  /* ask for the pad now... */
 u16                 pad_collect(void);                  /* ...and have the answer later */
+void                pad_vblank(void);                   /* (the vblank-out interrupt: asks, if pad_by_vblank) */
+void                pad_by_vblank(bool on);             /* the vblank asks for the pad (the SMPC's read is in the picture) */
 
 void                scu_dma0(void *dst, const void *src, u32 bytes, bool bbus_dst);
 
@@ -189,6 +191,7 @@ u32                 lzss_decode(const u8 *src, u8 *dst);    /* returns the decod
 
 void                scu_timer0_start(int line, void (*isr)(void));   /* isr: an ordinary function (the BIOS dispatches) */
 void                scu_vblank_in_start(void (*isr)(void));
+void                scu_vblank_out_start(void (*isr)(void));
 void                slave_start(void);                      /* boots the slave into slave_main() */
 void                slave_main(void);                       /* provided by the program */
 static inline void  signal_slave(void)  { REG16(0x21000000) = 0xFFFF; }

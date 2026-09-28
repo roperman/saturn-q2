@@ -495,12 +495,47 @@ for 40 ms (25 a second on PAL). The master's frame: the player and movers
 40.4 ms a frame, 481 pictures at 40 ms and 14 at 60. Still your call (the
 game's tick then comes a frame later relative to what's drawn).
 
+**The player's movement** costs more than the fight benchmark shows (you
+stand still there): pmove timed while walking is 2.7 ms a frame on the
+master, 7-8 box traces (the slide, the step up and down, the ground checks
+either side), each about 0.4 ms (a player's box touches ~10 leaves and ~13
+brushes). One of them is now left out when it can't matter: **the ladder
+check** traces a unit forward every frame; each level has one or two ladder
+brushes, so the trace only runs within reach of one (or of a mover, which
+might carry one). `OPT=-DLADDER_CHECK` starts you at demo1's ladder,
+walking into it and climbing (the climb works): the trace run anyway,
+220 frames at the ladder, found every time, none missed. The fight's
+player part 1.7 -> 1.4 ms. A kept copy of the last ground check (the same
+trace ends one pmove and starts the next) was tried and taken out: it hit
+57% of frames when exploring, never differed, but saved only 0.07 ms.
+
+Final numbers (default build): the static benchmark's CPU 1868 -> 1731
+(demo1; demo2 1545); the fight 50.6 -> 42.3-43.6 ms a frame, almost every
+picture up for 40 ms.
+
 Looked at and left:
 - **The traces in assembly**: about 9 leaves, 13 brushes, 94 sides a box
   trace; the time's spread over the loads and the sums, about half each.
-  Assembly would save roughly 0.5 ms a fight frame: not worth the risk.
+  Precomputing the box's side offsets (the axial sides' sums) in C
+  changed nothing measurable (checked exact, taken out). What would help:
+  each brush's bounds in its record (a map format change and a rebake),
+  so the 9 of 13 brushes a trace rejects by their box sides cost one read
+  instead of the brush, its sides and their planes: maybe 15-20% of every
+  trace. It needs 12 more bytes a brush of low work RAM (about 27 KB on
+  demo2), which might push the brushes to the cart.
 - **The grid**: already assembly with the divides overlapped.
 - **The walk** (6.7 ms a frame, the master's): 1,450 nodes and 570 leaves
-  a frame at about 90 cycles each, most of it memory.
+  a frame at about 90 cycles each, most of it memory, and 3,221 face tests
+  for about 400 faces listed. Only 18% of the PVS's nodes have nothing
+  visible under them, so pruning them would save well under 1 ms.
+- **Coarse grids nearer** (LOD_Z 256 or 192 instead of 384): the static
+  benchmark's CPU 1719 -> 1693 / 1682. Few faces have coarse grids; not
+  worth the detail.
+- **The biggest thing left** is overdraw: a third of what's drawn is
+  hidden behind nearer walls. Portals (made again from the BSP by the
+  baker, then the view clipped through them at run time) would cut both
+  CPUs' drawing and VDP1's by up to that much, and the walk too. It's a
+  big job (a day or two, a new bake step, memory for the portals): your
+  call.
 - Other library calls for shifts and divides: in code that runs a few
   times a frame (the sky, a model's setup, the C's near cells).

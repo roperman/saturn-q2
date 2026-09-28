@@ -220,14 +220,15 @@ static void         warp_trigger(void)
     }
 }
 
-/* the player's weapon and the game's tick (with OPT=-DGAME_DURING_DRAW, run by
-   the renderer on the master while the slave draws: what's drawn is then the
-   game as it was a frame before, for the monsters; the view is this frame's) */
+/* the player's weapon and the game's tick (run by the renderer on the master
+   while the slave draws, unless "faster fights" is off or OPT=-DNO_GAME_DURING_DRAW:
+   what's drawn is then the game as it was a frame before, for the monsters; the
+   view is this frame's) */
 static s32          game_dt;
-#ifdef GAME_DURING_DRAW
-bool                game_during_draw = true;    /* START + UP switches it; the options too */
-#else
+#ifdef NO_GAME_DURING_DRAW
 bool                game_during_draw;
+#else
+bool                game_during_draw = true;    /* START + UP switches it; the options too */
 #endif
 
 static void         game_step(void)

@@ -342,8 +342,8 @@ your view isn't.
 
 Texture uploads go up from about 4 to 12 a frame (each CPU has its own
 half of the texture cache, and the slave now draws more), about 1.7 ms of
-it, counted in the above. Off by default, your call; OPT=-DGAME_DURING_DRAW
-builds it on.
+it, counted in the above. On by default now (your call, the morning after);
+OPT=-DNO_GAME_DURING_DRAW builds it off, and the options menu switches it.
 
 ## 8. The world's drawing: five ideas tried
 

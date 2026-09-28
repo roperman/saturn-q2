@@ -3188,9 +3188,9 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
     for (i = 0; i < r_nsprites && i < MAX_SPRITES; ++i)
         leaf_spr[spr_leaf[i]] = -1;
     rs.nodes = (int)frt_to_us((frt_read() - t0) & 0xFFFF);  /* the walk's time */
-    /* (OPT=-DGAME_DURING_DRAW: the game's tick here, on the master, while the
-       slave draws from the front of the list; the master then draws from the
-       back until they meet, so the slave takes more of it) */
+    /* ("faster fights", on unless OPT=-DNO_GAME_DURING_DRAW: the game's tick here,
+       on the master, while the slave draws from the front of the list; the master
+       then draws from the back until they meet, so the slave takes more of it) */
     if (r_during)
         r_during();
     draw_master();

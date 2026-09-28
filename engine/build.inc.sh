@@ -29,7 +29,7 @@ with open(sys.argv[1], "w") as f:
     f.write("};\n")
 PY
     # the sound driver: on the 68000 (default), or the older SH-2 version (SOUND=sh2)
-    local snd="$ENGINE/snd.c $ENGINE/snd68k_bin.s"
+    local snd="$ENGINE/snd.c"
     if [ "${SOUND:-68k}" = sh2 ]; then
         snd="$ENGINE/snd_sh2.c"
     else
@@ -43,6 +43,7 @@ PY
             echo "68000 driver too big for its space below the sound bank" >&2
             return 1
         fi
+        cp "$gen/snd68k.bin" cd/SND68K.BIN     # (a file on the CD: not 4 KB of high work RAM)
     fi
     local cflags="-m2 -O2 -ffreestanding -fno-builtin -nostdlib -fno-common -Wall -Wextra -Wno-unused-parameter -I$ENGINE -I$gen -Isrc $extra"
     for s in "$ENGINE/crt0.s" "$ENGINE/sys.c" "$ENGINE/vdp.c" "$ENGINE/dsp.c" "$ENGINE/rotplane.c" "$ENGINE/sky.c" "$ENGINE/lzss.c" "$ENGINE/bup.c" "$ENGINE/cd.c" $snd $srcs; do

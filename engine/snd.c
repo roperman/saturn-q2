@@ -2,8 +2,8 @@
 ** Sound, SH-2 side: the driver itself runs on the 68000 (engine/m68k/).
 **
 ** Here we only start it and talk to it. snd_init holds the 68000 in reset
-** (SMPC SNDOFF), copies the driver (built into this program) to the bottom of
-** sound RAM, loads the sound bank from the CD above it, releases the 68000
+** (SMPC SNDOFF), loads the driver (SND68K.BIN, from the CD: it's only wanted
+** once) to the bottom of sound RAM and the sound bank above it, releases the 68000
 ** (SMPC SNDON) and waits for it to say it's alive. After that, music and
 ** effects are requests posted into the mailbox at the top of sound RAM
 ** (engine/snd68k.h); the 68000 keeps its own time with the SCSP's timer.
@@ -16,8 +16,6 @@
 
 #define SND_RAM         ((volatile u16 *)0x25A00000)
 #define MBOX            ((volatile u16 *)(0x25A00000 + SND_MBOX))
-
-extern const u8     snd68k_bin[], snd68k_bin_end[];
 
 static bool         ready;
 static int          requested = -1;     /* the song we last asked for */
@@ -49,16 +47,15 @@ static void         post(int op, int arg)
 
 bool                snd_init(const char *file)
 {
-    const u16       *drv = (const u16 *)snd68k_bin;
-    int             i, n = (int)(snd68k_bin_end - snd68k_bin + 1) / 2;
+    int             i;
 
     snd_stage = 1;
     smpc(0x07);                         /* SNDOFF: the 68000 held in reset */
     snd_stage = 2;
     for (i = 0; i < 0x80000 / 2; ++i)
         SND_RAM[i] = 0;
-    for (i = 0; i < n; ++i)             /* the driver, at the 68000's address 0 */
-        SND_RAM[i] = drv[i];
+    if (cd_load("SND68K.BIN", (void *)0x25A00000, SND_BANK_BASE) < 64)
+        return false;                   /* the driver, at the 68000's address 0 */
     snd_size = cd_load(file, (void *)(0x25A00000 + SND_BANK_BASE), SND_DSP_RING - SND_BANK_BASE);
     snd_stage = 3;
     if (snd_size < 32)

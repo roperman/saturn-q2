@@ -846,7 +846,7 @@ static u16          dlight_add(u8 mask, const v3 *v, u16 c)
         d2 = dx * dx + dy * dy + dz * dz;
         if (d2 >= dl[i].r2)
             continue;
-        f = ((dl[i].r2 - d2) * dl[i].inv) >> 8;     /* 0..65536 */
+        f = (s32)((u32)((dl[i].r2 - d2) * dl[i].inv) >> 8);    /* 0..65536 (positive: an unsigned shift, not a library call) */
         r += (dl[i].r * f) >> 16;
         g += (dl[i].g * f) >> 16;
         b += (dl[i].b * f) >> 16;

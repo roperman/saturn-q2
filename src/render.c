@@ -1402,9 +1402,8 @@ static void         grid_selftest(void)
     r_grid_asm = grid_bad == 0;
 }
 
-/* One cell, the C way: what the assembly leaves (near the camera, cropped
-   inside its grid cell, its texture to load), and every cell when there's a
-   dynamic light near (or the assembly's off). top, bot: its grid rows;
+/* One cell, the C way: what the assembly leaves (near the camera, a big
+   crop, its texture to load), and every cell when the assembly's off. top, bot: its grid rows;
    light: the top row's lights; cl..cr, ct..cb: its grid cell in its tile. */
 static __attribute__((noinline)) void cell_c(r_ctx *x, const q_cell *cell, gv *top, gv *bot, const u16 *light,
                                              int stride, int i, int j, int cl, int cr, int ct, int cb)

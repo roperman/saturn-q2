@@ -8,11 +8,12 @@
 !
 ! It does the cells that are most of them: a whole tile or a crop that's
 ! exactly its grid cell (q_cell_fast: everything the command needs is in
-! the record), all in front of the near plane, its texture in VRAM. It
-! skips the empty ones and those outside the view (all four corners
-! outside one plane). The rest (near the camera, cropped inside the cell,
-! a texture to load) it lists for the C, by number in the face (from
-! a->cell0), in a->def.
+! the record), all in front of the near plane, its texture in VRAM; and
+! small crops inside their grid cell (.Lcrop: their corners interpolated
+! on screen, as cell_corners does). It skips the empty ones and those
+! outside the view (all four corners outside one plane). The rest (near
+! the camera, big crops, a texture to load) it lists for the C, by number
+! in the face (from a->cell0), in a->def.
 !
 ! The command's LINK: pushed (the slave's, drawn last-first), each points
 ! at the one before; appended (the master's), the one before is pointed at

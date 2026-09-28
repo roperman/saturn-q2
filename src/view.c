@@ -14,6 +14,10 @@
 ** The animation is Quake 2's (Weapon_Generic's frames, 10 a second, drawn in
 ** between): raising, firing, the first idle frame (no fidgeting), lowering.
 ** You can't fire until the gun's up, as in Quake 2.
+**
+** And Quake 2's bob (SV_CalcGunOffset): the gun turned a little against the
+** view as you walk (a step a half-cycle) and as you turn (it lags behind),
+** view_bob for the renderer to turn it by (OPTIONS: GUN BOB).
 */
 #include "game.h"
 
@@ -30,6 +34,12 @@ static int          state = VS_WAIT, idx;       /* where in the animation */
 static s32          acc, vclock, last_shot;     /* seconds (16.16) */
 static bool         ok;                         /* anything to draw with */
 bool                view_on;                    /* (main.c: not at the title, not the benchmark's views) */
+bool                opt_gun_bob = true;
+s32                 view_bob[3];                /* the gun's turn against the view: pitch (down), yaw (left),
+                                                   roll (right side down), radians 16.16 */
+static s32          bobtime, bobmove;           /* steps (16.16): Quake 2's, a server frame's worth */
+static int          last_yaw, last_pitch;
+static bool         bob_fresh = true;           /* (a new level or game: no turn yet to lag behind) */
 
 /* firing's loop: the fire animation's frames it goes round while you keep firing, -1 none
    (the machinegun's two; the chaingun's spun-up middle, Quake 2's 15-21) */
@@ -96,6 +106,7 @@ void                view_level_init(void)
     while (cd_async_busy() && cd_async_poll(32) == 0)
         ;                                   /* (a read under way: done with, whatever it was) */
     loading = -1;
+    bob_fresh = true;
     r_view_level();
     nslots = cart_free() >= 2 * VIEW_MAX_BYTES ? 2 : 1;
     for (k = 0; k < VIEW_SLOTS; ++k)
@@ -128,6 +139,7 @@ void                view_reset(void)
     state = VS_IDLE;
     idx = 0;
     acc = 0;
+    bob_fresh = true;
 }
 
 /* can the gun fire? (it's up, and it's the one you hold) */
@@ -190,6 +202,69 @@ static void         step(void)
     }
 }
 
+/* Quake 2's gun angles (degrees there): from the walk, xyspeed * |sin(bobtime pi)| * 0.005
+   pitch, 0.01 yaw and 0.005 roll (those two the other way every other step); from turning,
+   0.2 of the last server frame's turn (0.1 s), and 0.1 of the yaw's as roll */
+static void         bob(s32 dt)
+{
+    s32             xyspeed, fs, b, dyaw, dpitch;
+    int             vx = pl.velocity[0] >> 16, vy = pl.velocity[1] >> 16;
+
+    if (bob_fresh)
+    {
+        last_yaw = cam.yaw;
+        last_pitch = cam.pitch;
+        bob_fresh = false;
+    }
+    dyaw = (s16)(last_yaw - cam.yaw);           /* (angles: 65536 a turn) */
+    dpitch = (s16)(last_pitch - cam.pitch);
+    last_yaw = cam.yaw;
+    last_pitch = cam.pitch;
+    if (!opt_gun_bob || dt <= 0)
+    {
+        if (!opt_gun_bob)
+            view_bob[0] = view_bob[1] = view_bob[2] = 0;
+        return;
+    }
+    xyspeed = (s32)isqrt((u32)(vx * vx + vy * vy));
+    if (xyspeed < 5)
+    {
+        bobmove = 0;
+        bobtime = 0;                            /* (from the start of a step again) */
+    }
+    else if (pl.on_ground)
+        bobmove = xyspeed > 210 ? FIX(0.25) : xyspeed > 100 ? FIX(0.125) : FIX(0.0625);
+    bobtime = (bobtime + fmul(bobmove, dt) * 10) & 0x1FFFF;     /* (bobmove a tenth of a second's; two steps kept) */
+    fs = fsin((int)((u32)bobtime >> 1));        /* sin(bobtime pi): 65536 a turn is 2 pi */
+    b = xyspeed * (fs < 0 ? -fs : fs);          /* xyspeed |sin|, 16.16 */
+    view_bob[0] = fmul(fmul(b, FIX(0.005)), 1144);  /* (degrees, then radians: pi / 180 is 1144) */
+    view_bob[1] = view_bob[0] * 2;
+    view_bob[2] = view_bob[0];
+    if (bobtime >> 16 & 1)
+    {
+        view_bob[1] = -view_bob[1];
+        view_bob[2] = -view_bob[2];
+    }
+    /* turning: a tenth of a second's worth of this frame's turn (last angle - this one), at
+       most 45 degrees; 65536 a turn, so 0.2 of it in radians 16.16 is * 2 pi * 0.2 */
+    dyaw = iclamp((s32)((s64)dyaw * FIX(0.1) / dt), -0x2000, 0x2000);
+    dpitch = iclamp((s32)((s64)dpitch * FIX(0.1) / dt), -0x2000, 0x2000);
+    view_bob[0] += (dpitch * 82354) >> 16;      /* (2 pi 0.2: 1.2566) */
+    view_bob[1] += (dyaw * 82354) >> 16;
+    view_bob[2] += (dyaw * 41177) >> 16;        /* (2 pi 0.1) */
+#ifdef VIEW_BOB_BENCH
+    {
+        /* (OPT=-DVIEW_BOB_BENCH: as if walking, standing still: its cost; changing every frame) */
+        static int bb;
+
+        ++bb;
+        view_bob[0] = 1000 + (bb & 7) * 60;
+        view_bob[1] = -2000 + (bb & 15) * 40;
+        view_bob[2] = 800 - (bb & 3) * 90;
+    }
+#endif
+}
+
 /* once a frame: the animation on by dt, the background read on by a few sectors */
 void                view_update(s32 dt)
 {
@@ -211,6 +286,7 @@ void                view_update(s32 dt)
             loading = -1;
         }
     }
+    bob(dt);
     if (!ok)
         return;
     vclock += dt;

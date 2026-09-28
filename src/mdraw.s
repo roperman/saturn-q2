@@ -975,3 +975,173 @@ _vverts_asm:
         .long   320                     ! SCREEN_W
 .Lvh:
         .long   224                     ! SCREEN_H
+
+! vturn_asm: the gun's bob on n screen places (render.c view_turn: the gun turned about the
+! eye; each place's direction turned by the rotation's rows and projected again), as the C
+! (view_turn_c) does, each divide running while the place before is finished.
+!
+!   void vturn_asm(const s32 *m, const u32 *in, u32 *out, int n)
+!
+! m: the rows (2.14; the third column times FOCAL). A place is x << 16 | y; X right and Y up
+! from the centre. One turned nearly square to the view (nz < 4096) goes to the clamp its way.
+
+.macro  TXY                             ! r0's place -> r8 X, r9 Y
+        swap.w  r0,r8
+        exts.w  r8,r8
+        add     #-128,r8
+        add     #-32,r8                 ! X = x - CX
+        exts.w  r0,r9
+        neg     r9,r9
+        add     #112,r9                 ! Y = CY - y
+.endm
+
+.macro  TNZ                             ! r10 = m6 X + m7 Y + m8. Uses r0 r1 r2
+        mov.l   @(24,r4),r0
+        mul.l   r0,r8
+        mov.l   @(28,r4),r1
+        sts     macl,r10
+        mul.l   r1,r9
+        mov.l   @(32,r4),r2
+        sts     macl,r1
+        add     r1,r10
+        add     r2,r10
+.endm
+
+.macro  TSTART                          ! FOCAL << 32 / nz started, if nz is far enough. Uses r0
+        mov.l   .Lt4096,r0
+        cmp/ge  r0,r10
+        bf      21f
+        mov     r10,r0
+        mov.l   r0,@(0,gbr)             ! DVSR
+        mov.l   .Ltfocal,r0
+        mov.l   r0,@(16,gbr)            ! DVDNTH
+        mov     #0,r0
+        mov.l   r0,@(20,gbr)            ! DVDNTL: starts it
+21:
+.endm
+
+        .global _vturn_asm
+_vturn_asm:
+        mov.l   r8,@-r15
+        mov.l   r9,@-r15
+        mov.l   r10,@-r15
+        mov.l   r11,@-r15
+        mov.l   r12,@-r15
+        mov.l   r13,@-r15
+        mov.l   r14,@-r15
+        stc.l   gbr,@-r15
+        mov.l   .Ltdiv,r0
+        ldc     r0,gbr                  ! the divider
+        cmp/pl  r7
+        bf      .Ltdone
+        mov.l   @r5,r0                  ! the first: X Y, nz, its divide
+        TXY
+        TNZ
+        TSTART
+.Ltloop:
+        ! this one's nx and ny (r8 r9 its X Y, r10 its nz)
+        mov.l   @(0,r4),r0
+        mul.l   r0,r8
+        mov.l   @(4,r4),r1
+        sts     macl,r11
+        mul.l   r1,r9
+        mov.l   @(8,r4),r2
+        sts     macl,r1
+        add     r1,r11
+        add     r2,r11                  ! nx
+        mov.l   @(12,r4),r0
+        mul.l   r0,r8
+        mov.l   @(16,r4),r1
+        sts     macl,r12
+        mul.l   r1,r9
+        mov.l   @(20,r4),r2
+        sts     macl,r1
+        add     r1,r12
+        add     r2,r12                  ! ny
+        mov     r10,r14                 ! (its nz)
+        mov.l   .Lt4096,r0
+        cmp/ge  r0,r14
+        bf      1f
+        mov.l   @(20,gbr),r0            ! its quotient
+        mov     r0,r13
+1:      dt      r7
+        bt      2f
+        mov.l   @(4,r5),r0              ! the next one's X Y, nz, divide, now
+        TXY
+        TNZ
+        TSTART
+2:      mov.l   .Lt4096,r0              ! this one onto the screen
+        cmp/ge  r0,r14
+        bf      .Ltfar
+        dmuls.l r13,r11
+        mov.l   .Ltclamp,r2
+        sts     mach,r1
+        dmuls.l r13,r12
+        mov.l   .Ltcx,r0
+        add     r0,r1                   ! sx = CX + nx r
+        neg     r2,r3
+        cmp/gt  r2,r1                   ! clamped to +-CLAMP_XY
+        bf      3f
+        mov     r2,r1
+3:      cmp/ge  r3,r1
+        bt      4f
+        mov     r3,r1
+4:      sts     mach,r0
+        neg     r0,r0
+        add     #112,r0                 ! sy = CY - ny r
+        cmp/gt  r2,r0
+        bf      5f
+        mov     r2,r0
+5:      cmp/ge  r3,r0
+        bt      .Ltput
+        mov     r3,r0
+.Ltput:
+        extu.w  r0,r0
+        shll16  r1
+        or      r1,r0
+        mov.l   r0,@r6                  ! x << 16 | y
+        add     #4,r6
+        tst     r7,r7
+        bf.s    .Ltloop
+        add     #4,r5
+.Ltdone:
+        ldc.l   @r15+,gbr
+        mov.l   @r15+,r14
+        mov.l   @r15+,r13
+        mov.l   @r15+,r12
+        mov.l   @r15+,r11
+        mov.l   @r15+,r10
+        mov.l   @r15+,r9
+        rts
+        mov.l   @r15+,r8
+
+.Ltfar:
+        ! (turned nearly square to the view, or behind: to the clamp, its way; none, the centre)
+        mov.l   .Ltclamp,r2
+        mov.l   .Ltcx,r1
+        cmp/pl  r11
+        bf      6f
+        mov     r2,r1                   ! right
+6:      cmp/pz  r11
+        bt      7f
+        neg     r2,r1                   ! left
+7:      mov     #112,r0
+        cmp/pl  r12
+        bf      8f
+        neg     r2,r0                   ! up
+8:      cmp/pz  r12
+        bt      .Ltput
+        bra     .Ltput
+        mov     r2,r0                   ! down
+
+        .align  2
+.Ltdiv:
+        .long   0xFFFFFF00
+.Lt4096:
+        .long   4096
+.Ltfocal:
+        .long   160                     ! FOCAL
+.Ltclamp:
+        .long   2000                    ! CLAMP_XY
+.Ltcx:
+        .long   160                     ! CX

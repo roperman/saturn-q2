@@ -60,7 +60,7 @@ static int          n_items(void)
     {
         case MENU_MAIN:     return 2;
         case MENU_SKILL:    return 3;
-        case MENU_OPTIONS:  return 5;
+        case MENU_OPTIONS:  return 6;
         case MENU_PAUSE:    return 4;
         default:            return 0;
     }
@@ -99,6 +99,8 @@ menu_action         menu_input(u16 pressed)
         else if (sel == 2)
             opt_crosshair = !opt_crosshair;
         else if (sel == 3)
+            opt_gun_bob = !opt_gun_bob;
+        else if (sel == 4)
             opt_stats = !opt_stats;
         s_play(SND_MENU_MOVE, NULL, ATTN_NONE);
     }
@@ -136,7 +138,7 @@ menu_action         menu_input(u16 pressed)
             menu_cur = MENU_NONE;
             return MA_NEW_GAME;
         case MENU_OPTIONS:
-            if (sel == 4)
+            if (sel == 5)
             {
                 menu_open(options_from);
                 sel = 1;
@@ -211,9 +213,10 @@ void                menu_draw(void)
             item_text(0, 90, line);
             item_text(1, 106, game_during_draw ? "FASTER FIGHTS  ON" : "FASTER FIGHTS OFF");
             item_text(2, 122, opt_crosshair ? "CROSSHAIR  ON" : "CROSSHAIR OFF");
-            item_text(3, 138, opt_stats ? "STATISTICS  ON" : "STATISTICS OFF");
-            item_text(4, 162, "BACK");
-            vdp_text(160 - 19 * 4, 186, RGB(120, 110, 90), "LEFT RIGHT TO CHANGE");
+            item_text(3, 138, opt_gun_bob ? "GUN BOB  ON" : "GUN BOB OFF");
+            item_text(4, 154, opt_stats ? "STATISTICS  ON" : "STATISTICS OFF");
+            item_text(5, 176, "BACK");
+            vdp_text(160 - 19 * 4, 198, RGB(120, 110, 90), "LEFT RIGHT TO CHANGE");
             break;
         }
         case MENU_PAUSE:

@@ -231,11 +231,17 @@ static s32          rcp[64];                /* 65536 / n */
 
 /* The gun's last drawing, kept (on the cart: DMA reads it into the list each frame it goes
    out again): most of the time it's still (up, not firing), and then its polygons land where
-   they did, in the same order. Its lighting can still change (another leaf, turning), so the
-   normals are kept, not the colours */
-typedef struct { u16 tex, size; u8 n[4]; u32 xy[4]; } view_kept;       /* 24 bytes */
-static view_kept    *view_keep;             /* (on the cart, r_view_level: MAX_MPOLYS of them) */
-static int          view_nkeep, view_gen = 1;
+   they did, in the same order. Its lighting can still change (another leaf, turning), and so
+   can its bob: what's kept is the polygons (their corners among the kept vertices), then the
+   vertices' places before the bob, then their normals */
+typedef struct { u16 tex, size; u16 v[4]; } view_kept;      /* 12 bytes */
+#define VIEW_KEEP_BYTES (MAX_MPOLYS * sizeof(view_kept) + MAX_MVERTS * 2 * 5)
+static u8           *view_keep;             /* (on the cart, r_view_level) */
+static int          view_nkeep, view_nkv, view_gen = 1;
+static u32          view_kver;              /* (one more each time it's kept anew) */
+/* ...and last frame's going out, if it was that: its commands and colour tables are still in
+   the lists' staging where they were, so this frame's need only what's changed written */
+static struct { const u32 *at; int gc; u32 kver, gver; s32 bob[3]; bool ok; } vz;
 static struct { const q_mdl *m; int gen, f0, f1; s32 lerp; } view_key;
 
 static int          ntex_all;               /* the level's textures, then the models' */
@@ -1959,10 +1965,11 @@ static void         view_vertex(const vverts_args *a, int i, v3 *o)
     o->y = c[2];
 }
 
-/* a polygon's corners on the screen. One behind the near plane is pulled along an edge to
-   a corner in front, to where the edge crosses the plane: the texture squeezes a little at
-   the screen's edge, rather than a hole there. false: all of it behind */
-static bool         view_poly_xy(r_ctx *x, const vverts_args *va, const q_mpoly *p, u32 *xy)
+/* a polygon's corners on the screen (before the bob: ux the vertices' places then). One
+   behind the near plane is pulled along an edge to a corner in front, to where the edge
+   crosses the plane: the texture squeezes a little at the screen's edge, rather than a hole
+   there. false: all of it behind */
+static bool         view_poly_xy(r_ctx *x, const vverts_args *va, const q_mpoly *p, u32 *xy, const u32 *ux)
 {
     int             k;
 
@@ -1974,7 +1981,7 @@ static bool         view_poly_xy(r_ctx *x, const vverts_args *va, const q_mpoly 
 
         if (!(x->moc[vi] & OC_NEAR))
         {
-            xy[k] = x->mxy[vi];
+            xy[k] = ux[vi];
             continue;
         }
         for (j = 1; j < 4 && f < 0; ++j)
@@ -1994,6 +2001,102 @@ static bool         view_poly_xy(r_ctx *x, const vverts_args *va, const q_mpoly 
     return true;
 }
 
+/* The gun's bob (view.c view_bob: pitch down, yaw left, roll right side down) on the screen:
+   the gun turns about the eye, so each point's direction turns, and a point's place on the
+   screen is its direction's. The rotation's rows (2.14) take (X right, Y up, FOCAL) from the
+   centre to the turned direction, and that's projected again (exact: a divide a point) */
+typedef struct { s32 m[9]; bool on; } view_turn;
+
+static void         view_turn_make(view_turn *t)
+{
+    /* Quake 2 adds the gun's angles to the view's: the gun's axes are AngleVectors of (the
+       view's pitch + the gun's, its yaw, its roll) (the view's yaw left out: it turns both
+       alike), taken into the view's own axes (pitch vp): x = -w1, y = svp w0 + cvp w2,
+       z = cvp w0 - svp w2 for a Quake vector w */
+    int             ap = (int)(((view_bob[0] * 10430) >> 16) & 0xFFFF);  /* (radians 16.16 -> 65536 a turn) */
+    int             ay = (int)(((view_bob[1] * 10430) >> 16) & 0xFFFF);
+    int             ar = (int)(((view_bob[2] * 10430) >> 16) & 0xFFFF);
+    int             vp = cam.pitch & 0xFFFF;
+    s32             sp = fsin((vp + ap) & 0xFFFF), cp = fcos((vp + ap) & 0xFFFF), sy = fsin(ay), cy = fcos(ay);
+    s32             sr = fsin(ar), cr = fcos(ar), svp = fsin(vp), cvp = fcos(vp);
+    s32             ax[3][3];               /* the gun's right, up, forward (Quake's coordinates) */
+    int             k;
+
+    t->on = ap || ay || ar;
+    ax[0][0] = -fmul(fmul(sr, sp), cy) + fmul(cr, sy);
+    ax[0][1] = -fmul(fmul(sr, sp), sy) - fmul(cr, cy);
+    ax[0][2] = -fmul(sr, cp);
+    ax[1][0] = fmul(fmul(cr, sp), cy) + fmul(sr, sy);
+    ax[1][1] = fmul(fmul(cr, sp), sy) - fmul(sr, cy);
+    ax[1][2] = fmul(cr, cp);
+    ax[2][0] = fmul(cp, cy);
+    ax[2][1] = fmul(cp, sy);
+    ax[2][2] = -sp;
+    for (k = 0; k < 3; ++k)
+    {
+        /* column k: the axis in the view's; the forward one's times FOCAL (the direction's z) */
+        s32 x = -ax[k][1], y = fmul(svp, ax[k][0]) + fmul(cvp, ax[k][2]), z = fmul(cvp, ax[k][0]) - fmul(svp, ax[k][2]);
+
+        t->m[k] = (x >> 2) * (k == 2 ? FOCAL : 1);
+        t->m[3 + k] = (y >> 2) * (k == 2 ? FOCAL : 1);
+        t->m[6 + k] = (z >> 2) * (k == 2 ? FOCAL : 1);
+    }
+}
+
+/* the bob on n places (in and out may be the same): src/mdraw.s vturn_asm, each one's divide
+   running while the one before is finished */
+void                vturn_asm(const s32 *m, const u32 *in, u32 *out, int n);
+#define view_turn_n(t, in, out, n)  vturn_asm((t)->m, (in), (out), (n))
+
+#if defined(VIEW_CHECK) && VIEW_CHECK < 3
+/* (the C it was: the checks' reference) */
+static __attribute__((noinline)) void view_turn_c(const view_turn *t, const u32 *in, u32 *out, int n)
+{
+    s32             X, Y, nz, Xn = 0, Yn = 0, nzn = 0, nx, ny, r = 0, sx, sy;
+    int             i;
+
+    if (n <= 0)
+        return;
+    X = XY_X(in[0]) - CX;
+    Y = CY - XY_Y(in[0]);
+    nz = t->m[6] * X + t->m[7] * Y + t->m[8];
+    if (nz >= 4096)
+        divu_start(FOCAL, 0, nz);           /* FOCAL << 32 / nz (both in 2.14 screen units: they go) */
+    for (i = 0; i < n; ++i)
+    {
+        nx = t->m[0] * X + t->m[1] * Y + t->m[2];
+        ny = t->m[3] * X + t->m[4] * Y + t->m[5];
+        if (nz >= 4096)
+            r = divu_result();
+        if (i + 1 < n)
+        {
+            u32 q = in[i + 1];
+
+            Xn = XY_X(q) - CX;
+            Yn = CY - XY_Y(q);
+            nzn = t->m[6] * Xn + t->m[7] * Yn + t->m[8];
+            if (nzn >= 4096)
+                divu_start(FOCAL, 0, nzn);
+        }
+        if (nz < 4096)
+        {
+            /* (turned nearly square to the view, or behind: to the clamp, its way) */
+            sx = nx > 0 ? CLAMP_XY : nx < 0 ? -CLAMP_XY : CX;
+            sy = ny > 0 ? -CLAMP_XY : ny < 0 ? CLAMP_XY : CY;
+        }
+        else
+        {
+            sx = iclamp(CX + mul_hi(nx, r), -CLAMP_XY, CLAMP_XY);
+            sy = iclamp(CY - mul_hi(ny, r), -CLAMP_XY, CLAMP_XY);
+        }
+        out[i] = (u32)sx << 16 | (u16)sy;
+        X = Xn;
+        Y = Yn;
+        nz = nzn;
+    }
+}
+#endif
+
 #ifdef FIGHT_BENCH
 u32                 view_ph[4];             /* (the fight benchmark: the gun's vertices, sort, commands, kept; us) */
 #define VPH(k)      (view_ph[k] += frt_to_us((frt_read() - tph) & 0xFFFF), tph = frt_read())
@@ -2008,6 +2111,11 @@ u32                 view_checks[7];         /* frames, commands, differing; (=3)
 #define OVL_CHECK       (200)
 static u32          *chk_cmds, *chk_gcs;    /* (LWRAM, r_view_level) */
 static u32          *chk_kept, *chk_kgc;    /* (VIEW_CHECK=2: what was kept, gone out) */
+static u32          *chk_ux;                /* (the C's places before the bob) */
+#if VIEW_CHECK == 2
+static struct { const q_mdl *m; int gen, f0, f1; s32 lerp; } ck_key;
+static int          ck_nkeep, ck_nkv;
+#endif
 
 #if VIEW_CHECK < 3
 static __attribute__((noinline)) void draw_viewmodel_ref(r_ctx *x, const q_mdl *m, const vverts_args *va,
@@ -2019,6 +2127,7 @@ static __attribute__((noinline)) void draw_viewmodel_ref(r_ctx *x, const q_mdl *
     vdp_writer      *w = x->w;
     const q_mpoly   *polys = m->polys;
     u32             colr0;
+    view_turn       tn;
 
     for (i = 0; i < nv; ++i)
     {
@@ -2032,21 +2141,18 @@ static __attribute__((noinline)) void draw_viewmodel_ref(r_ctx *x, const q_mdl *
             x->moc[i] = OC_NEAR;
         else
         {
-            u32 xy = project(x, v.x, v.y, v.z);
-            u8  oc = 0;
-
-            x->mxy[i] = xy;
-            if (XY_X(xy) < 0) oc = OC_LEFT;
-            else if (XY_X(xy) >= SCREEN_W) oc = OC_RIGHT;
-            if (XY_Y(xy) < 0) oc |= OC_TOP;
-            else if (XY_Y(xy) >= SCREEN_H) oc |= OC_BOTTOM;
-            x->moc[i] = oc;
+            x->mxy[i] = project(x, v.x, v.y, v.z);
+            x->moc[i] = 0;
             if (v.z < zmin)
                 zmin = v.z;
             if (v.z > zmax)
                 zmax = v.z;
         }
     }
+    view_turn_make(&tn);
+    memcpy(chk_ux, x->mxy, (u32)nv * 4);
+    if (tn.on)
+        view_turn_c(&tn, chk_ux, x->mxy, nv);
     if (zmax < zmin)
         return;
     inv = (s32)(((u32)(MBUCKETS - 1) << 16) / (u32)imax((zmax - zmin) >> 16, 1));
@@ -2063,8 +2169,10 @@ static __attribute__((noinline)) void draw_viewmodel_ref(r_ctx *x, const q_mdl *
             continue;
         if ((x->moc[a] | x->moc[bb] | x->moc[c] | x->moc[d]) & OC_NEAR)
         {
-            if (!view_poly_xy(x, va, p, xy))
+            if (!view_poly_xy(x, va, p, xy, chk_ux))
                 continue;
+            if (tn.on)
+                view_turn_c(&tn, xy, xy, 4);
         }
         else
         {
@@ -2104,8 +2212,10 @@ static __attribute__((noinline)) void draw_viewmodel_ref(r_ctx *x, const q_mdl *
                 continue;
             if ((x->moc[p->v[0]] | x->moc[p->v[1]] | x->moc[p->v[2]] | x->moc[p->v[3]]) & OC_NEAR)
             {
-                if (!view_poly_xy(x, va, p, xy))
+                if (!view_poly_xy(x, va, p, xy, chk_ux))
                     continue;
+                if (tn.on)
+                    view_turn_c(&tn, xy, xy, 4);
             }
             else
             {
@@ -2183,8 +2293,8 @@ static void         view_fetch_start(vdp_writer *w0)
         && view_key.lerp == lerp)
     {
         /* it'll go out as kept: that's what's read */
-        vf.rbytes = (u32)view_nkeep * sizeof(view_kept);
-        if (vf.rbytes && (vf.base = view_scratch(w0, vf.rbytes)))
+        vf.rbytes = ((u32)view_nkeep * sizeof(view_kept) + (u32)view_nkv * 5 + 3) & ~3u;
+        if (view_nkeep && (vf.base = view_scratch(w0, vf.rbytes)))
         {
             scu_dma0(vf.base, view_keep, vf.rbytes, false);
             vf.stage = 3;
@@ -2281,7 +2391,7 @@ static void         cache_forget(const void *p, u32 bytes)
 /* a new level (view.c): room for the gun's last drawing, on the cart (DMA reads it from there) */
 void                r_view_level(void)
 {
-    view_keep = (view_kept *)cart_alloc(MAX_MPOLYS * sizeof(view_kept));
+    view_keep = cart_alloc(VIEW_KEEP_BYTES);
     view_key.m = NULL;
     vf.stage = 0;
 #ifdef VIEW_CHECK
@@ -2289,6 +2399,7 @@ void                r_view_level(void)
     chk_gcs = level_alloc_low(OVL_CHECK * 8);
     chk_kept = level_alloc_low(OVL_CHECK * 32);
     chk_kgc = level_alloc_low(OVL_CHECK * 8);
+    chk_ux = level_alloc_low(MAX_MVERTS * 4);
 #endif
 }
 
@@ -2305,6 +2416,7 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
     static u16      gt[162];
     static const q_mdl *gt_m;
     static int      gt_leaf = -1, gt_ys = -1;
+    static u32      gt_ver;
     vdp_writer      *w = x->w;
     u32             colr0;
     vverts_args     va;
@@ -2315,6 +2427,8 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
     s16             nearl[VIEW_MAX_POLYS];                  /* the polygons across the near plane */
     u32             sxy[VIEW_SUBS * 4];                     /* ...those drawn: their corners */
     u16             sg[VIEW_SUBS * 4], si[VIEW_SUBS];       /* ...colours, and which polygon each was */
+    u32             uxy[MAX_MVERTS], su[VIEW_SUBS * 4];     /* (the bob on: the places before it, to keep) */
+    view_turn       tn;
 #ifdef FIGHT_BENCH
     u32             tph = frt_read();
 #endif
@@ -2327,6 +2441,12 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
     u8              cmoc[MAX_MVERTS];
 #endif
 
+    bool            vz_ok = vz.ok;
+
+    vz.ok = false;                          /* (unless it goes out as kept, below) */
+#if defined(VIEW_CHECK) && VIEW_CHECK != 2
+    (void)vz_ok;
+#endif
     if (vf.stage)
         while (scu_dma0_busy())
             ;                               /* (in any case: the list's to be written over) */
@@ -2340,6 +2460,7 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         gt_m = m;
         gt_leaf = leaf;
         gt_ys = ys;
+        ++gt_ver;
     }
     f0 = m->frames + (u32)f0i * m->frame_bytes;
     f1 = m->frames + (u32)f1i * m->frame_bytes;
@@ -2349,45 +2470,106 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
     if (view_key.m == m && view_key.gen == view_gen && view_key.f0 == f0i && view_key.f1 == f1i
         && view_key.lerp == lerp)
     {
-        /* as last frame: out from what was kept (read into the list by DMA, if it was expected) */
+        /* as last frame: out from what was kept (read into the list by DMA, if it was expected),
+           turned by the bob as it is now */
 #ifdef VIEW_CHECK
         int             kept_gc = w->gcount;
 #endif
-        const view_kept *kp = view_keep;
-        u32             *dw, dw1;
+        const u8        *kb = view_keep;
+        const view_kept *kp;
+        const u32       *kxy;
+        const u8        *kn;
+        u32             txy[MAX_MVERTS * 2], *dw, dw1;
         int             n = 0, room, luts32 = m->nluts > 1 ? 32 : 0;
+        view_turn       tn;
 
         if (vf.stage == 3 && vf.m == m)
         {
             cache_forget(vf.base, vf.rbytes);
-            kp = (const view_kept *)vf.base;
+            kb = vf.base;
         }
         vf.stage = 0;
+        kp = (const view_kept *)kb;
+        kxy = (const u32 *)(kb + view_nkeep * sizeof(view_kept));
+        kn = (const u8 *)(kxy + view_nkv);
+        view_turn_make(&tn);
         colr0 = lut_vram + (u32)m->lut0 * 32;
-        dw1 = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16;
+        dw1 = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | colr0 >> 3;
         dw = (u32 *)vdp_overlay_block(&room);
-        for (i = 0; i < view_nkeep && n < room; ++i, ++kp)
         {
-            int     t = m->tex_id0 + kp->tex, sl = x->tex_slot[t];
-            s32     vram;
+            /* (what every polygon needs, in locals: the stores through dw could be anything's).
+               In place (last frame's went out the same, from the same place): a command a kept
+               polygon, one skipped if its texture can't be had; what's there is rewritten only
+               where it's changed (the colour tables' place alternates with the lists) */
+            const u16   *tslot = x->tex_slot;
+            u32         *gst = w->gst, svram = slot_vram, sbytes = slot_bytes, gb = w->gbase >> 3;
+            int         tid0 = m->tex_id0, gc = w->gcount, luts4 = luts32 >> 3, k;
+            u16         fr = frame;
+            s32         bob[3];
+            bool        in_place, nxy, ng, whole = true;
 
-            if (sl != 0xFFFF)
+            for (k = 0; k < 3; ++k)
+                bob[k] = tn.on ? view_bob[k] : 0;
+            n = imin(view_nkeep, imin(room, w->gmax - gc));
+            in_place = vz_ok && vz.at == dw && vz.gc == gc && vz.kver == view_kver && n == view_nkeep;
+            nxy = !in_place || bob[0] != vz.bob[0] || bob[1] != vz.bob[1] || bob[2] != vz.bob[2];
+            ng = !in_place || vz.gver != gt_ver;
+            if (nxy && tn.on)
             {
-                slot_frame[sl] = frame;
-                vram = (s32)(slot_vram + (u32)sl * slot_bytes);
+                view_turn_n(&tn, kxy, txy, view_nkv);
+                kxy = txy;
             }
-            else if ((vram = tex_load(x, t)) < 0)
-                continue;
-            dw[0] = (u32)(0x1000 | VDP1_DISTORTED) << 16;
-            dw[1] = dw1 | ((colr0 + (u32)(kp->tex * luts32)) >> 3);
-            dw[2] = ((u32)vram >> 3) << 16 | kp->size;
-            dw[3] = kp->xy[0];
-            dw[4] = kp->xy[1];
-            dw[5] = kp->xy[2];
-            dw[6] = kp->xy[3];
-            dw[7] = (u32)vdp_gouraud_fast(w, (u32)gt[kp->n[0]] << 16 | gt[kp->n[1]], (u32)gt[kp->n[2]] << 16 | gt[kp->n[3]]) << 16;
-            dw += 8;
-            ++n;
+            vz.at = dw;
+            vz.gc = gc;
+            for (i = 0; i < n; ++i, ++kp, dw += 8, ++gc)
+            {
+                int     t = tid0 + kp->tex, sl = tslot[t];
+                u32     vram;
+
+                if (sl != 0xFFFF)
+                {
+                    slot_frame[sl] = fr;
+                    vram = svram + (u32)sl * sbytes;
+                }
+                else
+                {
+                    s32 v = tex_load(x, t);
+
+                    if (v < 0)
+                    {
+                        dw[0] = (u32)(0x5000 | VDP1_DISTORTED) << 16;   /* (skipped: all written next frame) */
+                        whole = false;
+                        continue;
+                    }
+                    vram = (u32)v;
+                }
+                if (!in_place)
+                {
+                    dw[0] = (u32)(0x1000 | VDP1_DISTORTED) << 16;
+                    dw[1] = dw1 + (u32)(kp->tex * luts4);
+                }
+                if (!in_place || dw[2] >> 16 != vram >> 3)
+                    dw[2] = (vram >> 3) << 16 | kp->size;
+                if (nxy)
+                {
+                    dw[3] = kxy[kp->v[0]];
+                    dw[4] = kxy[kp->v[1]];
+                    dw[5] = kxy[kp->v[2]];
+                    dw[6] = kxy[kp->v[3]];
+                }
+                if (ng)
+                {
+                    gst[gc * 2] = (u32)gt[kn[kp->v[0]]] << 16 | gt[kn[kp->v[1]]];
+                    gst[gc * 2 + 1] = (u32)gt[kn[kp->v[2]]] << 16 | gt[kn[kp->v[3]]];
+                }
+                dw[7] = (gb + (u32)gc) << 16;
+            }
+            vz.kver = view_kver;
+            vz.gver = gt_ver;
+            for (k = 0; k < 3; ++k)
+                vz.bob[k] = bob[k];
+            vz.ok = whole && n == view_nkeep;
+            w->gcount = gc;
         }
         vdp_overlay_add(n);
         x->st.mpolys += n;
@@ -2402,6 +2584,19 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         VPH(3);
         return;
 #endif
+    }
+#endif
+#if VIEW_CHECK == 2
+    if (kept_n >= 0)
+    {
+        /* (the kept drawing stays, as it went out: the next frame's goes out in place over it) */
+        ck_key.m = view_key.m;
+        ck_key.gen = view_key.gen;
+        ck_key.f0 = view_key.f0;
+        ck_key.f1 = view_key.f1;
+        ck_key.lerp = view_key.lerp;
+        ck_nkeep = view_nkeep;
+        ck_nkv = view_nkv;
     }
 #endif
     view_key.m = NULL;
@@ -2510,6 +2705,17 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         }
     }
     vd.dsp = -1;
+    /* the bob; and nothing dropped for being off a side of the screen: what's kept goes out
+       again as the bob changes (VDP1 clips) */
+    view_turn_make(&tn);
+    if (tn.on)
+    {
+        memcpy(uxy, x->mxy, (u32)nv * 4);
+        view_turn_n(&tn, uxy, x->mxy, nv);  /* (those behind the near plane too: not used) */
+    }
+    for (i = 0; i < nv; ++i)
+        if (!(x->moc[i] & OC_NEAR))
+            x->moc[i] = 0;
 #ifdef VIEW_CHECK
     memcpy(cmxy, x->mxy, (u32)nv * 4);
     memcpy(cmz, x->mz, (u32)nv * 4);
@@ -2551,8 +2757,13 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         u32             *xy = &sxy[ns * 4];
         s32             cross, z;
 
-        if (!view_poly_xy(x, &va, p, xy))
+        if (!view_poly_xy(x, &va, p, xy, tn.on ? uxy : x->mxy))
             continue;
+        if (tn.on)
+        {
+            memcpy(&su[ns * 4], xy, 16);
+            view_turn_n(&tn, xy, xy, 4);
+        }
         cross = (XY_X(xy[1]) - XY_X(xy[0])) * (XY_Y(xy[2]) - XY_Y(xy[0]))
               - (XY_Y(xy[1]) - XY_Y(xy[0])) * (XY_X(xy[2]) - XY_X(xy[0]));
         if (cross == 0 && !(p->flags & 1))
@@ -2658,13 +2869,28 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
 #if VIEW_CHECK == 2
         if (kept_n >= 0)
         {
-            /* (the kept drawing went out as this does?) */
+            /* (the kept drawing went out as this does? Each polygon found by its texture (the
+               gun's are one a polygon): its corners and colours the same. As the bob turns it,
+               a polygon edge-on can face the other way: those counted apart) */
+            int fn = imin(a.cnt, OVL_CHECK), found = 0, j;
+
             view_checks[1] += (u32)kept_n;
-            view_checks[2] += (u32)(kept_n != imin(a.cnt, OVL_CHECK));
-            for (k = 0; k < kept_n && k < a.cnt; ++k)
-                view_checks[2] += (a.cmds[k * 8] >> 16) != (chk_kept[k * 8] >> 16)
-                                  || memcmp(&a.cmds[k * 8 + 1], &chk_kept[k * 8 + 1], 28)
-                                  || memcmp(&w->gst[(w->gcount + k) * 2], &chk_kgc[k * 2], 8);
+            for (k = 0; k < kept_n; ++k)
+            {
+                for (j = 0; j < fn && (a.cmds[j * 8 + 2] >> 16) != (chk_kept[k * 8 + 2] >> 16); ++j)
+                    ;
+                if (j == fn)
+                    continue;
+                ++found;
+                view_checks[2] += memcmp(&a.cmds[j * 8 + 1], &chk_kept[k * 8 + 1], 24)
+                                  || memcmp(&w->gst[(w->gcount + j) * 2], &chk_kgc[k * 2], 8);
+            }
+            view_checks[3] += (u32)(kept_n - found + fn - found);
+            /* (the kept drawing goes out, not this: put back where it was) */
+            memcpy(a.cmds, chk_kept, (u32)kept_n * 32);
+            memcpy(w->gst + w->gcount * 2, chk_kgc, (u32)kept_n * 8);
+            a.cnt = kept_n;
+            a.gc = w->gcount + kept_n;
         }
 #endif
 #endif
@@ -2673,11 +2899,33 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         x->st.mpolys += a.cnt;
         x->st.dropped += a.drop;
     }
-    /* a still frame (the gun at rest): kept, to go out again as it is next frame */
+#if VIEW_CHECK == 2
+    if (kept_n >= 0)
+    {
+        view_key.m = ck_key.m;
+        view_key.gen = ck_key.gen;
+        view_key.f0 = ck_key.f0;
+        view_key.f1 = ck_key.f1;
+        view_key.lerp = ck_key.lerp;
+        view_nkeep = ck_nkeep;
+        view_nkv = ck_nkv;
+        VPH(2);
+        return;
+    }
+#endif
+    /* a still frame (the gun at rest): kept, to go out again as it is next frame. Written to
+       the cart (once, as it comes to rest): the polygons, their corners renumbered among the
+       vertices they use; those vertices' places (before the bob) and normals */
     if (f1 == f0)
     {
-        view_kept *kp = view_keep;
+        view_kept   *kp = (view_kept *)view_keep;
+        const u32   *ux = tn.on ? uxy : x->mxy, *us = tn.on ? su : sxy;
+        u32         fxy[MAX_MVERTS * 2];
+        u8          fnn[MAX_MVERTS * 2];
+        u16         map[MAX_MVERTS];
+        int         nk = 0;
 
+        memset(map, 0xFF, sizeof(map));
         for (b = MBUCKETS - 1; b >= 0; --b)
             for (i = x->mhead[b]; i >= 0 && view_nkeep < MAX_MPOLYS; i = x->mnext[i], ++kp, ++view_nkeep)
             {
@@ -2688,11 +2936,29 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
                 kp->tex = p->tex;
                 kp->size = (u16)(((mt->w >> 3) << 8) | mt->h);
                 for (j = 0; j < 4; ++j)
-                {
-                    kp->n[j] = vn[i < np ? p->v[j] : polys[si[i - np]].v[j]];
-                    kp->xy[j] = i < np ? x->mxy[p->v[j]] : sxy[(i - np) * 4 + j];
-                }
+                    if (i < np)
+                    {
+                        int v = p->v[j];
+
+                        if (map[v] == 0xFFFF)
+                        {
+                            map[v] = (u16)nk;
+                            fxy[nk] = ux[v];
+                            fnn[nk++] = vn[v];
+                        }
+                        kp->v[j] = map[v];
+                    }
+                    else
+                    {
+                        fxy[nk] = us[(i - np) * 4 + j];         /* (a cut one's corner: its own) */
+                        fnn[nk] = vn[polys[si[i - np]].v[j]];
+                        kp->v[j] = (u16)nk++;
+                    }
             }
+        view_nkv = nk;
+        ++view_kver;
+        memcpy(view_keep + view_nkeep * sizeof(view_kept), fxy, (u32)nk * 4);
+        memcpy(view_keep + view_nkeep * sizeof(view_kept) + nk * 4, fnn, (u32)nk);
         view_key.m = m;
         view_key.gen = view_gen;
         view_key.f0 = f0i;

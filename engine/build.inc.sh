@@ -46,9 +46,15 @@ PY
         cp "$gen/snd68k.bin" cd/SND68K.BIN     # (a file on the CD: not 4 KB of high work RAM)
     fi
     local cflags="-m2 -O2 -ffreestanding -fno-builtin -nostdlib -fno-common -Wall -Wextra -Wno-unused-parameter -I$ENGINE -I$gen -Isrc $extra"
+    # the code's in high work RAM with the level's hottest data: what's rarely run is built
+    # small (COLD: file names), leaving that room to the level
+    local cold=" ${COLD:-} "
     for s in "$ENGINE/crt0.s" "$ENGINE/sys.c" "$ENGINE/vdp.c" "$ENGINE/dsp.c" "$ENGINE/rotplane.c" "$ENGINE/sky.c" "$ENGINE/lzss.c" "$ENGINE/bup.c" "$ENGINE/cd.c" $snd $srcs; do
         o=obj/$(basename "${s%.*}").o
-        "$CC" $cflags -c "$s" -o "$o"
+        case "$cold" in
+            *" $(basename "$s") "*) "$CC" $cflags -Os -c "$s" -o "$o" ;;
+            *) "$CC" $cflags -c "$s" -o "$o" ;;
+        esac
         objs="$objs $o"
     done
     "$CC" -m2 -nostdlib -nostartfiles -T "$ENGINE/link.ld" -Wl,-Map,game.map -o game.elf $objs -lgcc

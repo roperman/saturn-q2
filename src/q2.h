@@ -305,6 +305,7 @@ int                 model_anim(const q_mdl *m, const char *name);
 void                model_shade(u16 *out, const u8 *sh, const u16 *ll);    /* 162 normals' Gouraud: a light, a yaw's shading */
 /* view.c: the gun in your hands */
 extern bool         view_on;                /* drawn at all (not at the title, nor in the benchmark's views) */
+extern s32          view_bob[3];            /* its bob: pitch (down), yaw (left), roll (right side down), radians 16.16 */
 const q_mdl         *view_frame(int *f0, int *f1, s32 *lerp);   /* what to draw now, or NULL */
 void                r_view_slot(int slot);  /* (render.c) a slot's new gun: its old textures forgotten, its colour tables up */
 void                r_view_level(void);     /* (render.c) a new level (the gun's) */

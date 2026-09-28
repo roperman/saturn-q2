@@ -656,6 +656,20 @@ void                main(void)
                 cmd.yaw = cam.yaw;
             }
 #endif
+#ifdef VIEW_TEST
+            if (!paused)
+            {
+                /* (walking in circles, turning at three speeds in turn, then standing still: the
+                   gun's bob and lag, and none) */
+                static int vw;
+                static const int turns[4] = { 0, 0x60, 0x300, 0 };
+
+                ++vw;
+                cmd.forward = vw / 100 % 4 == 3 ? 0 : FIX(300);
+                cam.yaw = (cam.yaw + turns[vw / 100 % 4]) & 0xFFFF;
+                cmd.yaw = cam.yaw;
+            }
+#endif
 #ifdef LADDER_CHECK
             if (!paused)
             {
@@ -1098,6 +1112,8 @@ void                main(void)
 #if VIEW_CHECK == 3
                 vdp_printf(8, 208, c, "DSP V%d MOVED %d MOST %d NEAR %d", view_checks[3], view_checks[4],
                            view_checks[5], view_checks[6]);
+#elif VIEW_CHECK == 2
+                vdp_printf(8, 208, c, "KEPT: TURNED EDGE-ON %d", view_checks[3]);
 #endif
             }
 #else

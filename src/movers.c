@@ -51,11 +51,15 @@ void                movers_init(void)
 {
     int             m;
 
-    mover_ofs = level_alloc((u32)lv.nmodels * 12);
     if (!mover_gone)
+    {
+        /* once a level (load_level clears mover_gone): a new game or a restart
+           on the same level uses them again, rather than more of the heap */
+        mover_ofs = level_alloc((u32)lv.nmodels * 12);
         mover_gone = level_alloc((u32)lv.nmodels);
+        ms = level_alloc((u32)lv.nmodels * sizeof(m_state));
+    }
     memset(mover_gone, 0, (u32)lv.nmodels);
-    ms = level_alloc((u32)lv.nmodels * sizeof(m_state));
     for (m = 0; m < lv.nmodels; ++m)
     {
         const q_mover   *mv = &lv.movers[m];

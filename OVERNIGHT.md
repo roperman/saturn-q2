@@ -577,3 +577,26 @@ the flow is pure cost. The walk would get cheaper too (only the nodes
 above reached leaves). Worth building only with the flow off the master's
 path (the slave, while the master does the sky, effects and entities) or
 kept to a budget.
+
+## 14. The gun in your hands
+
+Quake 2's seven view weapons (`v_blast` ... `v_rocket`), with its own frame
+numbers for raising, firing, one idle frame (no fidgeting) and lowering:
+31-55 KB each, 300 KB together, more than the carts have left. So
+`src/view.c` keeps two slots on the cart, the gun you hold and the next,
+read from the CD in the background while you lower the one you hold (one
+slot on Comm Center, where the cart's short: there a moment with no gun
+while the next reads). You fire once it's up, as in Quake 2; the
+machinegun and chaingun go round their fire loops while you hold fire.
+
+Drawn by `draw_viewmodel` into VDP1's overlay list (over the world, as
+Quake 2's depth hack does), lit by the light where you stand and the way you
+face, with Quake 2's near plane for guns (4 units). Checked against
+z-buffered renders on the PC: its triangles wind the other way from the
+monsters' (a soldier rendered the same way matches the game, unmirrored).
+
+Cost: a still gun's drawing is kept and reused, 0.9 ms a frame; while it
+animates (firing, switching) about 4 ms (mostly the cart: its frames and
+records live there). The fight benchmark (you don't fire in it): 39.8 ->
+41.5 ms a frame, 441 of 482 pictures at 40 ms. `OPT=-DVIEW_TEST` gives every
+gun and cycles them. Not done: Quake 2's gun bob as you walk.

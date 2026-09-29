@@ -1,34 +1,110 @@
 # Quake 2 on the Sega Saturn
 
-A port-in-progress of Quake 2 to the Saturn. It runs on the bare-metal engine
-from the other Saturn projects: no SGL, both SH-2s, and VDP1 command lists
-built by the CPUs. The engine here is a fork of the taxi game's
-(`../saturn-ctaxi/taxi/engine`). Id's GPL source
-(`vendor/quake2`, GPL v2 or later) is the reference for the game logic.
+A port of Quake 2's shareware demo to the Sega Saturn: its three levels, its
+monsters' own AI, its weapons, items, sounds and status bar, on a bare-metal
+engine that uses both SH-2s, the SCU DSP and the sound CPU. It needs the 4 MB
+RAM cart.
 
-What works: base1 (the shareware demo's first map) textured and lightmapped,
-the skybox, walking with Quake 2's movement and collision, doors, lifts and
-buttons, and a blaster whose bolts and impacts light the walls around them.
-The soldiers (light, standard, SS) are MD2 models with Quake 2's own AI: they
-notice you, chase you, shoot back (blaster, shotgun, machinegun), flinch and
-die.
+## Why, and how it's made
+
+I'm making this with Claude, Anthropic's AI model (Claude Opus 5.5). Claude
+has written the code, with me directing: what to work on next, the
+trade-off calls (detail against speed, memory, latency), and playing it. I'm
+doing it to show how easy it now is to make code efficient on old hardware.
+
+The Saturn has two 28 MHz SH-2 CPUs with 4 KB caches, 2 MB of work RAM and a
+sprite chip that draws quads with no perspective correction and no depth
+buffer. Getting Quake 2 onto that is mostly a job of finding where the time
+goes and taking it back. The speed-ups here mostly went the same way:
+- Claude measures a frame (profile builds, benchmarks that play back fixed
+  views and a scripted fight);
+- finds the hot spot, and tries an idea: often SH-2 assembly, sometimes
+  moving data to faster memory or work to another processor;
+- checks the result: the picture compared pixel for pixel with the build
+  before, and new assembly run alongside the C it replaces, result for
+  result;
+- keeps the change only if the numbers got better.
+
+Changes that trade looks for speed (a coarser grid for far-off walls, say)
+are switches, and those calls are mine.
+
+[OVERNIGHT.md](OVERNIGHT.md) is the log of all of it: every change, why it
+was made, the before and after measurements, and the ideas that didn't pay.
+Every commit has Claude as co-author.
+
+Two numbers from that log (Mednafen, PAL):
+
+| | first measured | now |
+|---|---|---|
+| the fight benchmark: 20 s in a room of monsters, the game running | 82 ms a frame (12 fps) | 39.8 ms (25 fps) |
+| the static benchmark: six busy views, frame times summed | 481 ms | 217 ms |
+
+The static benchmark draws more now than it did then (the gun in your
+hands, for one).
+
+## What works
+
+- The demo's three levels (Outer Base, Installation, Comm Center) with the
+  exits between them. Your health, armour and weapons carry over, and
+  there's the level-complete screen and the three skill levels.
+- Monsters with Quake 2's own AI, ported from its game code: soldiers
+  (light, standard, SS), infantry, and the gunner (on Installation). They
+  see and hear you, chase you, shoot, flinch and die.
+- Weapons: blaster, shotgun, super shotgun, machinegun, chaingun, grenade
+  launcher, rocket launcher. Quake's damage and fire rates, radius damage,
+  and the weapon drawn in your hands.
+- Items, armour, power-ups and keys; Quake 2's status bar; messages.
+- Doors, lifts, buttons, triggers, secrets, exploding barrels and walls,
+  swimming.
+- Quake 2's own sounds, played by the Saturn's 68000, a bank for each level.
+- Dynamic lights (muzzle flashes, rockets, explosions) and the skybox.
+- A title menu with options.
+
+Not yet: the other monsters (flyers, the tank, berserkers and parasites,
+so Installation and Comm Center are quieter than Quake's), water and
+translucent surfaces (drawn solid), flickering lights, saving, and
+full-resolution textures. [PLAN.md](PLAN.md) has what's next.
+
+## Speed
+
+In Mednafen (PAL, 50 Hz), most of the benchmark's views run at 25 fps and
+the open ones at 50. The fight benchmark holds 25 fps: its frames are 39.8
+ms, of which the CPUs are busy 34.6. On NTSC the aim is a steady 30 fps,
+which needs that under 33.3 ms. The per-change numbers are in OVERNIGHT.md.
 
 ## Building
 
-    ./build.sh      # bakes data/pak0.pak's map into cd/DEMO1.MAP, builds game.cue
-    ./run.sh        # Mednafen, with the 4 MB RAM cart (it's needed)
+It builds on Linux. You need:
 
-You need Quake 2's `pak0.pak` in `data/`. The shareware demo's will do
-(`q2-314-demo-x86.exe` from id's old FTP site, mirrored on
-deponie.yamagi.org). Its license allows personal use and free electronic
-distribution with the license attached, so nothing baked from it is
-committed. `MAP=demo2 ./build.sh` bakes another map. The first bake of a map
-spends about 1.5 minutes on face visibility, which is then cached in
-`obj/`.
+- **Jo Engine**, for its SH-2 GCC and the disc's boot sector (nothing else
+  of it is used): `git clone https://github.com/johannes-fetz/joengine
+  vendor/joengine`, or a symlink there to a copy you have.
+- **A 68000 GCC** for the sound driver: `m68k-linux-gnu-gcc` and its
+  binutils (Debian and Ubuntu: `gcc-m68k-linux-gnu`).
+- **A host C compiler** (`cc`), **Python 3 with Pillow**, and **mkisofs**
+  (`genisoimage`).
+- **Quake 2's `pak0.pak`** in `data/`. The shareware demo's will do
+  (`q2-314-demo-x86.exe`, from id's old FTP site, mirrored on
+  deponie.yamagi.org). Its licence allows personal use and free electronic
+  distribution with the licence attached, so nothing made from it is in
+  this repository.
 
-The toolchain is the Jo Engine GCC 8.2 in `../saturn/vendor/joengine`
-(symlinked). `vendor/slavedriver` is Lobotomy's Saturn engine (PowerSlave,
-Saturn Quake), GPL 3. It's for reference only and isn't built.
+Then:
+
+    ./build.sh      # bakes the levels, models, sounds and HUD from pak0.pak, builds game.cue
+    ./run.sh        # runs it in Mednafen (REGION=jp or na for NTSC)
+
+The first build bakes all three levels, which takes a few minutes: working
+out which faces each part of a level can see is slow, and cached in `obj/`
+after. `MAP=demo2 ./build.sh` starts the game on another level.
+
+## Running
+
+In Mednafen, with a Saturn BIOS in `~/.mednafen/firmware/`. `run.sh` turns
+on the 4 MB RAM cart (`-ss.cart extram4`), which the game needs: without it
+it says so and stops.
+
+On a Saturn it needs the 4 MB RAM cart and a way to boot the disc image.
 
 ## Controls
 
@@ -37,96 +113,101 @@ Saturn Quake), GPL 3. It's for reference only and isn't built.
 | up / down | forward / back |
 | left / right | turn |
 | L / R | strafe |
-| A | jump (swim up) |
-| B | fire the blaster |
+| A | jump, swim up |
+| B | fire |
+| Y | next weapon |
 | X / Z | look up / down |
 | C | centre the view |
-| Y | noclip on/off |
-| START | the stats overlay |
-| START + B | (debugging) warp to the next door, lift or button |
-| START + A | (debugging) warp in front of the next soldier |
+| START | pause menu |
 
-When you die, START starts you again.
+Holding START, for debugging: X god mode, Y noclip, Z every weapon, A / C /
+B / L warp to the next monster / item / door or lift / trigger, UP the game's
+tick during the drawing (also in Options), R the benchmark.
 
 ## How it draws
 
-VDP1 draws textured quads (distorted sprites): no UVs, no perspective
-correction, no Z-buffer. So `tools/bake_map.py` turns every face into a grid
-of **cells**, 32x32 texels of texture space, aligned to the texture's repeat.
-A whole cell is one sprite of a shared **tile**. Where a face only partly
-covers a cell:
+The Saturn's VDP1 draws textured quads (distorted sprites): no texture
+coordinates, no perspective correction, no depth buffer. So
+`tools/bake_map.py` turns every face into a grid of **cells** aligned to the
+texture's repeat, each one sprite of a small shared tile. Tiles are 4-bit
+with 16 colours each, so VDP1's Gouraud shading still works, and it carries
+the lightmap: sampled at the cells' corners, lifted by a gamma for a TV.
+Where a face only partly covers a cell, the sprite starts part way into its
+tile, uses a transposed copy, or gets a cropped variant. Far faces use a
+coarser grid with half-resolution textures (as mipmapping would).
 
-- if it covers whole rows of the tile, the sprite starts part way down it
-  (srca/height), with no extra texture
-- if it covers whole columns, the same trick is used on a transposed copy
-  of the tile
-- otherwise the cell gets a **variant**: the tile cropped to what's covered,
-  with the rest transparent
+At run time (`src/render.c`, and SH-2 assembly in `src/*.s`):
 
-Tiles are 4bpp with 16 RGB colours each, so VDP1's Gouraud shading still
-works. The lightmap is sampled at the cell corners and turned into Gouraud
-offsets, lifted by a gamma of 0.55 because Quake 2 is very dark on a TV.
-Textures are stored at half resolution for now (`--res=2`).
+- **Visibility**: Quake's PVS, then a per-cluster list of faces that can
+  really be seen (`tools/facevis.c` renders the level from sample points in
+  each cluster offline).
+- **Order**: the BSP walked front to back (`src/walk.s`); VDP1 draws each
+  command list's bucket last-in first, so the list comes out back to front
+  without sorting. Doors, lifts and sprites join the order at their leaf.
+- **Two CPUs**: the master walks the BSP and publishes faces as it finds
+  them; the slave draws from the front straight away, the master from the
+  back when the walk's done, and they meet in the middle.
+- **Per face**: its origin and axes into view space and culled (`face.s`),
+  the grid projected with the hardware divider running alongside
+  (`grid.s`), and each cell a VDP1 command and Gouraud table (`cells.s`).
+  Cells crossing the near plane are cut in C.
+- **Textures**: a cache of tile slots in VDP1's VRAM, split between the
+  CPUs, filled from the cart; a slot is reused only once VDP1 has drawn the
+  frames that used it.
+- **Models**: Quake 2's MD2s (`tools/bake_md2.py`), each triangle pair a
+  quad with its piece of the skin pre-warped into a little texture. The SCU
+  DSP blends and transforms the vertices while the CPUs do other things;
+  the polygons are sorted and drawn in assembly (`mdraw.s`).
+- **Lights**: dynamic lights add to the Gouraud colours at the grid points
+  they reach, with Quake's falloff. The sky is a panorama on VDP2.
 
-At runtime (`src/render.c`):
+Level data sits on the 4 MB cart, and what's read every frame is copied
+into work RAM: the BSP into the fast high 1 MB, faces, cells and lights into
+the low. The game code (`src/g_*.c`, `src/m_*.c`) is Quake 2's, in fixed
+point, ticking at its 10 Hz with the monsters blended between ticks; in a
+fight it runs on the master while the slave draws. Its traces are Quake 2's,
+the line walk in assembly (`tline.s`).
 
-- **Visibility**: Quake's PVS marks leaves. On top of that there's a
-  per-cluster set of faces that can *really* be seen (`tools/facevis.c`
-  renders ID buffers from sample points in each cluster). That's about 45%
-  of what the PVS lets through.
-- **Order**: the BSP is walked front to back. VDP1 draws each list bucket
-  last-in first, so the list comes out back to front with no sorting.
-  Brush models (doors) and sprites join the order at their leaf.
-- **Two CPUs**: the master takes the nearer part of the face list and the
-  slave the rest. The split adapts each frame so both finish together.
-- **Per face**: the origin and two axes go into view space, and grid
-  vertices are then just additions. A vertex is only projected (the one
-  hardware divide) when a visible cell needs it. Small cropped cells have
-  their corners interpolated on screen from their cell's. Cells crossing the
-  near plane drop texture rows where that's exact, and squash where it
-  isn't.
-- **Textures**: a cache of tile-sized slots in VDP1 VRAM, half per CPU,
-  filled from the RAM cart on demand. A slot is reused once the frame that
-  last used it has been drawn.
-- **Dynamic lights**: added to the Gouraud colours of the cell corners they
-  reach, with Quake's falloff, squared. This is how SlaveDriver did its
-  lights. VDP2's colour offset is free for screen flashes on top.
-- **Sky**: the skybox's horizon as a 1024-wide 16-colour panorama on VDP2
-  NBG0, scrolled with the view. Above and below it are per-line back
-  colours.
+## Checking a change
 
-Level data is on the 4 MB cart. What's read every frame is copied to work
-RAM: the BSP into high, and the faces, cells and lights into low. Models
-(`tools/bake_md2.py`) go on the cart too, and their frames into high work RAM.
+Build switches (`OPT=-D... ./build.sh`) and scripts in `tools/`:
 
-## The game
+| | |
+|---|---|
+| `tools/bench.sh` | the static benchmark: six views, both CPUs' time (START + R in the game) |
+| `OPT=-DFIGHT_BENCH`, `tools/fight.sh` | the fight benchmark |
+| `OPT=-DR_PROFILE` | where the time goes, part by part |
+| `tools/compare.sh` | the benchmark's views with the assembly on and off, pixel by pixel |
+| `OPT=-DONE_CPU` | everything on the master (fixed drawing order, for comparing builds) |
+| `OPT=-DFACE_CHECK`, `-DLINE_CHECK`, `-DBOUNDS_CHECK`, `-DMODEL_CHECK` | assembly and C side by side, results compared |
+| `OPT=-DLEVEL_TEST` | each level in turn, and the memory each leaves |
 
-`src/g_main.c`, `src/g_ai.c` and `src/m_soldier.c` are Quake 2's game code
-(`g_ai.c`, `m_move.c`, `g_monster.c`, `m_soldier.c`) cut down and in fixed
-point. It ticks at Quake's 10 Hz, and the renderer blends monsters' positions,
-angles and animation frames in between. Traces see monsters and the player as
-boxes, as Quake's SV_Trace does. A line trace walks the BSP Quake 1's way,
-with no brush clipping, but a long one still costs about 0.5 ms. So the AI
-spends traces carefully:
-- idle soldiers look for you every third tick, and only when their leaf is
-  in your PVS
-- one trace answers both "can I see them" and "can I shoot them"
-- a shotgun blast traces the walls once, and each pellet only tests boxes
+`tools/emu.sh` drives Mednafen for these. It uses the real display and
+keyboard, so leave the machine alone while it runs.
 
-Only soldiers whose leaf has some face visible from your cluster are drawn.
+## Layout
 
-## Performance (Mednafen, PAL)
+| | |
+|---|---|
+| `src/` | the game: renderer, game code, traces, sound, menus, and the SH-2 assembly (`*.s`) |
+| `engine/` | the bare-metal engine: start-up, VDP1/VDP2, the SCU DSP, CD, sound (the 68000 driver in `engine/m68k/`) |
+| `tools/` | the bakers (map, models, sounds, HUD) and the test scripts |
+| `OVERNIGHT.md` | the development log |
+| `PLAN.md` | what's next |
 
-In base1 it runs 10 to 25 fps, and 50 in small spaces. A busy view is
-about 1,500 cells from about 400 faces, at roughly 25 ms of master time
-and 25 ms of slave time. It's CPU-bound, and memory is as much the cost as
-arithmetic: the SH-2 cache writes through, so every store goes to RAM at
-about 12 cycles, and a low work RAM cache miss costs about 70. VDP1 keeps
-up so far. See PLAN.md for what's next.
-
-## Licence
+## Credits and licence
 
 GPL v2 or later (`LICENSE`), as Quake 2's source is: much of `src/` is
-ported from it (the game code, the traces, the player's movement). The
-Quake 2 data isn't in this repository and isn't covered by it: it has id's
-own licence (see Building).
+ported from id Software's Quake 2 (the game code, the traces, the player's
+movement), and `tools/anorms.h` is its table of normals. The Quake 2 data isn't in this repository and isn't covered by
+this licence.
+
+- The CD driver (`engine/cd.c`) follows the command sequences of libyaul's
+  (MIT, Israel Jacquez).
+- `engine/font8x8_basic.h` is Daniel Hepper's (public domain).
+- Lobotomy's SlaveDriver engine (PowerSlave, Saturn Quake) showed the way
+  for the dynamic lights.
+- The SH-2 compiler and boot sector are Jo Engine's (MIT, Johannes Fetz).
+
+Quake is a trademark of id Software and Sega Saturn is a trademark of Sega.
+This is a fan project, not affiliated with or endorsed by either.

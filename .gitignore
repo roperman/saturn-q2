@@ -6,5 +6,4 @@ cd/
 *.elf
 *.map
 __pycache__/
-vendor/quake2/
-vendor/slavedriver/
+vendor/

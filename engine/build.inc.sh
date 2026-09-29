@@ -1,5 +1,5 @@
-# The Quake 2 port's fork of the bare-metal engine (from the taxi game's, in
-# ../saturn-ctaxi/taxi/engine). Sourced by build.sh.
+# The Quake 2 port's fork of the bare-metal engine (from an earlier Saturn
+# game of mine). Sourced by build.sh.
 #   engine_build NAME "src files..." "extra CFLAGS"
 # Produces game.elf, cd/0.bin, game.iso, game.cue in the project directory.
 ENGINE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

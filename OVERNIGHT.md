@@ -1,4 +1,17 @@
-# While you were out
+# The development log
+
+Claude's log of the port, written as it worked (often while I was away, so
+it's addressed to me as "you"): what it built or changed, why, what it
+measured before and after, and the ideas that didn't pay. The sections are
+in the order the work happened, so the early ones describe code that has
+changed since. The numbers are from Mednafen, on PAL.
+
+The two benchmarks it keeps measuring against:
+- **the static benchmark** (START + R, `tools/bench.sh`): six fixed busy
+  views. Its times are usually summed over the six.
+- **the fight** (`OPT=-DFIGHT_BENCH`, `tools/fight.sh`): 20 seconds of a
+  fight in the round room on Outer Base, the monsters awake, the game
+  running. Its times are a frame's.
 
 ## 1. More game
 

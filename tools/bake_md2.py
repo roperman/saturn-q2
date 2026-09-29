@@ -36,8 +36,8 @@ def rgb555(c):
 
 
 def anorms():
-    """the 162 normals, from Quake 2's client/anorms.h"""
-    src = open(os.path.join(ROOT, "vendor", "quake2", "client", "anorms.h")).read()
+    """the 162 normals (tools/anorms.h: Quake 2's client/anorms.h)"""
+    src = open(os.path.join(ROOT, "tools", "anorms.h")).read()
     nums = [float(x) for x in re.findall(r"-?\d+\.\d+", src)]
     return [tuple(nums[i:i + 3]) for i in range(0, len(nums), 3)]
 

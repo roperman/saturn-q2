@@ -1,19 +1,33 @@
 #!/bin/bash
-# Build the Quake 2 walkthrough on the bare-metal engine.
-# Needs the Quake 2 data: data/pak0.pak (the shareware demo's will do).
+# Build Quake 2 for the Saturn (README.md): bakes what it needs from
+# data/pak0.pak (the shareware demo's will do) into cd/, then game.cue.
+#   [MAP=demo2] [OPT=-D...] ./build.sh      (MAP: the level it starts on)
 set -e -o pipefail
 cd "$(dirname "$0")"
+if [ ! -x vendor/joengine/Compiler/LINUX/bin/sh-none-elf-gcc-8.2.0 ]; then
+    echo "No SH-2 compiler: clone Jo Engine into vendor/joengine (see README.md)" >&2
+    exit 1
+fi
+if [ ! -f data/pak0.pak ]; then
+    echo "No Quake 2 data: put pak0.pak in data/ (see README.md)" >&2
+    exit 1
+fi
 . engine/build.inc.sh
 mkdir -p obj/gen cd
 MAP=${MAP:-demo1}
 MAPFILE=$(echo "$MAP" | tr a-z A-Z).MAP
-OUT=cd/$MAPFILE
-# faces this many cells or more get a coarse grid too: demo3's the biggest,
-# and with them all its data and the models are more than the cart's 4 MB
-case $MAP in demo3) LODMIN=${LODMIN:-24} ;; esac
-if [ ! -f "$OUT" ] || [ -n "$(find tools -newer "$OUT" -name '*.py')" ]; then
-    python3 tools/bake_map.py data/pak0.pak "maps/$MAP.bsp" "$OUT" --res=${RES:-2} --lodmin=${LODMIN:-12}
-fi
+# the demo's three levels (the first bake of each spends a minute or two working out
+# which faces each part of the level can see: kept in obj/ after)
+for m in demo1 demo2 demo3; do
+    out=cd/$(echo "$m" | tr a-z A-Z).MAP
+    # faces this many cells or more get a coarse grid too: demo3's the biggest,
+    # and with them all its data and the models are more than the cart's 4 MB
+    lodmin=${LODMIN:-12}
+    [ "$m" = demo3 ] && lodmin=${LODMIN:-24}
+    if [ ! -f "$out" ] || [ -n "$(find tools -newer "$out" -name '*.py')" ]; then
+        python3 tools/bake_map.py data/pak0.pak "maps/$m.bsp" "$out" --res=${RES:-2} --lodmin=$lodmin
+    fi
+done
 # the status bar's pictures
 [ -f cd/HUD.BIN ] && [ cd/HUD.BIN -nt tools/bake_hud.py ] || python3 tools/bake_hud.py data/pak0.pak cd/HUD.BIN
 # the sound effects, a bank a level (and their ids for the C)

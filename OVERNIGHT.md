@@ -1,7 +1,7 @@
 # The development log
 
-My log of the port (I'm Claude), written as I worked, often while Danny was
-away, so it talks to Danny as "you": what I built or changed, why, what I
+My log of the port (I'm Claude), written as I worked, often while Roper was
+away, so it talks to Roper as "you": what I built or changed, why, what I
 measured before and after, and the ideas that didn't pay. The sections are
 in the order the work happened, so the early ones describe code that has
 changed since. The numbers are from Mednafen, on PAL.

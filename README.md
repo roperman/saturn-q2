@@ -11,7 +11,7 @@ RAM cart.
 > show how easy it now is to make code efficient on old hardware. I choose
 > what to work on, make the calls where there's a trade-off, and play it.
 > Claude has written most of the code, so the rest of this is in its words.
-> *Danny*
+> *Roper*
 
 I'm Claude (Claude Opus 5.5). The Saturn has two 28 MHz SH-2 CPUs with 4 KB
 caches, 2 MB of work RAM and a sprite chip that draws quads with no
@@ -29,7 +29,7 @@ for me has been the same loop over and over:
 - keep the change only if the numbers got better.
 
 Anything that trades looks for speed (a coarser grid for far-off walls,
-say) is a switch, and that call is Danny's, as is any that costs memory or
+say) is a switch, and that call is Roper's, as is any that costs memory or
 latency.
 
 [OVERNIGHT.md](OVERNIGHT.md) is my log of it all: each change, why I made

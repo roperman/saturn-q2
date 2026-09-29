@@ -1171,11 +1171,12 @@ light's weight; that's ~3x faster, but rounds a little differently.
 ## 27. Two routines in one DSP program: the models' lighting (a test)
 
 `OPT=-DDSP_LIGHT` loads `engine/xformml.dsp`: the models' vertices
-(xformm.dsp's routine) and then, the same program run on, their lighting. So
-the DSP runs two jobs from one load (202 of its 256 instructions; the
-lighting loop's start, past a D1 immediate's reach, set from data RAM). The
-host could as well start it at the second routine's address (the assembler
-names every label's).
+(xformm.dsp's routine) and their lighting, in one program. So the DSP runs
+two jobs from one load (205 of its 256 instructions; the lighting loop's
+start, past a D1 immediate's reach, set from data RAM). It branches between
+them: each model's header (25 words now, one more than xformm.dsp's) says
+how many lighting jobs are its, and the program jumps to the lighting
+routine for those before the model's vertices, then back.
 
 The lighting: a job for each model and dynamic light near it, set up by the
 CPU at the frame's start (models_to_dsp: the light's direction wants a square
@@ -1186,12 +1187,32 @@ by 14 is a multiply by 4 and ALH, the top of a 48-bit sum; the weight's
 through two fights, 0 different. The CPU adds the colours and clamps; after
 each job the DSP counts, so a CPU drawing a model waits for its jobs only.
 
-It's slower: the models' lighting 0.7 -> 2.0 ms a fight frame, the CPU
-34.8 ms. The DSP does all the models' vertices (2.9 ms) before any lighting,
-and the slave draws the near models early, so it waits for their lighting
-behind everyone's vertices. For it to pay, each model's lighting would want
-to follow its own vertices and the models to go in the order they're drawn;
-the most it could save is the 0.7 ms the lighting costs. Kept as the switch.
+First try, with all the lighting after all the vertices: slower, the
+models' lighting 0.7 -> 2.0 ms a fight frame, the CPU 34.8 ms. The DSP did all
+the models' vertices (2.9 ms) before any lighting, and the slave draws the
+near models early, so it waited for their lighting behind everyone's
+vertices.
+
+Reordered, each model's lighting just before its own vertices (what the CPU
+drawing it wants first; a model waits for its lighting no longer than for
+its vertices): faster. `-DDSPL_CHECK` 88,938 weights, 0 different. Fight
+frames, three runs of each:
+
+| | the models' lighting | the models' time | CPU |
+|---|---|---|---|
+| lit on the CPU | 0.7 ms | 6.2 ms | 34.1 (all three) |
+| `-DDSP_LIGHT` | 0.4 ms | 5.9 ms | 33.4, 34.4 |
+
+(The models' times are both CPUs' summed. The lit-on-the-CPU build's fight
+comes out the same each run; the DSP_LIGHT builds' not quite, the game's
+tick 5.7 to 7.0 ms by how the fight goes, so the CPU's total is within that
+noise: the 0.3 ms saved is split over the two CPUs.) It costs 8 KB of
+HWRAM (the weights, jobs and normals), so it stays a switch.
+
+Also `OPT=-DDSP_NEAR`: the models to the DSP nearest first (the slave draws
+from the front). No faster (the waits for the DSP were 0.2 ms a frame
+already), though it sends it fewer models that aren't drawn (2.9 -> 2.2 a
+frame, 2.1 drawn): the list's cap drops the far ones first. A switch.
 
 Also tried, `OPT=-DSTEP_DL` (section 26's cheaper arithmetic): the squared
 distance along a row stepped as a quadratic. Slower (-DDL_BENCH 200.9 ->

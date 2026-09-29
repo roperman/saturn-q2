@@ -66,16 +66,12 @@ void                dsp_models(const u32 *stream, s32 *out, int models, volatile
     DSP_PDD = (u32)models;
     DSP_PDD = ((u32)count & 0x07FFFFFF) >> 2;
     DSP_PDD = 0;
-#ifdef DSP_LIGHT
-    DSP_PDA = 42;                           /* (no lighting jobs) */
-    DSP_PDD = 0;
-#endif
     DSP_PPAF = (1u << 16) | (1u << 15);     /* run from PC = 0 */
 }
 
 #ifdef DSP_LIGHT
-/* ...and then, the same program run on (xformml.dsp), the models' lighting: ljobs (9 words
-   each), the normals, a count of jobs done */
+/* ...with the models' lighting (xformml.dsp): ljobs (9 words each, in the models' order,
+   each header saying how many are its), the normals, a count of jobs done */
 void                dsp_models_lit(const u32 *stream, s32 *out, int models, volatile u32 *count, const u32 *ljobs,
                                    int nljobs, const s32 *normals, volatile u32 *lcount)
 {
@@ -85,7 +81,7 @@ void                dsp_models_lit(const u32 *stream, s32 *out, int models, vola
     DSP_PDD = (u32)models;
     DSP_PDD = ((u32)count & 0x07FFFFFF) >> 2;
     DSP_PDD = 0;
-    DSP_PDA = 40;                           /* RAM0[40..44]: the lighting's jobs, normals, how many, count's address, 0 */
+    DSP_PDA = 40;                           /* RAM0[40..44]: the lighting's jobs, normals, -, count's address, 0 */
     DSP_PDD = ((u32)ljobs & 0x07FFFFFF) >> 2;
     DSP_PDD = ((u32)normals & 0x07FFFFFF) >> 2;
     DSP_PDD = (u32)nljobs;

@@ -354,12 +354,17 @@ static s32          rcp_n, wscale;          /* 1/N (16.16); 65536 / N^2 (interpo
    in behind the CPU's cache, so draw_model forgets those lines first. */
 #define DSPM_MODELS     (32)
 #define DSPM_BLOCKS     (64)                /* 16 vertices each */
-static u32          dspm_stream[DSPM_MODELS * 24] __attribute__((aligned(16)));
+#ifdef DSP_LIGHT
+#define DSPM_HEAD       (25)                /* (and its lighting's jobs: xformml.dsp) */
+#else
+#define DSPM_HEAD       (24)
+#endif
+static u32          dspm_stream[DSPM_MODELS * DSPM_HEAD] __attribute__((aligned(16)));
 static s32          dspm_out[DSPM_BLOCKS * 48] __attribute__((aligned(16)));
 static u32          dspm_count __attribute__((aligned(16)));
 #ifdef DSP_LIGHT
-/* (OPT=-DDSP_LIGHT) the models' lighting on the DSP too (xformm.dsp, run on after their
-   vertices): a job for each model and dynamic light near it, 162 weights out */
+/* (OPT=-DDSP_LIGHT) the models' lighting on the DSP too (xformml.dsp, each model's before
+   its vertices): a job for each model and dynamic light near it, 162 weights out */
 #define DSPL_JOBS       (8)
 #define DSPL_N          (176)               /* the 162 normals, padded to 11 x 16 */
 static u32          dspl_jobs[DSPL_JOBS * 9] __attribute__((aligned(16)));
@@ -413,6 +418,9 @@ static void         dsp_selftest(void)
         st[0] = ((u32)v & 0x07FFFFFF) >> 2;
         st[1] = ((u32)(v + 16) & 0x07FFFFFF) >> 2;
         st[2] = 1;
+#ifdef DSP_LIGHT
+        st[3] = 0;                          /* (no lighting) */
+#endif
         dsp_models(dspm_stream, dspm_out, 1, &dspm_count);
         for (t = 0; t < 2000000 && dsp_busy(); ++t)
             ;
@@ -3003,6 +3011,9 @@ static int          view_to_dsp(u32 *st, int nm, int nb)
     st[21] = ((u32)(h0 + 6) & 0x07FFFFFF) >> 2;
     st[22] = ((u32)(h1 + 6) & 0x07FFFFFF) >> 2;
     st[23] = (u32)blocks;
+#ifdef DSP_LIGHT
+    st[24] = 0;                             /* (lit as kept) */
+#endif
     vd.m = m;
     vd.f0 = f0i;
     vd.f1 = f1i;
@@ -4036,6 +4047,11 @@ static void         models_to_dsp(void)
 #ifdef DSP_LIGHT
     int             nlj = 0;
 #endif
+#ifdef DSP_NEAR
+    s16             order[MAX_ENTITIES];
+    u32             key[MAX_ENTITIES];
+    int             no = 0, oi;
+#endif
 
     rs_mdsp = 0;
     for (i = 0; i < nents; ++i)
@@ -4043,9 +4059,36 @@ static void         models_to_dsp(void)
     if (!r_use_dsp)
         return;
     dsp_wait();                             /* (last frame's list, if a model it had wasn't drawn) */
+#ifdef DSP_NEAR
+    /* (OPT=-DDSP_NEAR) nearest first: the slave draws from the front, so it wants
+       those first */
+    for (i = 0; i < nents; ++i)
+    {
+        s32         dx, dy, dz;
+        u32         d2;
+
+        if (ent_leaf[i] < 0 || leaf_vis[ent_leaf[i]] != visframe || !ents[i].mdl)
+            continue;
+        dx = (ents[i].origin[0] - cam.pos[0]) >> 16;
+        dy = (ents[i].origin[1] - cam.pos[1]) >> 16;
+        dz = (ents[i].origin[2] - cam.pos[2]) >> 16;
+        d2 = (u32)(dx * dx + dy * dy + dz * dz);
+        for (k = no++; k > 0 && key[k - 1] > d2; --k)
+        {
+            key[k] = key[k - 1];
+            order[k] = order[k - 1];
+        }
+        key[k] = d2;
+        order[k] = (s16)i;
+    }
+    for (oi = 0; oi < no; ++oi)
+    {
+        const q_entity  *e = &ents[i = order[oi]];
+#else
     for (i = 0; i < nents; ++i)
     {
         const q_entity  *e = &ents[i];
+#endif
         const q_mdl     *m = e->mdl;
         model_xform     xf;
         s32             w1 = e->lerp, w0 = FIX(1) - w1;
@@ -4067,7 +4110,7 @@ static void         models_to_dsp(void)
         st[0] = ((u32)(m->frames + (u32)e->oldframe * m->frame_bytes + 24) & 0x07FFFFFF) >> 2;
         st[1] = ((u32)(m->frames + (u32)e->frame * m->frame_bytes + 24) & 0x07FFFFFF) >> 2;
         st[2] = (u32)blocks;
-        st += 3;
+        st += DSPM_HEAD - 21;
         ent_dsp[i] = (s16)nm++;
         ++rs_mdsp;
         ent_blk[i] = (s16)nb;
@@ -4080,6 +4123,7 @@ static void         models_to_dsp(void)
             int li, near = 0;
 
             ent_ljn[i] = 0;
+            st[-1] = 0;                     /* (the header's last word: its jobs) */
             for (li = 0; li < ndl; ++li)
             {
                 const q_dlight  *l = &r_dlights[li];
@@ -4092,6 +4136,7 @@ static void         models_to_dsp(void)
             {
                 ent_lj0[i] = (s8)nlj;
                 ent_ljn[i] = (s8)near;
+                st[-1] = (u32)near;
                 for (li = 0; li < ndl; ++li)
                 {
                     const q_dlight  *l = &r_dlights[li];
@@ -4122,7 +4167,7 @@ static void         models_to_dsp(void)
     if ((k = view_to_dsp(st, nm, nb)) > 0)
     {
         /* (the gun in your hands, after them) */
-        st += 24;
+        st += DSPM_HEAD;
         ++nm;
         nb += k;
     }

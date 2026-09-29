@@ -1,27 +1,29 @@
-; SCU DSP: models' vertices into view space, both frames at once, then their lighting
-; (OPT=-DDSP_LIGHT: xformm.dsp with the lighting run on after it; see below)
+; SCU DSP: models' vertices into view space, both frames at once, each model's
+; lighting first (OPT=-DDSP_LIGHT: xformm.dsp with the lighting; see below)
 ;
 ;   out = C + A0 * v0 + A1 * v1        per vertex, 16 at a time
 ;
 ; v0, v1: the vertex in the two frames being blended (MD2's packed bytes x y z
 ; n, as xformp.dsp unpacks them); A0, A1: each frame's matrix, already scaled
 ; by its share of the blend, so the blend's done here too. For every model
-; the host writes a header of 24 words:
+; the host writes a header of 25 words:
 ;
 ;   t0 a00 a01 a02 b00 b01 b02   t1 a10 ...   t2 a20 ...   (3 rows of 7)
 ;   vaddr0  vaddr1  blocks                                  (addresses >> 2)
+;   jobs                                                    (its lighting's, below)
 ;
 ; and the results go out block by block: 16 x', 16 y', 16 z' (16.16). After
 ; each model it adds one to a count in work RAM, so a CPU needing a model
 ; only waits for that one. int * 16.16 lands in the low 32 bits (ALL).
 ;
 ; Data RAM:
-;   RAM0[0..23]   the model's header (vaddr0, vaddr1 and blocks counted on)
+;   RAM0[0..24]   the model's header (vaddr0, vaddr1 and blocks counted on)
 ;   RAM0[32]      the next header's address >> 2
 ;   RAM0[33]      where the next block goes >> 2
 ;   RAM0[34]      models left (>= 1)
 ;   RAM0[35]      the count's address >> 2
 ;   RAM0[36]      the count
+;   RAM0[40..63]  the lighting's (below)
 ;   RAM3          the packed vertices (0..15 frame 0, 16..31 frame 1), then the results
 ;   RAM1, RAM2    frame 0's and frame 1's, unpacked (x y z a vertex)
 ;
@@ -29,7 +31,17 @@
 ; that makes it (the manual's AD2 MOV ALU,A), so each op and its move share one.
 
 BLOCK   = 16
-HEAD    = 24
+HEAD    = 25
+L_JOBS  = 40
+L_NORM  = 41
+L_LEFT  = 42
+L_CADDR = 43
+L_COUNT = 44
+L_CHUNK = 45
+L_TOP   = 46
+J_OUT   = 55
+J_M     = 57
+J_W0    = 63
 P_NEXT  = 32
 P_OUT   = 33
 P_LEFT  = 34
@@ -54,6 +66,8 @@ r\@:    mov mc0,y
         ad2 mov mc1,x   mov mc0,a    mov all,mc3
 .endm
 
+        mov L_TOP,ct0
+        mvi el,mc0                      ; (the lighting's element loop: past a D1 immediate's reach)
 model:  mov P_NEXT,ct0
         mov m0,ra0
         mov 0,ct0
@@ -63,7 +77,15 @@ w_head: jmp t0,w_head
         mov P_NEXT,ct0
         mov m0,a
         mov HEAD,pl
-        add  mov all,mc0                ; the next header's 24 words on
+        add  mov all,mc0                ; the next header's 25 words on
+        ; its lighting first (what the CPU wants first), then its vertices
+        mov 24,ct0
+        mov m0,a
+        mov 0,pl
+        mov L_LEFT,ct0
+        add  mov all,mc0                ; its jobs (none: straight on)
+        jmp nz,ljob
+        nop
 
 nextb:  mov 21,ct0
         mov m0,ra0
@@ -146,9 +168,10 @@ w_cnt:  jmp t0,w_cnt
         sub  mov all,mc0                ; a model fewer
         jmp nz,model
         nop
+        end
 
-; ---- then the models' lighting, the same program run on: for each job (a model
-; and a dynamic light near it) the weight each of the 162 normals takes of the
+; ---- each model's lighting, before its vertices: for each job (the model and
+; a dynamic light near it) the weight each of the 162 normals takes of the
 ; light (src/render.c draw_model's):
 ;
 ;   w = (f (5734 + t)) >> 14,  t = dot > 0 ? (dot 10650) >> 14 : 0,  dot = (n . m) >> 14
@@ -162,27 +185,10 @@ w_cnt:  jmp t0,w_cnt
 ; The normals (x y z, 2.14, 11 x 16: the last padded) come 16 at a time into
 ; RAM1, the weights go out 16 at a time from RAM2; after each job it adds one to
 ; a count in work RAM. The host sets RAM0[40..44]: the jobs' address >> 2, the
-; normals', how many jobs, the count's address, 0.
+; normals', -, the count's address, 0; each model's header, its jobs (they come
+; in the models' order).
 
-L_JOBS  = 40
-L_NORM  = 41
-L_LEFT  = 42
-L_CADDR = 43
-L_COUNT = 44
-L_CHUNK = 45
-L_TOP   = 46
-J_OUT   = 55
-J_M     = 57
-J_W0    = 63
 
-        mov L_LEFT,ct0
-        mov m0,a
-        mov 0,pl
-        add                             ; any jobs?
-        jmp z,alldone
-        nop
-        mov L_TOP,ct0
-        mvi el,mc0                      ; (the element loop's start: past a D1 immediate's reach)
 ljob:   mov L_JOBS,ct0
         mov m0,ra0
         mov J_OUT,ct0
@@ -250,8 +256,8 @@ w_lc:   jmp t0,w_lc
         sub  mov all,mc0                ; a job fewer
         jmp nz,ljob
         nop
-alldone:
-        end
+        jmp nextb                       ; the model's vertices
+        nop
 
 wz:     mov J_W0,ct0                    ; (not positive: w0)
         jmp tail

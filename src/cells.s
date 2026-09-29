@@ -17,7 +17,10 @@
 !
 ! The command's LINK: pushed (the slave's, drawn last-first), each points
 ! at the one before; appended (the master's), the one before is pointed at
-! this. a->prev is that one before: its LINK value, or its address.
+! this. The one before is the bucket's newest: pushed, its LINK value;
+! appended, its address. The writer's list (a->w) is read at the start
+! and brought up to date at the end: its count, its Gouraud tables', and
+! the bucket's head and tail (a->head, a->tail: this CPU's bucket's).
 !
 ! Registers: r4 r5 the grid's top and bottom rows (gv, 8 bytes), r6 the
 ! cell, r7 the top row's lights, r8 the cells left, r9 where the command
@@ -43,9 +46,16 @@ C_NEAR    = 44                          ! (OC_NEAR | OC_FAR) << 24
 C_N       = 48                          ! cells in the row
 C_DEFP    = 52                          ! where the next deferred cell's number goes (u16)
 C_ROWS    = 56                          ! rows left
-C_ROW     = 60                          ! top bot cell light cmd link prev gst grda cell0
+C_ROW     = 60                          ! top bot cell light w head tail (2 spare) cell0
 C_CROP    = 100                         ! (then, from r14 + 100:) cl0 cr1 ct0 cb1 rows0 N rcp slot_lut slot_w
 INTERP_PX = 64                          ! a crop smaller than this on the screen: interpolated
+
+W_CMDS    = 0                           ! (vdp_writer)
+W_LINKB   = 4                           ! u16
+W_COUNT   = 12
+W_GBASE   = 16
+W_GCOUNT  = 20
+W_GST     = 28
 
 G_XY    = 0                             ! (gv)
 G_OC    = 4                             ! the outcode: the top byte of the word here
@@ -71,12 +81,58 @@ _cells_asm:
         mov.l   @(4,r1),r5
         mov.l   @(8,r1),r6
         mov.l   @(12,r1),r7
-        mov.l   @(16,r1),r9
-        mov.l   @(20,r1),r10
-        mov.l   @(24,r1),r11
-        mov.l   @(28,r1),r12
-        mov.l   @(32,r1),r13
-        mov.l   @(C_N,r14),r8
+        ! from the writer: where the next command goes (cmds + count) and its LINK
+        ! (link_base + count x 4), and the next Gouraud table (gst + gcount) and its
+        ! GRDA (gbase / 8 + gcount)
+        mov.l   @(16,r1),r2
+        mov.l   @(W_COUNT,r2),r3
+        mov.l   @(W_CMDS,r2),r9
+        mov     r3,r0
+        shll2   r0
+        shll2   r0
+        shll    r0
+        add     r0,r9
+        mov.w   @(W_LINKB,r2),r0
+        extu.w  r0,r10
+        shll2   r3
+        add     r3,r10
+        mov.l   @(W_GCOUNT,r2),r3
+        mov.l   @(W_GST,r2),r12
+        mov     r3,r0
+        shll2   r0
+        shll    r0
+        add     r0,r12
+        mov.l   @(W_GBASE,r2),r13
+        shlr2   r13
+        shlr    r13
+        add     r3,r13
+        ! the one before: appended, the bucket's tail's address; pushed, its head's LINK
+        ! (none: 0)
+        mov.l   @(C_FIFO,r14),r0
+        tst     r0,r0
+        bt      1f
+        mov.l   @(24,r1),r3
+        mov.w   @r3,r0                  ! tail
+        cmp/pz  r0
+        bf/s    3f
+        mov     #0,r11
+        shll2   r0
+        shll2   r0
+        shll    r0
+        mov.l   @(W_CMDS,r2),r11
+        bra     3f
+        add     r0,r11
+1:      mov.l   @(20,r1),r3
+        mov.w   @r3,r0                  ! head
+        cmp/pz  r0
+        bf/s    3f
+        mov     #0,r11
+        shll2   r0
+        mov     r0,r11
+        mov.w   @(W_LINKB,r2),r0
+        extu.w  r0,r0
+        add     r0,r11
+3:      mov.l   @(C_N,r14),r8
 .Lcell:
         mov.w   @r6,r0                  ! tex
         cmp/eq  #-1,r0
@@ -230,24 +286,6 @@ _cells_asm:
         add     #2,r7
         bra     .Lcell
         mov.l   @(C_N,r14),r8
-.Ldone:
-        ! out: where the next command and table go
-        mov     r14,r1
-        add     #C_ROW,r1
-        mov.l   r9,@(16,r1)
-        mov.l   r10,@(20,r1)
-        mov.l   r11,@(24,r1)
-        mov.l   r12,@(28,r1)
-        mov.l   r13,@(32,r1)
-        lds.l   @r15+,macl
-        mov.l   @r15+,r14
-        mov.l   @r15+,r13
-        mov.l   @r15+,r12
-        mov.l   @r15+,r11
-        mov.l   @r15+,r10
-        mov.l   @r15+,r9
-        rts
-        mov.l   @r15+,r8
 
 .Ldefer:
         ! for the C: its number in the face
@@ -263,6 +301,54 @@ _cells_asm:
         add     #2,r0
         bra     .Lnext
         mov.l   r0,@(C_DEFP,r14)
+
+.Ldone:
+        ! the writer brought up to date: its count (from the next LINK), its Gouraud
+        ! tables' (from the next GRDA), and, if any were made, the bucket's ends
+        mov     r14,r1
+        add     #C_ROW,r1
+        mov.l   @(16,r1),r2
+        mov.w   @(W_LINKB,r2),r0
+        extu.w  r0,r0
+        mov     r10,r3
+        sub     r0,r3
+        shlr2   r3                      ! the count now
+        mov.l   @(W_COUNT,r2),r4        ! the first made
+        cmp/eq  r4,r3
+        bt      .Lout                   ! none
+        mov.l   r3,@(W_COUNT,r2)
+        mov.l   @(W_GBASE,r2),r0
+        shlr2   r0
+        shlr    r0
+        sub     r0,r13
+        mov.l   r13,@(W_GCOUNT,r2)
+        add     #-1,r3                  ! the last made
+        mov.l   @(20,r1),r5             ! the head
+        mov.l   @(24,r1),r6             ! the tail
+        mov.l   @(C_FIFO,r14),r0
+        tst     r0,r0
+        bt      1f
+        mov.w   @r5,r0                  ! appended: the first's the head if there's none; the last's the tail
+        cmp/pz  r0
+        bt      2f
+        mov.w   r4,@r5
+2:      bra     .Lout
+        mov.w   r3,@r6
+1:      mov.w   @r5,r0                  ! pushed: the first's the tail if there's none; the last's the head
+        cmp/pz  r0
+        bt      3f
+        mov.w   r4,@r6
+3:      mov.w   r3,@r5
+.Lout:
+        lds.l   @r15+,macl
+        mov.l   @r15+,r14
+        mov.l   @r15+,r13
+        mov.l   @r15+,r12
+        mov.l   @r15+,r11
+        mov.l   @r15+,r10
+        mov.l   @r15+,r9
+        rts
+        mov.l   @r15+,r8
 
         .align  1
 .Lmask: .short  0x3FFF

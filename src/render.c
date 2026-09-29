@@ -111,10 +111,9 @@ typedef struct
     const gv        *top, *bot;
     const q_cell    *cell;
     const u16       *light;
-    vdp1_cmd        *cmd;
-    u32             link, prev;
-    u32             *gst;
-    u32             grda;
+    vdp_writer      *w;                     /* this CPU's list (read, and brought up to date) */
+    s16             *head, *tail;           /* its bucket's ends */
+    u32             spare[2];
     const q_cell    *cell0;                 /* the deferred cells' numbers count from here */
     /* small crops: their grid cells' texels (the face's edge columns and rows are narrower) */
     u32             cl0, cr1, ct0, cb1;     /* the first column's left, the last's right; the rows' */
@@ -124,6 +123,10 @@ typedef struct
     const u8        *slot_w;
     u16             def[2 * MAX_ROW];
 }                   cell_args;
+_Static_assert(__builtin_offsetof(cell_args, top) == 60 && __builtin_offsetof(cell_args, cell0) == 96
+               && __builtin_offsetof(vdp_writer, link_base) == 4 && __builtin_offsetof(vdp_writer, count) == 12
+               && __builtin_offsetof(vdp_writer, gbase) == 16 && __builtin_offsetof(vdp_writer, gcount) == 20
+               && __builtin_offsetof(vdp_writer, gst) == 28, "cells.s: cell_args, vdp_writer");
 _Static_assert(__builtin_offsetof(cell_args, cell0) == 96 && __builtin_offsetof(cell_args, cl0) == 100
                && __builtin_offsetof(cell_args, slot_w) == 132, "src/cells.s: C_ROW, C_CROP");
 void                cells_asm(cell_args *a);
@@ -1386,6 +1389,9 @@ static void         cells_frame(r_ctx *x)
     a->pmod = (u32)CELL_PMOD << 16;
     a->ctrl = 0x10020000u;                  /* jump assign, distorted sprite */
     a->fifo = x->fifo;
+    a->w = x->w;
+    a->head = &x->w->head[x->bucket];
+    a->tail = &x->w->tail[x->bucket];
     a->fast = CELL_FULL | CELL_EXACT;
     a->near24 = (u32)(OC_NEAR | OC_FAR) << 24;
     a->N = (u32)lv.N;
@@ -1394,15 +1400,13 @@ static void         cells_frame(r_ctx *x)
     a->slot_w = slot_w;
 }
 
-/* rows of cells in assembly (a whole face's, or one), the writer's lists
-   passed in and brought up to date after: returns how many it left for the C
-   (their numbers, from a->cell0, in x->ca.def) */
+/* rows of cells in assembly (a whole face's, or one), the writer's list
+   brought up to date by it: returns how many it left for the C (their
+   numbers, from a->cell0, in x->ca.def) */
 static int          cells_run(r_ctx *x, const gv *top, const gv *bot, const q_cell *cell, const u16 *light, int n,
                               int rows)
 {
     cell_args       *a = &x->ca;
-    vdp_writer      *w = x->w;
-    int             b = x->bucket, c0 = w->count, made;
 
     a->n = (u32)n;
     a->rows = (u32)rows;
@@ -1411,44 +1415,19 @@ static int          cells_run(r_ctx *x, const gv *top, const gv *bot, const q_ce
     a->bot = bot;
     a->cell = cell;
     a->light = light;
-    a->cmd = &w->cmds[c0];
-    a->link = w->link_base + (u32)c0 * (sizeof(vdp1_cmd) >> 3);
-    if (x->fifo)
-        a->prev = w->tail[b] >= 0 ? (u32)&w->cmds[w->tail[b]] : 0;
-    else
-        a->prev = w->head[b] >= 0 ? (u32)(w->link_base + w->head[b] * (sizeof(vdp1_cmd) >> 3)) : 0;
-    a->gst = w->gst + w->gcount * 2;
-    a->grda = (w->gbase >> 3) + (u32)w->gcount;
 #ifdef R_PROFILE
     {
         u32 pc = frt_read();
+        int c0 = x->w->count;
 
         cells_asm(a);
         x->st.p_casm += (frt_read() - pc) & 0xFFFF;
         ++x->st.n_calls;
+        x->st.n_casm += x->w->count - c0;
     }
 #else
     cells_asm(a);
 #endif
-    made = (int)(a->cmd - &w->cmds[c0]);
-    PROF(x->st.n_casm += made);
-    if (made)
-    {
-        if (x->fifo)
-        {
-            if (w->head[b] < 0)
-                w->head[b] = (s16)c0;
-            w->tail[b] = (s16)(c0 + made - 1);
-        }
-        else
-        {
-            if (w->head[b] < 0)
-                w->tail[b] = (s16)c0;
-            w->head[b] = (s16)(c0 + made - 1);
-        }
-        w->count = c0 + made;
-        w->gcount += made;
-    }
     return (int)(a->defp - a->def);
 }
 
@@ -4164,7 +4143,11 @@ static void         draw_master(void)
     if (!r_two_cpus)
     {
         /* on its own: all of it, pushed nearest first */
+#ifdef TEST_FIFO
+        x->fifo = true;                     /* (test: appended, as the master's with two; the wrong order) */
+#else
         x->fifo = false;
+#endif
         cells_frame(x);
         for (i = 0; i < nvis; ++i)
             draw_item(x, i, false);

@@ -2021,7 +2021,17 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
     }
     /* dynamic lights: added to the lights at each grid point, then drawn as any other face;
        water near enough moves, and its lights ripple */
+#ifdef FIGHT_BENCH
+    {
+        u32 tdl = frt_read();
+
+        face_dlights(x, f, model);
+        x->st.t_dltest += (frt_read() - tdl) & 0xFFFF;
+        x->st.n_dlfaces += x->dmask != 0;
+    }
+#else
     face_dlights(x, f, model);
+#endif
     x->wave = whole && f->flags & FF_WARP && r_water && face_zmin(x) < WAVE_FAR;
     x->lit = (x->dmask && r_dl_verts) || x->wave;
     if (x->lit)
@@ -2035,8 +2045,16 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
                 water_grid(x, lit, light);
             }
             if (x->dmask && r_dl_verts)
+            {
+#ifdef FIGHT_BENCH
+                u32 tdl = frt_read();
+#endif
                 for (j = 0; j <= nv; ++j)
                     dl_row(x, lit + j * stride, (x->wave ? lit : light) + j * stride, j);
+#ifdef FIGHT_BENCH
+                x->st.t_dlsum += (frt_read() - tdl) & 0xFFFF;
+#endif
+            }
 #ifdef DL_CHECK
             for (j = 0; j < nv; ++j)
                 dl_check(x, lit + j * stride, light + j * stride, stride, j);
@@ -4655,6 +4673,7 @@ static void         occ_count(void)
 #endif
 
 void                (*r_during)(void);
+void                (*r_pre_wait)(void);
 
 void                render_world(vdp_writer *w0, vdp_writer *w1)
 {
@@ -4704,6 +4723,9 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         spr_next[i] = leaf_spr[l];
         leaf_spr[l] = (s16)i;
     }
+    /* (the entities' list and light may be the slave's: done by now, as a rule) */
+    if (r_pre_wait)
+        r_pre_wait();
     for (i = 0; i < nents; ++i)
     {
         int l;
@@ -4732,6 +4754,9 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
     SHARE->lo = 0;
     SHARE->hi = 0x7FFFFFFF;
     SHARE->walk_done = 0;
+#ifdef FIGHT_BENCH
+    rs.us_rwpre = frt_to_us((frt_read() - t0) & 0xFFFF);
+#endif
     if (r_two_cpus)
         signal_slave();
 #ifdef R_PROFILE
@@ -4870,6 +4895,9 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.t_mwait += frt_to_us(s->t_mwait);
         rs.t_masm += frt_to_us(s->t_masm);
         rs.t_mnorm += frt_to_us(s->t_mnorm);
+        rs.t_dltest += frt_to_us(s->t_dltest);
+        rs.t_dlsum += frt_to_us(s->t_dlsum);
+        rs.n_dlfaces += s->n_dlfaces;
         rs.nfast += s->nfast;
         rs.nslow += s->nslow;
         rs.ns_dl += s->ns_dl;

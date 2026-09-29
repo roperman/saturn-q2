@@ -184,14 +184,24 @@ void                model_shade(u16 *out, const u8 *sh, const u16 *ll)
     }
 }
 
+/* only what can be drawn this frame is lit now: what's in a leaf of the PVS render_world
+   walks (the one marked, if it's the camera's: not on a frame the camera's changed cluster,
+   when everything is, as before). The rest keeps what it was lit for (g_litleaf, g_yaw),
+   and is lit when it's next in the PVS */
+bool                ents_pvs(void)
+{
+    return r_pvs_marked(lv.leafs[level_leaf(cam.pos)].cluster);
+}
+
 void                ents_light(void)
 {
+    ents_light_pvs(ents_pvs());
+}
+
+/* (pvs: ents_pvs's answer, the slave's told it: render_world may be marking a new PVS by then) */
+void                ents_light_pvs(bool pvs)
+{
     int             i;
-    /* only what can be drawn this frame is lit now: what's in a leaf of the PVS render_world
-       walks (the one marked, if it's the camera's: not on a frame the camera's changed cluster,
-       when everything is, as before). The rest keeps what it was lit for (g_litleaf, g_yaw),
-       and is lit when it's next in the PVS */
-    bool            pvs = r_pvs_marked(lv.leafs[level_leaf(cam.pos)].cluster);
 
     for (i = 0; i < nents; ++i)
     {

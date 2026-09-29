@@ -315,7 +315,9 @@ void                r_view_slot(int slot);  /* (render.c) a slot's new gun: its 
 void                r_view_luts(int slot);  /* (render.c) the gun to be drawn: its colour tables up */
 void                r_view_level(void);     /* (render.c) a new level (the gun's) */
 extern u32          r_full[3];              /* (render.c) frames each CPU's texture cache ran out; late uploads */
-void                ents_light(void);                       /* their base lighting, before drawing (master) */
+void                ents_light(void);                       /* their base lighting, before drawing */
+bool                ents_pvs(void);                         /* (ents_light's: the PVS marked is the camera's?) */
+void                ents_light_pvs(bool pvs);               /* (ents_light, told that: main.c's slave) */
 
 /* hud.c */
 void                hud_init(void);                         /* before render_init: its pictures stay in VRAM */
@@ -327,6 +329,8 @@ typedef struct
     int             faces, cells, culled, near, uploads, nocache, dropped, leaf, cluster, nodes, proj, gverts, seen;
     int             models, mpolys, nfast, nslow, nexact, pieces, faces_out, cells_all, cells_384, cells_512, muploads, mcpu, mdsp, ns_dl, ns_crop, ns_exact, g_same, g_flat, occ_faces, occ_cells, occ_occluders, ns_small;
     u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys, t_mwait, t_masm, t_mnorm;
+    u32             us_rwpre, t_dltest, t_dlsum;    /* (FIGHT_BENCH: render_world to the slave's signal; the world's dynamic lights) */
+    int             n_dlfaces;
     u32             t_view;                 /* the gun in your hands (us) */
     u32             us_pre, us_mdsp, us_tree;   /* R_PROFILE: the walk's parts (the master's, us) */
     u32             t_mfar;                     /* R_PROFILE: models beyond 400 units: their time, */
@@ -353,6 +357,7 @@ extern bool         r_use_dsp;                              /* model vertices on
 void                render_init(void);                      /* after level_load: colour tables, the cache */
 void                render_world(vdp_writer *w0, vdp_writer *w1);
 extern void         (*r_during)(void);                      /* run on the master between the walk and its drawing */
+extern void         (*r_pre_wait)(void);                    /* (render_world, before it puts the entities in their leaves) */
 void                render_slave(void);                     /* the slave's part, when signalled */
 void                render_sky_init(void);                  /* the skybox's horizon on a VDP2 layer */
 void                render_sky(void);                       /* per frame, after cam_update() */

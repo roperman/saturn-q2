@@ -101,6 +101,11 @@ static bool         fight_done;
 static g_trace_site fight_sites[16];            /* the traces' call sites, most time first */
 static u32          fight_tr[8];                /* trace.c's counts */
 static u32          fight_seg[6], fight_t[7];   /* the master's frame in parts (us): input, player, game, before, world, after */
+static u32          fight_dl[3];                /* (the world's dynamic lights: the faces' test, the sums, us; faces lit) */
+static u32          fight_pre[8], fight_pref[8], fight_pt;  /* (the master before the walk, us: movers, pmove, camera+gun,
+                                                   sky+effects, entities+sprites, their light, the tint; render_world to
+                                                   the slave's signal. fight_pref: this frame's, added in while timing) */
+#define PRE(k)          (fight_pref[k] = frt_to_us((frt_read() - fight_pt) & 0xFFFF), fight_pt = frt_read())
 # define FT(k)          (fight_t[k] = frt_read())
 static u32          fight_tt[5];                /* a box trace's parts, 0.1 us; a line trace's */
 static u32          fight_gun;                  /* the gun in your hands (us) */
@@ -112,6 +117,7 @@ static u32          fight_p[13];                 /* the world: setup, grid, cell
                                                    models' light, vertices, polygons, commands (cumulative), DSP wait */
 #else
 # define FT(k)          ((void)0)
+# define PRE(k)         ((void)0)
 #endif
 static u32          us_game, bench_us[5];
 
@@ -151,6 +157,29 @@ static u32          bench_ax[8];            /* the faces' transforms, the C befo
 #endif
 static bool         bench_done;
 static bool         god;
+
+/* The slave's first job of a frame (two CPUs, the game's tick during the drawing): the
+   entities' list as the frame starts (g_render_ents: the game's done with them, its tick ran
+   in the last frame's drawing), then, once the master has the camera, their light
+   (ents_light). The master meanwhile moves you and the camera, the gun and the effects, so the
+   walk (and the slave's drawing) starts sooner. The flags are read uncached: the CPUs'
+   caches are their own */
+static u32          pre_job, pre_cam, pre_done;
+#define PRE_JOB         (*(volatile u32 *)UNCACHED(&pre_job))
+#define PRE_CAM         (*(volatile u32 *)UNCACHED(&pre_cam))   /* 1 + ents_pvs(), when the camera's moved */
+#define PRE_DONE        (*(volatile u32 *)UNCACHED(&pre_done))
+
+static bool         pre_pending;            /* (the slave has a first job not yet waited for) */
+
+/* (render_world, before it puts the entities in their leaves: the slave's done with them) */
+static void         pre_wait(void)
+{
+    while (!PRE_DONE)
+        ;
+    cache_purge();                              /* (the slave's list and light) */
+    pre_pending = false;
+}
+
 void                slave_main(void)
 {
     frt_init();
@@ -160,6 +189,17 @@ void                slave_main(void)
     {
         wait_signal();
         cache_purge();                          /* the master's list, camera and frame */
+        if (PRE_JOB)
+        {
+            PRE_JOB = 0;
+            g_render_ents();
+            while (!PRE_CAM)
+                ;
+            cache_purge();                      /* (the camera, just moved) */
+            ents_light_pvs(PRE_CAM > 1);
+            PRE_DONE = 1;
+            continue;
+        }
         render_slave();
         signal_master();
     }
@@ -500,6 +540,7 @@ void                main(void)
     for (;;)
     {
         q_usercmd   cmd;
+        bool        pre_slave;
         s32         dt = (s32)(((u64)imax(imin((s32)us_frame, 100000), 10000) << 16) / 1000000);
         int         turn = (int)fmul(dt, 0x6000);   /* 135 degrees a second */
 
@@ -646,6 +687,8 @@ void                main(void)
                 fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
                 memset(fight_r, 0, sizeof(fight_r));
                 memset(fight_seg, 0, sizeof(fight_seg));
+                memset(fight_pre, 0, sizeof(fight_pre));
+                memset(fight_dl, 0, sizeof(fight_dl));
                 fight_gun = 0;
                 {
                     extern u32 view_ph[4];
@@ -886,10 +929,33 @@ void                main(void)
         }
 #endif
         FT(1);
+#ifdef NO_PRE_SLAVE
+        pre_slave = false;                      /* (OPT=-DNO_PRE_SLAVE: all of it on the master, as before) */
+#else
+        pre_slave = r_two_cpus && game_during_draw;
+#endif
+        if (pre_pending)
+        {
+            PRE_CAM = 1;                        /* (a frame that didn't draw: the last one's first job) */
+            pre_wait();
+        }
+        if (pre_slave)
+        {
+            PRE_CAM = 0;
+            PRE_DONE = 0;
+            PRE_JOB = 1;
+            pre_pending = true;
+            signal_slave();                     /* (the entities' list, then their light) */
+        }
         if (!paused)
         {
+#ifdef FIGHT_BENCH
+            fight_pt = frt_read();
+#endif
             movers_update(dt);
+            PRE(0);
             pmove(&cmd, dt);
+            PRE(1);
             FT(2);
             game_dt = dt;
             if (!game_during_draw)
@@ -935,16 +1001,27 @@ void                main(void)
                 g_next_weapon();
         }
 #endif
+#ifdef FIGHT_BENCH
+        fight_pt = frt_read();
+#endif
         cam_update();
+        if (pre_slave)
+            PRE_CAM = 1 + ents_pvs();
         view_on = bench_view < 0 && !(paused && menu_at_title());
         view_update(paused ? 0 : dt);
+        PRE(2);
         render_sky();
         fx_update(paused ? 0 : dt);
+        PRE(3);
         if (!paused)
             r_clock += (u32)dt;
-        g_render_ents();
+        if (!pre_slave)
+            g_render_ents();
         fx_render();
-        ents_light();
+        PRE(4);
+        if (!pre_slave)
+            ents_light();
+        PRE(5);
         /* VDP2's colour offset over everything: under water a tint, and on top a hit's red
            flash or a pickup's yellow */
         {
@@ -988,6 +1065,8 @@ void                main(void)
                 flashing = false;
             }
         }
+        r_pre_wait = pre_slave ? pre_wait : NULL;
+        PRE(6);
         FT(4);
         vdp_begin();
         r_two_cpus = slave_ok;
@@ -1141,6 +1220,12 @@ void                main(void)
                        fight_gun / n / 1000, fight_gun / n / 100 % 10);
             vdp_printf(8, 196, RGB(255, 200, 160), "GUN US V%d S%d C%d K%d", fight_vph[0] / n, fight_vph[1] / n,
                        fight_vph[2] / n, fight_vph[3] / n);
+            vdp_printf(8, 44, RGB(160, 220, 255), "PRE US M%d P%d V%d F%d", fight_pre[0] / n, fight_pre[1] / n,
+                       fight_pre[2] / n, fight_pre[3] / n);
+            vdp_printf(8, 53, RGB(160, 220, 255), "E%d L%d T%d R%d", fight_pre[4] / n, fight_pre[5] / n,
+                       fight_pre[6] / n, fight_pre[7] / n);
+            vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US TEST %d SUMS %d FACES %d", fight_dl[0] / n, fight_dl[1] / n,
+                       fight_dl[2] / n);
             vdp_printf(8, 205, RGB(255, 200, 160), "OUT M%d S%d OF %d LATE %d CMD %d %d %d", at_end[0], at_end[1],
                        fight_n + FIGHT_SKIP, at_end[12], at_end[2], at_end[3], at_end[4]);
 #ifdef TEX_WSET
@@ -1422,6 +1507,16 @@ void                main(void)
                     memcpy(fight_vph, view_ph, sizeof(fight_vph));
                 }
                 fight_r[13] += rs.t_mnorm;
+                {
+                    int k;
+
+                    for (k = 0; k < 7; ++k)
+                        fight_pre[k] += fight_pref[k];
+                }
+                fight_pre[7] += rs.us_rwpre;
+                fight_dl[0] += rs.t_dltest;
+                fight_dl[1] += rs.t_dlsum;
+                fight_dl[2] += (u32)rs.n_dlfaces;
                 fight_gmax = imax((s32)fight_gmax, (s32)us_game);
                 ++fight_n;
                 if (fight_us >= 20000000)

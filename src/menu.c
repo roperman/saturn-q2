@@ -26,6 +26,10 @@ bool                opt_stats;              /* the debugging overlay */
 #endif
 extern bool         game_during_draw;       /* (main.c) */
 
+/* the options, in order */
+enum { OPT_VOLUME, OPT_FIGHTS, OPT_CROSSHAIR, OPT_BOB, OPT_TRANS, OPT_WATER, OPT_STATS, OPT_BACK, OPT_COUNT };
+static const char   *trans_names[3] = { "OFF", "MESH", "BLEND" };
+
 static const char   *skill_names[3] = { "EASY", "MEDIUM", "HARD" };
 
 static int          slen(const char *s)
@@ -60,7 +64,7 @@ static int          n_items(void)
     {
         case MENU_MAIN:     return 2;
         case MENU_SKILL:    return 3;
-        case MENU_OPTIONS:  return 6;
+        case MENU_OPTIONS:  return OPT_COUNT;
         case MENU_PAUSE:    return 4;
         default:            return 0;
     }
@@ -89,18 +93,22 @@ menu_action         menu_input(u16 pressed)
     {
         int d = pressed & PAD_RIGHT ? 1 : -1;
 
-        if (sel == 0)
+        if (sel == OPT_VOLUME)
         {
             opt_volume = imin(imax(opt_volume + d, 0), 15);
             snd_music_volume(opt_volume);   /* (the driver's master level) */
         }
-        else if (sel == 1)
+        else if (sel == OPT_FIGHTS)
             game_during_draw = !game_during_draw;
-        else if (sel == 2)
+        else if (sel == OPT_CROSSHAIR)
             opt_crosshair = !opt_crosshair;
-        else if (sel == 3)
+        else if (sel == OPT_BOB)
             opt_gun_bob = !opt_gun_bob;
-        else if (sel == 4)
+        else if (sel == OPT_TRANS)
+            r_trans = (r_trans + d + 3) % 3;
+        else if (sel == OPT_WATER)
+            r_water = !r_water;
+        else if (sel == OPT_STATS)
             opt_stats = !opt_stats;
         s_play(SND_MENU_MOVE, NULL, ATTN_NONE);
     }
@@ -138,7 +146,7 @@ menu_action         menu_input(u16 pressed)
             menu_cur = MENU_NONE;
             return MA_NEW_GAME;
         case MENU_OPTIONS:
-            if (sel == 5)
+            if (sel == OPT_BACK)
             {
                 menu_open(options_from);
                 sel = 1;
@@ -208,15 +216,18 @@ void                menu_draw(void)
             break;
         case MENU_OPTIONS:
         {
-            vdp_text(160 - 7 * 4, 60, RGB(255, 255, 255), "OPTIONS");
+            vdp_text(160 - 7 * 4, 50, RGB(255, 255, 255), "OPTIONS");
             fmt(line, "VOLUME %d", opt_volume);
-            item_text(0, 90, line);
-            item_text(1, 106, game_during_draw ? "FASTER FIGHTS  ON" : "FASTER FIGHTS OFF");
-            item_text(2, 122, opt_crosshair ? "CROSSHAIR  ON" : "CROSSHAIR OFF");
-            item_text(3, 138, opt_gun_bob ? "GUN BOB  ON" : "GUN BOB OFF");
-            item_text(4, 154, opt_stats ? "STATISTICS  ON" : "STATISTICS OFF");
-            item_text(5, 176, "BACK");
-            vdp_text(160 - 19 * 4, 198, RGB(120, 110, 90), "LEFT RIGHT TO CHANGE");
+            item_text(OPT_VOLUME, 72, line);
+            item_text(OPT_FIGHTS, 87, game_during_draw ? "FASTER FIGHTS  ON" : "FASTER FIGHTS OFF");
+            item_text(OPT_CROSSHAIR, 102, opt_crosshair ? "CROSSHAIR  ON" : "CROSSHAIR OFF");
+            item_text(OPT_BOB, 117, opt_gun_bob ? "GUN BOB  ON" : "GUN BOB OFF");
+            fmt(line, "TRANSLUCENCY %s", trans_names[r_trans]);
+            item_text(OPT_TRANS, 132, line);
+            item_text(OPT_WATER, 147, r_water ? "WATER WAVES  ON" : "WATER WAVES OFF");
+            item_text(OPT_STATS, 162, opt_stats ? "STATISTICS  ON" : "STATISTICS OFF");
+            item_text(OPT_BACK, 184, "BACK");
+            vdp_text(160 - 19 * 4, 204, RGB(120, 110, 90), "LEFT RIGHT TO CHANGE");
             break;
         }
         case MENU_PAUSE:

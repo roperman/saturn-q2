@@ -341,6 +341,9 @@ typedef struct
 extern r_stats      rs;
 extern int          r_debug;
 extern bool         r_two_cpus;                             /* the slave draws the far half */
+extern u32          r_clock;                                /* the game's time, 16.16 seconds (the water's movement) */
+extern bool         r_water;                                /* water moves (the options) */
+extern int          r_trans;                                /* translucent surfaces: 0 solid, 1 mesh, 2 half-transparent */
 extern bool         r_use_dsp;                              /* model vertices on the SCU DSP */
 void                render_init(void);                      /* after level_load: colour tables, the cache */
 void                render_world(vdp_writer *w0, vdp_writer *w1);

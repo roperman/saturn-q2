@@ -180,6 +180,16 @@ u32                 dl_checks, dl_diffs;    /* (OPT=-DDL_CHECK: the corners' sum
 #define LOD_Z           (384)               /* a face wholly beyond this uses its coarse grid (OPT=-DLOD_Z=...) */
 #endif
 s32                 r_lod_z = FIX(LOD_Z);
+u32                 r_clock;                /* the game's time (16.16 seconds, main.c): the water's movement */
+#ifndef TRANS_MODE
+#define TRANS_MODE      (1)                 /* mesh: half-transparency costs VDP1 dear where there's a lot of it */
+#endif
+#ifdef NO_WATER
+bool                r_water = false;
+#else
+bool                r_water = true;         /* water moves (waves, and a ripple of light) */
+#endif
+int                 r_trans = TRANS_MODE;   /* translucent surfaces: 0 solid, 1 mesh, 2 half-transparent (VDP1) */
 #ifndef MODEL_FAR
 #define MODEL_FAR       (400)               /* a model beyond this (units) uses its coarse mesh */
 #endif
@@ -203,6 +213,9 @@ typedef struct
     grid_args       ga;
     cell_args       ca;
     face_args       fa;                     /* a face's setup (its first grid point, its steps: ga, gk) */
+    u32             cpmod;                  /* its cells' PMOD << 16 (translucent faces: mesh or half-transparent) */
+    bool            wave;                   /* its grid points move (water: wave_at) */
+    v3              wn;                     /* ...along its plane's normal (view space) */
     u8              dmask;                  /* the dynamic lights reaching this face */
     bool            lit;                    /* ...added to the face's lights at its grid points already */
     const u16       *raw_light;             /* (then: the face's own lights, for cell_split) */
@@ -442,7 +455,7 @@ static bool         cull_box(const s16 *mins, const s16 *maxs, u8 *mask)
 
 static void         r_late_uploads(void);
 
-void                render_init(void)
+__attribute__((cold)) void render_init(void)                /* (at a level's start: built small) */
 {
     int             i, c;
     u32             base = vdp_tex_mark(), free = vdp_tex_free();
@@ -1035,7 +1048,7 @@ static __attribute__((noinline)) void cell_emit(r_ctx *x, const q_cell *cell, in
         ld = dlight_add(x->dmask, &P[3], ld);
     }
     d[0] = 0x10020000u | link;              /* jump assign, distorted sprite */
-    d[1] = (u32)CELL_PMOD << 16 | ((lut_vram + lut * 32) >> 3);
+    d[1] = x->cpmod | ((lut_vram + lut * 32) >> 3);
     d[2] = ((vram + (u32)ty0 * (u32)(tw >> 1)) >> 3) << 16 | (u32)(((tw >> 3) << 8) | th);
     d[3] = xy[0];
     d[5] = xy[2];
@@ -1073,6 +1086,45 @@ static void         grid_step(v3 *o, const v3 *e0, const v3 *d, const v3 *e1, in
     }
 }
 
+/* Water (FF_WARP faces) moves: its grid points rise and fall along its plane's
+   normal, and a ripple of light crosses it. Both go by where a point is in the
+   world, so faces meeting agree at their edges, and fade out between WAVE_NEAR
+   and WAVE_FAR, so far water (and its edges with near water) is as it was. */
+#define WAVE_NEAR       FIX(192)
+#define WAVE_FAR        FIX(384)
+#define WAVE_FADE       (341)               /* 1 / (WAVE_FAR - WAVE_NEAR), 16.16 */
+#define WAVE_H          FIX(1.25)           /* half the waves' height each way (two waves added) */
+#define RIPPLE          (3)                 /* the light's, each way (of Gouraud's 31) */
+
+/* at view-space point V: how far it moves along the water's normal (16.16), and
+   the ripple (light steps) */
+static s32          wave_at(const v3 *V, int *ripple)
+{
+    s32             fade, wx, wy, s;
+
+    *ripple = 0;
+    if (V->z >= WAVE_FAR)
+        return 0;
+    fade = V->z <= WAVE_NEAR ? FIX(1) : fmul(WAVE_FAR - V->z, WAVE_FADE);
+    /* where it is in the world (the view's axes turned back) */
+    wx = cam.pos[0] + fmul(V->x, cam.right[0]) + fmul(V->y, cam.up[0]) + fmul(V->z, cam.fwd[0]);
+    wy = cam.pos[1] + fmul(V->x, cam.right[1]) + fmul(V->y, cam.up[1]) + fmul(V->z, cam.fwd[1]);
+    /* two waves 128 units long across each other, and the ripple 64 units long, faster */
+    s = fsin((wx >> 7) + (int)fmul((s32)r_clock, 9000)) + fsin((wy >> 7) + (int)fmul((s32)r_clock, 7000));
+    *ripple = (int)((fmul(fsin(((wx + wy) >> 6) + (int)fmul((s32)r_clock, 21000)), fade) * RIPPLE + 32768) >> 16);
+    return fmul(fmul(s, WAVE_H), fade);
+}
+
+static void         wave_move(const r_ctx *x, v3 *V)
+{
+    int             r;
+    s32             h = wave_at(V, &r);
+
+    V->x += fmul(x->wn.x, h);
+    V->y += fmul(x->wn.y, h);
+    V->z += fmul(x->wn.z, h);
+}
+
 /* the four corners of cell (i, j): A B C D */
 static __attribute__((noinline)) void cell_pos(const r_ctx *x, int i, int j, v3 *P)
 {
@@ -1087,6 +1139,13 @@ static __attribute__((noinline)) void cell_pos(const r_ctx *x, int i, int j, v3 
     P[1].x = x->fa.fo.x + a1.x + b0.x; P[1].y = x->fa.fo.y + a1.y + b0.y; P[1].z = x->fa.fo.z + a1.z + b0.z;
     P[2].x = x->fa.fo.x + a1.x + b1.x; P[2].y = x->fa.fo.y + a1.y + b1.y; P[2].z = x->fa.fo.z + a1.z + b1.z;
     P[3].x = x->fa.fo.x + a0.x + b1.x; P[3].y = x->fa.fo.y + a0.y + b1.y; P[3].z = x->fa.fo.z + a0.z + b1.z;
+    if (x->wave)
+    {
+        int k;
+
+        for (k = 0; k < 4; ++k)
+            wave_move(x, &P[k]);
+    }
 }
 
 /* Row j of the face's lights with the dynamic lights added: at the grid
@@ -1229,7 +1288,7 @@ static void         split_piece(r_ctx *x, const split_cell *sc, int ua, int ub, 
         return;
     PROF(++x->st.pieces);
     d[0] = 0x10020000u | link;
-    d[1] = (u32)CELL_PMOD << 16 | ((lut_vram + sc->lut * 32) >> 3);
+    d[1] = x->cpmod | ((lut_vram + sc->lut * 32) >> 3);
     /* quarter (qv, qu), from its row ty0: h / 2 bytes a row */
     d[2] = (((u32)vram >> 3) + (u32)((qv * 2 + (ua >= h)) * h + ty0) * (u32)h / 16) << 16
          | (u32)(((h >> 3) << 8) | th);
@@ -1375,7 +1434,7 @@ static inline void  grid_point(gv *g, s32 px, s32 py, s32 pz, s32 tx, s32 ty)
    are linear along the row too, so no multiplies either. The first and last
    steps are the face's edge columns (e0, e1: short if the face ends inside
    the tile); for n = 2, e0 is the one step. */
-static __attribute__((noinline)) void grid_row(gv *row, int n, const v3 *p, const v3 *du, const v3 *e0, const v3 *e1, s32 dtx, s32 dty)
+static __attribute__((noinline, cold)) void grid_row(gv *row, int n, const v3 *p, const v3 *du, const v3 *e0, const v3 *e1, s32 dtx, s32 dty)
 {
     s32             px = p->x, py = p->y, pz = p->z, dx = du->x, dy = du->y, dz = du->z, tx, ty;
     int             i;
@@ -1453,7 +1512,7 @@ static void         cells_frame(r_ctx *x)
     a->sb8 = slot_bytes >> 3;
     a->base8 = slot_vram >> 3;
     a->lut8 = lut_vram >> 3;
-    a->pmod = (u32)CELL_PMOD << 16;
+    a->pmod = x->cpmod = (u32)CELL_PMOD << 16;
     a->ctrl = 0x10020000u;                  /* jump assign, distorted sprite */
     a->fifo = x->fifo;
     a->w = x->w;
@@ -1502,7 +1561,7 @@ static int          cells_run(r_ctx *x, const gv *top, const gv *bot, const q_ce
    off its edges, and into the near plane. Any difference and the C one's used. */
 int                 grid_bad;
 
-static void         grid_selftest(void)
+static __attribute__((cold)) void grid_selftest(void)
 {
     static const s16 rows[][6] = {          /* the first point, the step (world units) */
         { -301, -203, 401, 61, 31, 5 },
@@ -1617,8 +1676,7 @@ static __attribute__((noinline)) void cell_c(r_ctx *x, const q_cell *cell, gv *t
             return;
         PROF(++x->st.nfast);
         dw[0] = 0x10020000u | link;
-        dw[1] = (u32)CELL_PMOD << 16
-              | ((lut_vram + (u32)((const q_cell_fast *)cell)->lut * 32) >> 3);
+        dw[1] = x->cpmod | ((lut_vram + (u32)((const q_cell_fast *)cell)->lut * 32) >> 3);
         dw[2] = ((u32)vram >> 3) << 16 | size_full;
         dw[3] = gv_xy(x, g[0]);
         dw[4] = gv_xy(x, g[1]);
@@ -1820,6 +1878,71 @@ static void         prof_gouraud(r_ctx *x, int gc0)
 }
 #endif
 
+/* a Gouraud colour, each channel r steps brighter (or darker) */
+static u16          light_add(u16 l, int r)
+{
+    int             cr = iclamp((l & 31) + r, 0, 31), cg = iclamp((l >> 5 & 31) + r, 0, 31);
+    int             cb = iclamp((l >> 10 & 31) + r, 0, 31);
+
+    return (u16)(0x8000 | cb << 10 | cg << 5 | cr);
+}
+
+/* the nearest z of the face's grid: its first point's, and the far edges' where they come nearer */
+static s32          face_zmin(const r_ctx *x)
+{
+    const face_args *a = &x->fa;
+    const s32       *gk = x->gk;
+    s32             uz = x->ga.e0.z, vz = gk[GK_F0 + 2];
+
+    if (a->fnu > 1)
+        uz += x->ga.d.z * (a->fnu - 2) + x->ga.e1.z;
+    if (a->fnv > 1)
+        vz += gk[GK_F0 + 5] * (a->fnv - 2) + gk[GK_F0 + 8];
+    return a->fo.z + (uz < 0 ? uz : 0) + (vz < 0 ? vz : 0);
+}
+
+/* water, a whole face near enough: its grid points moved by the waves (and projected again;
+   those that don't move are as the grid had them) and its lights rippled, into lit */
+static __attribute__((noinline)) void water_grid(r_ctx *x, u16 *lit, const u16 *raw)
+{
+    const face_args *a = &x->fa;
+    const v3        *fs = (const v3 *)&x->gk[GK_F0];
+    gv              *g = x->grid;
+    int             i, j, nu = a->fnu, nv = a->fnv;
+
+    for (j = 0; j <= nv; ++j)
+    {
+        v3  b, c = { 0, 0, 0 };
+
+        grid_step(&b, &fs[0], &fs[1], &fs[2], nv, j);
+        for (i = 0; i <= nu; ++i, ++g, ++lit, ++raw)
+        {
+            v3  V;
+            int r;
+            s32 h;
+
+            if (i == 1)
+                c = x->ga.e0;
+            else if (i > 1)
+            {
+                const v3 *st = i < nu ? &x->ga.d : &x->ga.e1;      /* (the grid's steps, as dl_row's) */
+
+                c.x += st->x; c.y += st->y; c.z += st->z;
+            }
+            V.x = a->fo.x + c.x + b.x; V.y = a->fo.y + c.y + b.y; V.z = a->fo.z + c.z + b.z;
+            h = wave_at(&V, &r);
+            if (h)
+            {
+                V.x += fmul(x->wn.x, h);
+                V.y += fmul(x->wn.y, h);
+                V.z += fmul(x->wn.z, h);
+                grid_point(g, V.x, V.y, V.z, fmul(V.z, kx), fmul(V.z, ky));
+            }
+            *lit = light_add(*raw, r);
+        }
+    }
+}
+
 /* a face's cells, its grid done if whole; if not (a big face), its grid and cells a row at
    a time */
 static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int model, bool whole)
@@ -1859,16 +1982,24 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
             grid_row(top, nu + 1, &rowp, &du, &e0, &e1, dtx, dty);
         PROF((pt2 = frt_read(), x->st.p_grid += (pt2 - pt) & 0xFFFF, pt = pt2));
     }
-    /* dynamic lights: added to the lights at each grid point, then drawn as any other face */
+    /* dynamic lights: added to the lights at each grid point, then drawn as any other face;
+       water near enough moves, and its lights ripple */
     face_dlights(x, f, model);
-    x->lit = x->dmask && r_dl_verts;
+    x->wave = whole && f->flags & FF_WARP && r_water && face_zmin(x) < WAVE_FAR;
+    x->lit = (x->dmask && r_dl_verts) || x->wave;
     if (x->lit)
     {
         x->raw_light = light;
         if (whole)
         {
-            for (j = 0; j <= nv; ++j)
-                dl_row(x, lit + j * stride, light + j * stride, j);
+            if (x->wave)
+            {
+                to_view(lv.planes[f->plane].n, &x->wn);
+                water_grid(x, lit, light);
+            }
+            if (x->dmask && r_dl_verts)
+                for (j = 0; j <= nv; ++j)
+                    dl_row(x, lit + j * stride, (x->wave ? lit : light) + j * stride, j);
 #ifdef DL_CHECK
             for (j = 0; j < nv; ++j)
                 dl_check(x, lit + j * stride, light + j * stride, stride, j);
@@ -1878,6 +2009,9 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
         else
             dl_row(x, lit, light, 0);       /* (row 0; each row's next as it comes) */
     }
+    /* translucent (glass, water): VDP1's mesh or half-transparency (the options' choice) */
+    if (f->flags & (FF_TRANS33 | FF_TRANS66) && r_trans)
+        x->cpmod = x->ca.pmod = (u32)(CELL_PMOD | (r_trans == 1 ? PMOD_MESH : PMOD_HALF_TRANS)) << 16;
     fast_ok = r_cells_asm && (!x->dmask || x->lit) && !r_debug;
     if (fast_ok)
         cells_face(x, stride, row_cells);
@@ -1962,6 +2096,7 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
         }
     }
     x->st.cells += w->count - count0;       /* once a face, not a store a cell */
+    x->cpmod = x->ca.pmod = (u32)CELL_PMOD << 16;
 #ifdef R_PROFILE
     prof_gouraud(x, gc0);
 #endif

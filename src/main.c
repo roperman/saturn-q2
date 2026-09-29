@@ -386,6 +386,17 @@ static void         new_game(void)
         god = true;
     }
 #endif
+#ifdef WATER_TEST
+    {
+        /* (OPT=-DWATER_TEST=1: flying over demo1's pool, looking down at the water; =2: in it) */
+        static const s32 at[2][3] = { { FIX(384), FIX(420), FIX(-196) }, { FIX(384), FIX(700), FIX(-300) } };
+
+        pmove_spawn(at[WATER_TEST - 1]);
+        pl.noclip = true;
+        cam.yaw = 0x4000;
+        cam.pitch = WATER_TEST == 1 ? 0x1400 : 0;
+    }
+#endif
 #ifdef LADDER_CHECK
     {
         /* (in front of demo1's ladder, facing it) */
@@ -929,26 +940,46 @@ void                main(void)
         view_update(paused ? 0 : dt);
         render_sky();
         fx_update(paused ? 0 : dt);
+        if (!paused)
+            r_clock += (u32)dt;
         g_render_ents();
         fx_render();
         ents_light();
-        /* hit: a red flash over everything (VDP2's colour offset) */
+        /* VDP2's colour offset over everything: under water a tint, and on top a hit's red
+           flash or a pickup's yellow */
         {
             extern s32 player_flash;
             static bool flashing;
+            int         r = 0, g = 0, b = 0, c = lv.leafs[level_leaf(cam.pos)].contents;
 
+            if (c & (CONTENTS_WATER | CONTENTS_SLIME | CONTENTS_LAVA))
+            {
+                /* Quake's blends (lava 1 .3 0 at .6, slime 0 .1 .05 at .6, water .5 .3 .2 at .4)
+                   as offsets: an offset can only add, so each is the blend's pull on a
+                   middling colour, softened (the Saturn's picture's darker than Quake's) */
+                static const s16 tint[3][3] = { { 100, 14, -24 }, { -24, -8, -18 }, { 20, 8, 0 } };
+                const s16   *t = tint[c & CONTENTS_LAVA ? 0 : c & CONTENTS_SLIME ? 1 : 2];
+
+                r = t[0]; g = t[1]; b = t[2];
+            }
             if (client.pickup_flash > 0)
                 client.pickup_flash -= dt;
             if (player_flash)
             {
-                vdp_color_offset_all(player_flash >> 1, -(player_flash >> 3), -(player_flash >> 3));
-                flashing = true;
+                r += player_flash >> 1;
+                g -= player_flash >> 3;
+                b -= player_flash >> 3;
             }
             else if (client.pickup_flash > 0)
             {
                 int y = client.pickup_flash >> 10;      /* up to ~19 */
 
-                vdp_color_offset_all(y * 2, y * 2, 0);  /* Quake's yellow pickup flash */
+                r += y * 2;                             /* Quake's yellow pickup flash */
+                g += y * 2;
+            }
+            if (r | g | b)
+            {
+                vdp_color_offset_all(iclamp(r, -255, 255), iclamp(g, -255, 255), iclamp(b, -255, 255));
                 flashing = true;
             }
             else if (flashing)

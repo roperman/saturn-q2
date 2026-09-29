@@ -145,6 +145,10 @@ static const s32    (*bench_views)[5];
 static int          bench_view = -1, bench_frame;
 static u32          bench_acc[NBENCH][7];   /* walk, master, slave, cpu, frame (us, summed), vblanks waiting for VDP1, the lists' DMA */
 static u32          bench_prof[15];         /* setup, grid, cells, slow, models, nfast, nslow, faces, the models' light, verts, polys */
+#ifdef R_PROFILE
+static u32          bench_ax[8];            /* the faces' transforms, the C before a whole face's cells, rows a row at a time,
+                                               cells made, cells_asm's time, commands and calls, faces a row at a time */
+#endif
 static bool         bench_done;
 static bool         god;
 void                slave_main(void)
@@ -657,6 +661,9 @@ void                main(void)
                 bench_frame = 0;
                 bench_done = false;
                 memset(bench_acc, 0, sizeof(bench_acc));
+#ifdef R_PROFILE
+                memset(bench_ax, 0, sizeof(bench_ax));
+#endif
                 counts_reset();
 #ifdef R_PROFILE
                 {
@@ -820,6 +827,16 @@ void                main(void)
                 bench_prof[14] += (u32)rs.mfar;
                 bench_prof[12] += (u32)rs.models;
                 bench_prof[5] += rs.us_tree;
+#ifdef R_PROFILE
+                bench_ax[0] += rs.p_xform;
+                bench_ax[1] += rs.p_cpre;
+                bench_ax[2] += (u32)rs.n_rows;
+                bench_ax[7] += (u32)rs.n_rfaces;
+                bench_ax[3] += (u32)rs.cells;
+                bench_ax[4] += rs.p_casm;
+                bench_ax[5] += (u32)rs.n_casm;
+                bench_ax[6] += (u32)rs.n_calls;
+#endif
 #ifdef OCC_COUNT
                 bench_prof[0] += (u32)rs.occ_faces * 100;
                 bench_prof[1] += (u32)rs.occ_cells * 100;
@@ -986,6 +1003,12 @@ void                main(void)
             vdp_printf(8, 106 + NBENCH * 9, RGB(255, 220, 120), "A %4d %4d %4d %4d %4d", tot[0] / 100,
                        tot[1] / 100, tot[2] / 100, tot[3] / 100, tot[4] / 100);
             n *= NBENCH;
+#ifdef R_PROFILE
+            vdp_printf(8, 88, RGB(160, 255, 160), "XFORM %d CPRE %d ROWS %d RF %d CELLS %d", bench_ax[0] / n / 100,
+                       bench_ax[1] / n / 100, bench_ax[2] / n, bench_ax[7] / n, bench_ax[3] / n);        /* (n: frames x views, here) */
+            vdp_printf(8, 79, RGB(160, 255, 160), "CASM %d CMDS %d CALLS %d", bench_ax[4] / n / 100, bench_ax[5] / n,
+                       bench_ax[6] / n);
+#endif
             vdp_printf(8, 106 + (NBENCH + 1) * 9, RGB(160, 255, 160), "S%d G%d C%d K%d L%d M%d T%d",
                        bench_prof[0] / n / 100, bench_prof[1] / n / 100, bench_prof[2] / n / 100, bench_prof[12] / n / 100,
                        bench_prof[3] / n / 100, bench_prof[4] / n / 100, bench_prof[5] / n / 100);

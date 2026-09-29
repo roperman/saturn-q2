@@ -1363,12 +1363,20 @@ static __attribute__((noinline)) void grid_row(gv *row, int n, const v3 *p, cons
     grid_point(row + 1, px, py, pz, fmul(pz, kx), fmul(pz, ky));
 }
 
-/* src/cells.s: what it needs for this face (and this frame's texture cache) */
+/* src/cells.s: what it needs for this face */
 static void         cells_face(r_ctx *x, int stride, const q_cell *cell0)
 {
     cell_args       *a = &x->ca;
 
     a->cell0 = cell0;
+    a->stride2 = (u32)stride * 2;
+}
+
+/* ...and what's the same all frame (once x->fifo's set) */
+static void         cells_frame(r_ctx *x)
+{
+    cell_args       *a = &x->ca;
+
     a->tex_slot = x->tex_slot;
     a->slot_frame = slot_frame;
     a->frame = frame;
@@ -1378,7 +1386,6 @@ static void         cells_face(r_ctx *x, int stride, const q_cell *cell0)
     a->pmod = (u32)CELL_PMOD << 16;
     a->ctrl = 0x10020000u;                  /* jump assign, distorted sprite */
     a->fifo = x->fifo;
-    a->stride2 = (u32)stride * 2;
     a->fast = CELL_FULL | CELL_EXACT;
     a->near24 = (u32)(OC_NEAR | OC_FAR) << 24;
     a->N = (u32)lv.N;
@@ -1412,8 +1419,19 @@ static int          cells_run(r_ctx *x, const gv *top, const gv *bot, const q_ce
         a->prev = w->head[b] >= 0 ? (u32)(w->link_base + w->head[b] * (sizeof(vdp1_cmd) >> 3)) : 0;
     a->gst = w->gst + w->gcount * 2;
     a->grda = (w->gbase >> 3) + (u32)w->gcount;
+#ifdef R_PROFILE
+    {
+        u32 pc = frt_read();
+
+        cells_asm(a);
+        x->st.p_casm += (frt_read() - pc) & 0xFFFF;
+        ++x->st.n_calls;
+    }
+#else
     cells_asm(a);
+#endif
     made = (int)(a->cmd - &w->cmds[c0]);
+    PROF(x->st.n_casm += made);
     if (made)
     {
         if (x->fifo)
@@ -1729,6 +1747,7 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
 
         x->ca.cl0 = (u32)eu0; x->ca.cr1 = (u32)eu1; x->ca.ct0 = (u32)ev0; x->ca.cb1 = (u32)ev1;
         x->ca.rows0 = (u32)nv;
+        PROF((pt2 = frt_read(), x->st.p_cpre += (pt2 - pt) & 0xFFFF));
         n = cells_run(x, top, top + stride, row_cells, light, nu, nv);
 
         PROF((x->st.nexact += n));          /* (profile: X counts the cells the assembly left) */
@@ -1750,6 +1769,7 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
 
         ct = j == 0 ? ev0 : 0;
         cb = j == nv - 1 ? ev1 : N;
+        PROF((++x->st.n_rows, x->st.n_rfaces += j == 0));
         if (!whole)
         {
             rowp.x += step->x; rowp.y += step->y; rowp.z += step->z;
@@ -4110,6 +4130,7 @@ void                render_slave(void)
     int             lo = 0;
 
     part_begin(x);
+    cells_frame(x);
     for (;;)
     {
         int n = SHARE->published, hi = SHARE->hi, done = SHARE->walk_done;
@@ -4144,6 +4165,7 @@ static void         draw_master(void)
     {
         /* on its own: all of it, pushed nearest first */
         x->fifo = false;
+        cells_frame(x);
         for (i = 0; i < nvis; ++i)
             draw_item(x, i, false);
     }
@@ -4152,6 +4174,7 @@ static void         draw_master(void)
         int hi = nvis;
 
         x->fifo = true;
+        cells_frame(x);
         SHARE->hi = hi;
         SHARE->walk_done = 1;
         while (hi - 1 >= SHARE->lo)
@@ -4539,6 +4562,12 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.p_slow += frt_to_us(s->p_slow);
         rs.p_corners += frt_to_us(s->p_corners);
         rs.p_xform += frt_to_us(s->p_xform);
+        rs.p_cpre += frt_to_us(s->p_cpre);
+        rs.p_casm += frt_to_us(s->p_casm);
+        rs.n_casm += s->n_casm;
+        rs.n_calls += s->n_calls;
+        rs.n_rows += s->n_rows;
+        rs.n_rfaces += s->n_rfaces;
     }
     rs.t_face = ctx[0].st.t_face;
     rs.t_grid = ((const r_stats *)UNCACHED(&ctx[1].st))->t_face;

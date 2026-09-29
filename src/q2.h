@@ -333,6 +333,10 @@ typedef struct
     int             mfar;                       /* and how many */
     u32             p_setup, p_grid, p_cells, p_slow, p_corners, p_xform;   /* R_PROFILE: FRT ticks */
     int             late;                       /* textures into slots two frames back (render.c tex_load) */
+    u32             p_cpre;                     /* R_PROFILE: a whole face's C before its cells' assembly (FRT ticks) */
+    int             n_rows, n_rfaces;           /* R_PROFILE: rows done a row at a time, and their faces */
+    u32             p_casm;                     /* R_PROFILE: in cells_asm (FRT ticks), */
+    int             n_casm, n_calls;            /* the commands it made, its calls */
 }                   r_stats;
 extern r_stats      rs;
 extern int          r_debug;

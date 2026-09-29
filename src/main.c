@@ -370,6 +370,16 @@ static void         new_game(void)
     pmove_spawn(lv.start);
     cam.yaw = lv.start_yaw;
     cam.pitch = 0;
+#ifdef GUNNER_TEST
+    {
+        /* (MAP=demo2 OPT=-DGUNNER_TEST: in front of Installation's gunner, facing it, god mode) */
+        static const s32 at[3] = { FIX(240), FIX(-1560), FIX(30) };      /* (its ledge) */
+
+        pmove_spawn(at);
+        cam.yaw = 0xD000;
+        god = true;
+    }
+#endif
 #ifdef LADDER_CHECK
     {
         /* (in front of demo1's ladder, facing it) */
@@ -501,8 +511,13 @@ void                main(void)
         {
             menu_action a = menu_input((u16)(pad_now & ~pad_prev));
 
+#ifndef GUNNER_TEST
             if (a == MA_NEW_GAME && !same(cur_map, "DEMO1.MAP"))
                 load_level("demo1", NULL, false);       /* a new game's from the first level */
+#else
+            if (0)
+                ;                                       /* (the gunner's level stays) */
+#endif
             else if (a == MA_NEW_GAME || a == MA_RESTART || a == MA_TITLE)
                 new_game();
             paused = menu_active();

@@ -430,6 +430,7 @@ tools/emu.sh start`): left is left, and a fight is full of it.
 Installation has 5 monsters the port doesn't have yet (3 flyers, a gunner,
 a tank) and Comm Center 14 (5 berserkers, 4 parasites, 3 flyers, 2
 gunners): they're left out, so those levels are quieter than Quake's.
+(Since: the gunner, on Installation: section 19.)
 Each needs its AI ported (vendor/quake2/game/m_*.c), its model and its
 sounds. The gunner and berserker are the easy two (a machinegun and
 grenades; a club), but each is bigger than the soldier (330 vertices, 610
@@ -809,3 +810,34 @@ spread (39.8 and 41.5 ms, 41.3-42.2 before); the static benchmark's CPU 1684
   No time lost (the turning benchmark's frames 2,298, the static CPU 1678, the
   fight 40.1 ms). The carts 26-27 KB more free: Comm Center now has room for
   both gun slots (the next gun read in the background there too), 8 KB left.
+
+## 19. The gunner, on Installation
+
+Quake 2's gunner (`src/m_gunner.c`, from game/m_gunner.c): a chaingun burst,
+again while it can see you, or from further off four grenades (the
+launcher's `fx_grenade`); pain, death. On Installation (one on medium, two
+on hard); Comm Center's four are left out, its cart has no room.
+
+- **Trimmed to fit**: stand, run, the short and middle pains (the long one's
+  frames go to the middle one), death, the chaingun (open, fire, close) and
+  the grenades: 105 frames of its 209, both skins, the far mesh: GUNNER.MDL
+  238 KB. Left out: its fidget, walk, run-and-shoot (Quake never uses it),
+  ducking (the port's shots don't warn monsters), its idle and search
+  sounds. Its sounds (sight, two pains, death, the gun's open, fire and the
+  grenade), cut short as the soldier's are: the sound bank has 4 KB left.
+- **Loaded if there's room** (tools/models.txt `optional`; `MDL_OPTIONAL`):
+  after every other model, and only if the cart then has room for both gun
+  slots; if not its monsters aren't spawned (nor counted).
+- **Bigger models**: the renderer's model limits were 256 vertices and 320
+  polygons, the gunner has 329 and 382 (drawn past them, its polygons took
+  corners from vertices never worked out: VDP1 drew for ever). Now 336 and
+  384: 2 KB of HWRAM, 1.6 KB of the cart (the gun's kept drawing).
+- **The map's entities**: `monster_gunner` in tools/bake_map.py's classes
+  (after the infantry): the three maps baked again.
+- **Memory**: Installation's cart 360 -> 120 KB free, HWRAM 100 -> 83 KB
+  (its records there); Outer Base 6 KB more of the monsters' records left on
+  the cart (the code), Comm Center as it was. The fight 40.4 ms (as before),
+  the static benchmark's CPU 1704 (1678-1696 before).
+- **Checked**: `MAP=demo2 OPT=-DGUNNER_TEST` stands you on its ledge, god mode:
+  it opens up with the chaingun and lobs grenades, and it goes down to the
+  blaster (health 175). All three levels load.

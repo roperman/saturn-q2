@@ -81,6 +81,8 @@ void                g_models_needed(bool *need)
             need[MDL_SOLDIER] = true;
         else if (r->cls == C_MONSTER_INFANTRY)
             need[MDL_INFANTRY] = true;
+        else if (r->cls == C_MONSTER_GUNNER)
+            need[MDL_GUNNER] = true;
         else if (r->cls == C_MISC_EXPLOBOX)
             need[MDL_BARREL] = true;
     }

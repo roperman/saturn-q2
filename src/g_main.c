@@ -499,17 +499,22 @@ void                g_init(void)
         e->count = r->count;
         e->model = r->model;
         e->kind = EK_POINT;
-        if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_INFANTRY)
+        if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_GUNNER)
         {
-            if (c == C_MONSTER_INFANTRY)
+            if (c == C_MONSTER_INFANTRY || c == C_MONSTER_GUNNER)
             {
-                if (!models[MDL_INFANTRY].loaded)
+                int m = c == C_MONSTER_INFANTRY ? MDL_INFANTRY : MDL_GUNNER;
+
+                if (!models[m].loaded)
                 {
-                    e->kind = EK_FREE;
+                    e->kind = EK_FREE;      /* (the gunner: no room for it on Comm Center's cart) */
                     continue;
                 }
-                e->mdl = &models[MDL_INFANTRY];
-                SP_monster_infantry(e);
+                e->mdl = &models[m];
+                if (c == C_MONSTER_INFANTRY)
+                    SP_monster_infantry(e);
+                else
+                    SP_monster_gunner(e);
             }
             else
             {

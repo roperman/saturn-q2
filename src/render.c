@@ -59,8 +59,8 @@
 #define PROF(x)         ((void)0)
 #endif
 #define INTERP_PX       (64)                /* cropped cells smaller than this on screen are interpolated */
-#define MAX_MVERTS      (256)
-#define MAX_MPOLYS      (320)
+#define MAX_MVERTS      (336)               /* (the gunner's 329) */
+#define MAX_MPOLYS      (384)               /* (the gunner's 382) */
 #define MBUCKETS        (32)
 #define MODEL_FRONT     (-1)                /* the sign of a front face's screen winding */                /* Gouraud steps for a model's light 0..2: sized for skin brightness */
 

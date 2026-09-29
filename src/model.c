@@ -65,6 +65,18 @@ bool                model_parse(q_mdl *m, const u8 *b)
     return true;
 }
 
+/* An optional model (tools/models.txt: the gunner) is loaded only if the cart has room after
+   it for both gun slots and the gun's kept drawing (src/view.c, render.c): Installation has,
+   Comm Center hasn't (its gunners are left out, src/g_main.c) */
+#define CART_AFTER      (2 * VIEW_MAX_BYTES + 16 * 1024)
+
+static bool         room_for(const char *file)
+{
+    u32             lba, size;
+
+    return cd_find(file, &lba, &size) && cart_free() >= ((size + 2047) & ~2047u) + CART_AFTER;
+}
+
 void                models_load_all(void)
 {
     bool            need[MDL_COUNT];
@@ -73,11 +85,14 @@ void                models_load_all(void)
     g_models_needed(need);
     nmodels_loaded = 0;
     for (i = 0; i < MDL_COUNT; ++i)
-    {
         models[i].loaded = false;
-        if (need[i] && model_load(&models[i], model_files[i]))
-            nmodels_loaded = i + 1;
-    }
+    /* (the optional ones last: the room's what's left after everything else) */
+    for (i = 0; i < MDL_COUNT; ++i)
+        if (need[i] && !(MDL_OPTIONAL >> i & 1) && model_load(&models[i], model_files[i]))
+            nmodels_loaded = imax(nmodels_loaded, i + 1);
+    for (i = 0; i < MDL_COUNT; ++i)
+        if (need[i] && MDL_OPTIONAL >> i & 1 && room_for(model_files[i]) && model_load(&models[i], model_files[i]))
+            nmodels_loaded = imax(nmodels_loaded, i + 1);
 }
 
 /* The animated models' polygons, far mesh and texture records into HWRAM,

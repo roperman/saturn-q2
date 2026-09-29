@@ -1,7 +1,9 @@
-# The models the game loads: name, file on the CD, the MD2, skins, animations (tools/bake_md2.py), options.
+# The models the game loads: name, file on the CD, the MD2, skins, animations (tools/bake_md2.py), options
+# (optional: loaded only if the cart has room after it for both gun slots; its monsters left out if not).
 # tools/bake_models.py bakes what's out of date and writes obj/gen/q2models.h (MDL_<NAME> and the file list).
 soldier   SOLDIER.MDL  models/monsters/soldier/tris.md2   skin_lt,skin_ltp,skin,pain,skin_ss,skin_ssp  stand:stand101-stand130,run:run01-run08,attack:attak101-attak112,pain1:pain101-pain105,pain2:pain201-pain207,death:death101-death136 lod=6
 infantry  INFANTRY.MDL models/monsters/infantry/tris.md2  skin,pain  stand:stand50-stand71,run:run01-run08,pain1:pain101-pain110,pain2:pain201-pain210,death1:death101-death120,death2:death201-death225,attack1:attak101-attak115,attack2:attak201-attak208 lod=6
+gunner    GUNNER.MDL   models/monsters/gunner/tris.md2    skin,pain  stand:stand01-stand30,run:run01-run08,pain2:pain201-pain208,pain3:pain301-pain305,death:death01-death11,chain:attak209-attak230,grenade:attak101-attak121 lod=6 optional
 barrel    BARREL.MDL   models/objects/barrels/tris.md2    skin  -  sharedlut
 rocket    ROCKET.MDL   models/objects/rocket/tris.md2     skin  -  sharedlut
 grenade   GRENADE.MDL  models/objects/grenade/tris.md2    skin  -  sharedlut

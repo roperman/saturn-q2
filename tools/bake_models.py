@@ -30,7 +30,7 @@ def main():
         cmd = [sys.executable, os.path.join(ROOT, "tools", "bake_md2.py"), pak, md2, dst, "--skins=" + skins]
         if anims != "-":
             cmd.append("--anims=" + anims)
-        cmd += ["--" + o for o in opts if o != "view"]
+        cmd += ["--" + o for o in opts if o not in ("view", "optional")]
         if "view" in opts:
             cmd.append("--spare=%d" % VIEW_SUBS)
             cmd.append("--keeplut")     # (src/render.c: the gun's kept drawing takes a texture's table as its own)
@@ -44,6 +44,8 @@ def main():
         for i, r in enumerate(world):
             f.write("#define MDL_%-12s (%d)\n" % (r[0].upper(), i))
         f.write("#define MDL_COUNT        (%d)\n" % len(world))
+        f.write("#define MDL_OPTIONAL     (0x%xu)    /* (a bit each: loaded if there's room, src/model.c) */\n"
+                % sum(1 << i for i, r in enumerate(world) if "optional" in r[5:]))
         f.write("#define MDL_FILES        %s\n" % ", ".join('"%s"' % r[1] for r in world))
         for i, r in enumerate(view):
             f.write("#define VIEW_%-11s (%d)\n" % (r[0].upper(), i))

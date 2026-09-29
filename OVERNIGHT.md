@@ -979,3 +979,42 @@ does it):
 NTSC's 30 fps needs the fight's CPU under 33.3 ms: 3.2 ms to go. What's
 left is per face: the transform and setup in C, ~990 cycles a face drawn
 (~10 ms a frame, both CPUs); in assembly, perhaps half.
+
+## 23. The face's setup in assembly
+
+`src/face.s`, `face_asm`: draw_face's first part (the face's origin into
+view space, its axes from the frame's cache or worked out, the cull at its
+grid's four corners, the coarse grid when it's far) and draw_grid's setup (a
+stored texel along each axis, the edge steps), then the whole grid
+(grid_face_asm). It returns 0 nothing to draw, 1 out of view, 2 the grid
+done, 3 a row at a time; `face_cells` (draw_grid's cells part) does the rest.
+Quicker than the compiler's (a 156-byte stack frame, the grid's description
+built on the stack and read back): the frame's constants read from GBR, the
+corners tested one at a time until their AND comes to nothing (usually the
+first), the lowest z from the steps' signs, the results stored where
+they're used (`face_args` in r_ctx, set once a frame by `face_frame`).
+
+Checked: the C (`face_setup`) is kept for `OPT=-DNO_FACE_ASM` and
+`-DFACE_CHECK` (both, every face, their results and grids compared; the
+axes' cache emptied for every other face so both work them out): 0
+different in 96,651 faces on the static benchmark (802 far), 355,752
+through demo1 and demo2 (`-DLEVEL_TEST`, 18,326 far), and 97,458 with
+`-DROWS_TEST` (a face over 12 grid points a row at a time: 10,339 of them).
+One CPU: the six views' pixels as before, with the assembly and without, and
+with `-DROWS_TEST` against the old code made to do the same. The code's 224
+bytes smaller; each level's HWRAM 48 bytes less, the monsters' records where
+they were (an earlier try, face_cells and face_rows apart and the C setup
+built in, pushed 3.2 KB of demo1's records to the cart).
+
+| | before | after |
+|---|---|---|
+| static benchmark, six views summed: master | 110.8 ms | 99.4 |
+| slave | 151.9 | 140.3 |
+| CPU | 162.9 | 151.5 |
+| the fight: CPU a frame | 36.5 ms | 34.6 |
+| the fight: the slave's drawing / the master's | 32.2 / 16.9 ms | 30.2 / 15.0 |
+| the fight: frame (PAL) | 39.8 ms | 39.8 |
+
+(R_PROFILE: the setup and the whole grids 17.5 ms a frame, both CPUs,
+against 20.2 for the three before.) NTSC's 30 fps: the fight's CPU 1.3 ms
+over 33.3. View 5 of the static benchmark waits on VDP1 now and then (WT 9).

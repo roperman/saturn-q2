@@ -138,30 +138,27 @@ _cells_asm:
         cmp/eq  #-1,r0
         bt      .Lnext                  ! empty
         mov     r0,r3
+        ! the corners' outcodes (the top byte), all of them (r1) and any of them (r2)
+        mov.l   @(G_OC,r4),r1
+        mov.l   @(G_OC+G_SIZE,r4),r0
+        mov     r1,r2
+        and     r0,r1
+        or      r0,r2
+        mov.l   @(G_OC+G_SIZE,r5),r0
+        and     r0,r1
+        or      r0,r2
+        mov.l   @(G_OC,r5),r0
+        and     r0,r1
+        or      r0,r2
         ! outside one plane at all four corners: nothing of it's seen
-        mov.l   @(G_OC,r4),r0
-        mov.l   @(G_OC+G_SIZE,r4),r1
-        and     r1,r0
-        mov.l   @(G_OC+G_SIZE,r5),r1
-        and     r1,r0
-        mov.l   @(G_OC,r5),r1
-        and     r1,r0
-        shlr16  r0
+        swap.w  r1,r0
         shlr8   r0
-        and     #31,r0                  ! (not OC_FAR: far isn't outside)
-        tst     r0,r0
+        tst     #31,r0                  ! (not OC_FAR: far isn't outside)
         bf      .Lnext
         ! behind the near plane, or far off the screen, at any corner: the C clips it or
         ! splits it
-        mov.l   @(G_OC,r4),r0
-        mov.l   @(G_OC+G_SIZE,r4),r1
-        or      r1,r0
-        mov.l   @(G_OC+G_SIZE,r5),r1
-        or      r1,r0
-        mov.l   @(G_OC,r5),r1
-        or      r1,r0
         mov.l   @(C_NEAR,r14),r1
-        tst     r1,r0
+        tst     r1,r2
         bf      .Ldefer
         ! a whole tile or an exact crop (the others: the C)
         mov.l   @(C_FAST,r14),r1

@@ -48,7 +48,8 @@ bool                model_parse(q_mdl *m, const u8 *b)
     m->shade = b + h32[6];
     m->normals = (const s16 *)(b + h32[7]);
     m->per_skin = h32[8];
-    m->nluts = (int)h32[9];
+    m->nluts = (int)(h32[9] & 0x7FFFFFFF);
+    m->lutmap = h32[9] & 0x80000000 ? m->luts + m->nluts * 16 : NULL;   /* (tools/bake_md2.py: after the tables) */
     m->fpolys = (const q_mpoly *)(b + h32[10]);
     m->nfpolys = (int)h32[11];
     if (m->nfpolys)

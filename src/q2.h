@@ -247,7 +247,7 @@ void                fx_reset(void);                         /* a new level: noth
 
 /* model.c: MD2 models (tools/bake_md2.py) */
 typedef struct { u16 v[4], tex, flags; } q_mpoly;           /* flags 1: a triangle (v[3] == v[2]) */
-typedef struct { u32 ofs; u8 w, h; u16 lut; } q_mtex;       /* lut: its colour table (of its skin's) */
+typedef struct { u32 ofs; u8 w, h; u16 lut; } q_mtex;       /* lut: its colour table (of its skin's; if no lutmap) */
 typedef struct { char name[12]; u16 first, count; } q_manim;
 typedef struct
 {
@@ -257,7 +257,8 @@ typedef struct
     const u16       *fverts;                /* the vertices fpolys use */
     const q_mtex    *tex;
     const u8        *texdata;               /* nskins blocks of per_skin bytes */
-    const u16       *luts;                  /* nskins x ntex tables of 16 */
+    const u16       *luts;                  /* colour tables of 16: nluts; or nskins x nluts (no lutmap) */
+    const u16       *lutmap;                /* each skin's textures (nskins x ntex): their table; NULL: skin x nluts + lut */
     const u8        *frames;                /* per frame: s32 scale[3], translate[3] (16.16), nverts x (x y z normal) */
     const q_manim   *anims;
     const u8        *shade;                 /* 16 yaw steps x 162 normals, 128 = 1.0 */

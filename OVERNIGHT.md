@@ -786,6 +786,26 @@ spread (39.8 and 41.5 ms, 41.3-42.2 before); the static benchmark's CPU 1684
   the static benchmark 6 / 6 -> 3 / 3; no time lost (the turning
   benchmark's frames 2,297 -> 2,296). `UPLOAD_CHECK`: 12,883 uploads read
   back from VRAM, 1,428 of them late, none different.
-- Left: walking into big views the master still runs out in bursts (22
-  frames running, 1,059 cells); the slave doesn't. The split suits turning
-  and fights, not every view.
+- **The monsters' colour tables, each kept once**: the soldier's six skins
+  and the infantry's two have many tables the same as others, in the same
+  skin or another (the soldier 1,219 different of 2,130, the infantry 431 of
+  872). Each is kept once now, with a map after them (tools/bake_md2.py: each
+  skin's textures to their table, u16s, on the cart; the header's count has
+  its top bit set). The map's read as a texture goes into the cache
+  (`tex_load`, about one a frame in a fight), and its table kept with the slot
+  (`slot_lut`, as the level's textures' are); the commands take it from there
+  (`mdraw.s` `M_SLUT`, and the C). 34 KB more VRAM: 1,263 slots (was 1,003).
+  Checked: every polygon in every skin the same 16 colours as the bake
+  before; `MODEL_CHECK` 0 differences in 152,544 vertices and 1,835
+  commands.
+
+| ran out (master / slave) | before | after |
+|---|---|---|
+| turning with the gun, 552 frames | 2 / 16 | 2 / 4 |
+| the static benchmark, 96 | 3 / 3 | 1 / 1 |
+| the fight, ~500 | 0 / 0 | 0 / 0 |
+| walking (40 steps, into the big views) | bursts of 20+ | none |
+
+  No time lost (the turning benchmark's frames 2,298, the static CPU 1678, the
+  fight 40.1 ms). The carts 26-27 KB more free: Comm Center now has room for
+  both gun slots (the next gun read in the background there too), 8 KB left.

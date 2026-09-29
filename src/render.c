@@ -526,7 +526,7 @@ void                render_init(void)
     for (c = 0; c < nmodels_loaded; ++c)
     {
         q_mdl   *md = &models[c];
-        u32     n = (u32)(md->nskins * md->ntex), nl = (u32)(md->nskins * md->nluts);
+        u32     n = (u32)(md->nskins * md->ntex), nl = (u32)(md->lutmap ? md->nluts : md->nskins * md->nluts);
 
         if (!md->loaded)
             continue;
@@ -619,6 +619,7 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
     const void      *src = NULL;
     u32             bytes = 0, vram;
     bool            late = false;
+    u16             lut = 0;
 
     if (x->full)
         return -1;
@@ -644,6 +645,10 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
 
                 src = md->texdata + (u32)(k / md->ntex) * md->per_skin + mt->ofs;
                 bytes = (u32)mt->w * mt->h / 2;
+                /* its colour table, kept with the slot (the commands' colr: mdraw.s, draw_model):
+                   the map read now, not a polygon at a time (it's on the cart) */
+                lut = (u16)(md->lut0 + (md->lutmap ? md->lutmap[k]
+                                        : (k / md->ntex) * md->nluts + (md->nluts > 1 ? mt->lut : 0)));
                 break;
             }
         }
@@ -675,7 +680,10 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
         slot_w[s] = (u8)tx->w;
     }
     else
+    {
+        slot_lut[s] = lut;
         ++x->st.muploads;
+    }
     tex_upload(x, vram, src, bytes, late);
     ++x->st.uploads;
     return (s32)vram;
@@ -1936,7 +1944,8 @@ typedef struct
     u16             *sframe;
     u32             *cmds, *gst;
     s32             tid0;
-    u32             frame, svram, sbytes, lb, dw1, luts4;
+    u32             frame, svram, sbytes, lb, dw1;
+    const u16       *slut;                  /* slot -> its colour table (slot_lut) */
     s32             gmax;
     u32             gb, fifo;
     r_ctx           *x;
@@ -1946,7 +1955,7 @@ typedef struct
 }                   mcmds_args;
 
 void                mcmds_asm(mcmds_args *a);
-_Static_assert(__builtin_offsetof(mcmds_args, luts4) == 60 && __builtin_offsetof(mcmds_args, cnt) == 80
+_Static_assert(__builtin_offsetof(mcmds_args, slut) == 60 && __builtin_offsetof(mcmds_args, cnt) == 80
                && __builtin_offsetof(mcmds_args, wcmds) == 104, "mdraw.s: mcmds_args");
 _Static_assert(__builtin_offsetof(r_ctx, mnext) == __builtin_offsetof(r_ctx, mhead) + MBUCKETS * 2, "mdraw.s: mnext after mhead");
 
@@ -2868,8 +2877,8 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         a.svram = slot_vram;
         a.sbytes = slot_bytes;
         a.lb = 0;                           /* (the overlay's links are made at the submit) */
-        a.dw1 = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | colr0 >> 3;
-        a.luts4 = m->nluts > 1 ? 4 : 0;
+        a.dw1 = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | lut_vram >> 3;
+        a.slut = slot_lut;
         a.gmax = w->gmax;
         a.gb = w->gbase >> 3;
         a.fifo = true;
@@ -3851,7 +3860,6 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             const q_mpoly   *p = &polys[i];
             const q_mtex    *mt = &m->tex[p->tex];
             int             id = e->skin * m->ntex + p->tex;
-            int             lut = m->lut0 + e->skin * m->nluts + (m->nluts > 1 ? mt->lut : 0);
             s32             vram = tex_vram(x, m->tex_id0 + id);
             u32             *dw, link;
             u16             grda;
@@ -3859,7 +3867,8 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             if (vram < 0 || !(dw = cmd_alloc(x, &link)))
                 continue;
             dw[0] = 0x10020000u | link;
-            dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((lut_vram + (u32)lut * 32) >> 3);
+            dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16
+                    | ((lut_vram + (u32)slot_lut[x->tex_slot[m->tex_id0 + id]] * 32) >> 3);
             dw[2] = ((u32)vram >> 3) << 16 | (u32)(((mt->w >> 3) << 8) | mt->h);
             dw[3] = x->mxy[p->v[0]];
             dw[4] = x->mxy[p->v[1]];
@@ -3875,7 +3884,6 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     {
         /* in assembly (src/mdraw.s) */
         mcmds_args  a;
-        u32         colr0 = lut_vram + (u32)(m->lut0 + e->skin * m->nluts) * 32;
 #ifdef MODEL_CHECK
         s32         cnt0 = w->count, head0 = w->head[x->bucket], tail0 = w->tail[x->bucket], gc0 = w->gcount;
         u16         link0 = x->fifo && head0 >= 0 ? w->cmds[tail0].link : 0;
@@ -3897,8 +3905,8 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         a.svram = slot_vram;
         a.sbytes = slot_bytes;
         a.lb = w->link_base;
-        a.dw1 = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | colr0 >> 3;
-        a.luts4 = m->nluts > 1 ? 4 : 0;         /* (colr0 is a multiple of 32) */
+        a.dw1 = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | lut_vram >> 3;
+        a.slut = slot_lut;                      /* (each slot's table: tex_load) */
         a.gmax = w->gmax;
         a.gb = w->gbase >> 3;
         a.fifo = x->fifo;
@@ -3937,8 +3945,8 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         u32         *cmds = (u32 *)w->cmds, *gst = w->gst, gb = w->gbase >> 3;
         int         bk = x->bucket, cnt = w->count, head = w->head[bk], tail = w->tail[bk], gc = w->gcount;
         int         gmax = w->gmax, tid0 = m->tex_id0 + e->skin * m->ntex, n = 0;
-        u32         lb = w->link_base, colr0 = lut_vram + (u32)(m->lut0 + e->skin * m->nluts) * 32;
-        bool        luts = m->nluts > 1, fifo = x->fifo;
+        u32         lb = w->link_base;
+        bool        fifo = x->fifo;
         const u16   *tslot = x->tex_slot, *mg = x->mg;
         const u32   *mxy = x->mxy;
         const s16   *mnext = x->mnext;
@@ -3960,6 +3968,8 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
                 }
                 else if ((vram = tex_load(x, t)) < 0)
                     continue;
+                else
+                    sl = tslot[t];
                 if (cnt >= w->cmax)
                 {
                     ++x->st.dropped;
@@ -3983,7 +3993,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
                 }
                 dw = &cmds[cnt++ * 8];
                 dw[0] = 0x10020000u | link;
-                dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((colr0 + (luts ? (u32)mt->lut * 32 : 0)) >> 3);
+                dw[1] = (u32)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD) << 16 | ((lut_vram + (u32)slot_lut[sl] * 32) >> 3);
                 dw[2] = ((u32)vram >> 3) << 16 | (u32)(((mt->w >> 3) << 8) | mt->h);
                 dw[3] = mxy[p->v[0]];
                 dw[4] = mxy[p->v[1]];

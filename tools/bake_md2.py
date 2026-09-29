@@ -249,28 +249,32 @@ def main():
             data = bytes((idx[i] << 4) | idx[i + 1] for i in range(0, len(idx), 2))
             block += data.ljust((len(data) + 7) & ~7, b"\0")
         texdata += block
-    # the colour tables, in VRAM for good (src/render.c render_init): a polygon's each, but the
-    # same table isn't kept twice where it's the same in every skin (the texture's record says
-    # which it uses: its last field); --keeplut: one a polygon still (the gun: its kept drawing
-    # takes the texture's number for the table's)
+    # the colour tables, in VRAM for good (src/render.c render_init): a polygon's each, but none
+    # kept twice, and after them a map, each skin's polygon textures to their table (u16s, skin
+    # by skin: the loader reads it as it puts the texture in the cache, src/render.c tex_load);
+    # the header's count has its top bit set then. --keeplut: a table a polygon, skin by skin, no
+    # map (the gun: its kept drawing takes the texture's number for the table's). The texture
+    # records' last field is the table (of its skin's) where there's no map.
+    lut_of = [0] * len(polys)
     if shared:
         nluts = 1
-        lut_of = [0] * len(polys)
-    else:
+    elif "keeplut" in opts:
         lut_of = list(range(len(polys)))
-        order = list(range(len(polys)))
-        if "keeplut" not in opts:
-            first = {}
-            order = []
-            for t in range(len(polys)):
-                key = tuple(sl[t] for sl in skin_luts)
+        nluts = len(polys)
+        for sl in skin_luts:
+            luts += b"".join(sl)
+    else:
+        first = {}
+        order = []
+        lmap = []
+        for sl in skin_luts:
+            for key in sl:
                 if key not in first:
                     first[key] = len(order)
-                    order.append(t)
-                lut_of[t] = first[key]
-        nluts = len(order)
-        for sl in skin_luts:
-            luts += b"".join(sl[t] for t in order)
+                    order.append(key)
+                lmap.append(first[key])
+        luts += b"".join(order) + struct.pack(">%dH" % len(lmap), *lmap)
+        nluts = len(order) | 0x80000000
     tex_table = [rec[:6] + struct.pack(">H", lut_of[t]) for t, rec in enumerate(tex_table)]
     # frames: scale and translate (16.16), then the byte vertices
     fdata = bytearray()
@@ -321,9 +325,9 @@ def main():
         fo.write(out)
     ntri = sum(1 for xyz, _ in polys[:npolys] if xyz[2] == xyz[3])
     print("%s: %d verts, %d triangles -> %d polygons (%d quads, %d triangles), far %d, %d frames, %d skins, "
-          "textures %d bytes a skin, %d colour tables a skin, total %dK" % (
+          "textures %d bytes a skin, %d colour tables, total %dK" % (
               args[2], m.nverts, len(m.tris), npolys, npolys - ntri, ntri, len(lpolys), len(frames), len(skins),
-              per_skin, nluts, len(out) // 1024))
+              per_skin, nluts & 0x7FFFFFFF, len(out) // 1024))
 
 
 if __name__ == "__main__":

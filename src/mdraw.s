@@ -443,7 +443,7 @@ M_SVRAM  = 44                           ! the slots' VRAM
 M_SBYTES = 48                           ! a slot's size
 M_LB     = 52                           ! the list's LINK for command 0
 M_DW1    = 56                           ! the command's second word, for colour table 0
-M_LUTS4  = 60                           ! 4 if the textures have tables of their own (the colr step: times the record's lut), else 0
+M_SLUT   = 60                           ! slot -> its colour table (u16s: tex_load puts them)
 M_GMAX   = 64
 M_GB     = 68                           ! the Gouraud tables' VRAM / 8
 M_FIFO   = 72                           ! appended (in order) rather than pushed
@@ -522,6 +522,14 @@ _mcmds_asm:
         sts     macl,r3
         add     r1,r3                   ! its VRAM
 .Lchave:
+        mov.l   @(M_SLUT,r14),r7
+        mov     r2,r0
+        add     r0,r0
+        mov.w   @(r0,r7),r7
+        extu.w  r7,r7
+        shll2   r7
+        mov.l   @(M_DW1,r14),r0
+        add     r0,r7                   ! PMOD, COLR: the slot's colour table
         mov     #M_WCMDS,r0
         mov.l   @(r0,r14),r0
         cmp/ge  r0,r12
@@ -573,19 +581,12 @@ _mcmds_asm:
         mov.l   .Lctrl,r0
         or      r4,r0
         mov.l   r0,@r2                  ! jump-assign, distorted sprite; LINK
+        mov.l   r7,@(4,r2)              ! PMOD, COLR
         mov.l   @(M_TEX,r14),r1
         mov     r6,r0
         shll2   r0
         add     r0,r0
         add     r0,r1                   ! its texture's record
-        mov.w   @(6,r1),r0              ! its colour table (of its skin's: tools/bake_md2.py)
-        extu.w  r0,r0
-        mov.l   @(M_LUTS4,r14),r4
-        mulu.w  r4,r0
-        mov.l   @(M_DW1,r14),r4
-        sts     macl,r0
-        add     r4,r0
-        mov.l   r0,@(4,r2)              ! PMOD, COLR
         add     #4,r1
         mov.b   @r1+,r4                 ! w
         mov.b   @r1,r1                  ! h
@@ -718,8 +719,15 @@ _mcmds_asm:
         mov.l   @(M_POLYS,r14),r5
         add     r0,r5
         mov.w   @(8,r5),r0
-        bra     .Lchave
         extu.w  r0,r6
+        mov.l   @(M_TID0,r14),r1
+        add     r6,r1
+        add     r1,r1
+        mov.l   @(M_TSLOT,r14),r2
+        add     r1,r2
+        mov.w   @r2,r2
+        bra     .Lchave
+        extu.w  r2,r2                   ! its slot (tex_load's)
 
 .Lcdrop:
         mov     #M_DROP,r0

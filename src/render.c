@@ -1294,7 +1294,9 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
         for (j = 0, k = 0; j <= nv; ++j)
         {
             v3  b;
+#ifndef STEP_DL
             s32 px, py, pz;
+#endif
 
             grid_step(&b, &fs[0], &fs[1], &fs[2], nv, j);
             {
@@ -1310,6 +1312,66 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
                     continue;
                 }
             }
+#ifdef STEP_DL
+            {
+                /* (OPT=-DSTEP_DL, a test: slower.) The squared distance a point at a time, whole
+                   (32.32: each axis isn't rounded to whole units first, as dlight_add's is): the
+                   first two points and the last as they are, those between (whole columns, d
+                   apart) by its differences, a quadratic's: two additions a point, exactly. But
+                   a lit point's cost is its weight and three colours, not its distance, and the
+                   rows are short: -DDL_BENCH 200.9 -> 204.1 ms, and a shade out here and there */
+                const v3    *e0 = &x->ga.e0, *st = &x->ga.d, *e1 = &x->ga.e1;
+                s32         qx = lx + b.x, qy = ly + b.y, qz = lz + b.z;
+                s64         d2;
+
+#define DL_SQ(X, Y, Z)  ((s64)(X) * (X) + (s64)(Y) * (Y) + (s64)(Z) * (Z))
+#ifdef FIGHT_BENCH
+#define DL_COUNT(H)     (++x->st.n_dlpts, x->st.n_dlin += (H) < r2)
+#else
+#define DL_COUNT(H)     ((void)0)
+#endif
+#define DL_ADD(K, D2) \
+                do { \
+                    s32 h_ = (s32)((D2) >> 32); \
+                    DL_COUNT(h_); \
+                    if (h_ < r2) \
+                    { \
+                        u32 f_ = (u32)((r2 - h_) * inv) >> 8; \
+                        acc[K] += ((lr * f_) >> 16) | ((lg * f_) >> 16) << 10 | ((lb * f_) >> 16) << 20; \
+                    } \
+                } while (0)
+                DL_ADD(k, DL_SQ(qx, qy, qz));
+                if (nu >= 1)
+                {
+                    qx += e0->x; qy += e0->y; qz += e0->z;
+                    DL_ADD(k + 1, DL_SQ(qx, qy, qz));
+                }
+                if (nu >= 3)
+                {
+                    s64 dd = 2 * ((s64)qx * st->x + (s64)qy * st->y + (s64)qz * st->z) + DL_SQ(st->x, st->y, st->z);
+                    s64 dd2 = 2 * DL_SQ(st->x, st->y, st->z);
+
+                    d2 = DL_SQ(qx, qy, qz);
+                    for (i = 2; i < nu; ++i)
+                    {
+                        d2 += dd;
+                        dd += dd2;
+                        DL_ADD(k + i, d2);
+                    }
+                }
+                if (nu >= 2)
+                {
+                    s32 mx = qx + st->x * (nu - 2) + e1->x, my = qy + st->y * (nu - 2) + e1->y;
+                    s32 mz = qz + st->z * (nu - 2) + e1->z;
+
+                    DL_ADD(k + nu, DL_SQ(mx, my, mz));
+                }
+#undef DL_ADD
+#undef DL_COUNT
+#undef DL_SQ
+                k += nu + 1;
+            }
+#else
             px = lx + b.x;
             py = ly + b.y;
             pz = lz + b.z;
@@ -1342,6 +1404,7 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
                     acc[k] += ((lr * f) >> 16) | ((lg * f) >> 16) << 10 | ((lb * f) >> 16) << 20;
                 }
             }
+#endif
         }
     }
     for (k = 0; k < np; ++k)

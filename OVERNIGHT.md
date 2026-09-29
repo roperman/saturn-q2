@@ -1031,3 +1031,54 @@ built in, pushed 3.2 KB of demo1's records to the cart).
 (R_PROFILE: the setup and the whole grids 17.5 ms a frame, both CPUs,
 against 20.2 for the three before.) NTSC's 30 fps: the fight's CPU 1.3 ms
 over 33.3. View 5 of the static benchmark waits on VDP1 now and then (WT 9).
+
+## 24. Water, glass, brightness
+
+- **Under water** (slime, lava) the view's tinted: Quake's blends
+  (`SV_CalcBlend`) as VDP2 colour offsets, with the hit and pickup flashes
+  on top. An offset can only add, so each is the blend's pull on a middling
+  colour, softened: water +20 +8 0 (of 255), slime -24 -8 -18, lava +100
+  +14 -24. `main.c`'s table, if they want tuning.
+- **Water moves** (`FF_WARP` faces nearer than 384 units, whole grids):
+  its grid points rise and fall along the plane's normal (two waves 128
+  units long, 2.5 units each way) and a ripple of light crosses it (3 of
+  Gouraud's 31). Both go by where the point is in the world, so faces
+  meeting agree at their edges; both fade out from 192 to 384 units, so
+  far water, and its edges with near water, is as it was (the fade to
+  nothing meets grid_face_asm's points exactly). The near-plane cells'
+  corners (`cell_pos`) move the same way. Moving the texture across the
+  face, as Quake does, would open gaps at the walls: most of the demo's
+  water faces are one or two cells across. Options: WATER WAVES.
+- **Translucency** (`SURF_TRANS33`/`66`: the water, windows, a few
+  screens): VDP1's mesh (the default) or half-transparency. Options:
+  TRANSLUCENCY OFF / MESH / BLEND. VDP1 has to read back every pixel it
+  blends, and demo1's pool fills the view: 16.7 fps with BLEND against 25
+  with MESH.
+- **Brightness** 0 to 4 (gamma 1.15 to 1.75 on each 5-bit channel): every
+  colour table through it on the way to the screen (the level's and the
+  models' at a level's start, the gun's when it's switched, the sky's and
+  the status bar's palettes), sent again when it changes. The lighting's as
+  baked; the textures under it are brighter.
+
+| over demo1's pool, looking down | CPU a frame | fps |
+|---|---|---|
+| none of it | 36 ms | 25 |
+| the waves | 38 | 24.8 |
+| the waves, the mesh | 39 | 24.2 |
+| the waves, half-transparency | 39 | 16.7 (VDP1) |
+
+Elsewhere nothing to speak of: the static benchmark 151.5 -> 152.1 ms
+(six views summed), the fight 35.4 ms with them and 35.8 without (the
+fight varies about a millisecond run to run). Checked: with them off
+(`-DNO_WATER -DTRANS_MODE=0`) and brightness 0, one CPU, the six views'
+pixels as before; with them, view 1's stained window is see-through.
+`OPT=-DWATER_TEST=1` flies you over demo1's pool, `=2` puts you in it;
+`-DBRIGHT=n` starts at brightness n.
+
+Room: the code's 1.6 KB bigger. render_init, grid_row and grid_selftest
+are built small now (level start, boot, the fallback), and cycles.c,
+hud.c, sound.c and g_items.c; the brightness code too. Even so demo1 has
+2.1 KB more of its monsters' frames on the cart (12,628 -> 14,752 bytes),
+demo2 and demo3 1.7 KB less HWRAM left. Built small the water code would
+cost 1 ms more over the pool for 450 bytes: not worth it. PLAN.md has a
+better way (the cold code in low work RAM).

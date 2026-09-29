@@ -14,9 +14,6 @@ section by section.
       gunners. Each needs its AI ported from Quake 2's `m_*.c`, and room on
       the cart for its model: OVERNIGHT.md section 11 has the sizes and the
       ways to make room. Flyers need flying.
-- [ ] **Water and translucency**: `SURF_WARP`'s wobble, `TRANS33`/`TRANS66`
-      as VDP1's half-transparency, a tint underwater through VDP2's colour
-      offset. Now they're drawn solid.
 - [ ] **Flickering lights** (Quake's light styles): a lightmap layer a
       style, blended at run time.
 - [ ] **Saving** to backup RAM (the engine has a driver, `engine/bup.c`).
@@ -40,6 +37,10 @@ per face.
 - **The fight's game tick**: box traces are about 0.3 ms each in the
   gunner's fight, 18-48 of them a tick.
 - **VDP1**: some views wait for it now.
+- **HWRAM**: every byte of code takes a byte of demo1's monster frames off
+  to the cart. Code that only runs at a level's start, in the menus or at
+  boot could live in low work RAM instead (the linker places it there, the
+  start-up copies it): 10 KB or more back for the levels.
 
 ## What things cost
 

@@ -62,12 +62,14 @@ hands, for one).
   swimming.
 - Quake 2's own sounds, played by the Saturn's 68000, a bank for each level.
 - Dynamic lights (muzzle flashes, rockets, explosions) and the skybox.
-- A title menu with options.
+- Water that moves (gentle waves and a ripple of light), a tint when you're
+  under it, and see-through water and glass (VDP1's mesh, or real
+  half-transparency if you choose it: it costs more).
+- A title menu with options, including brightness (for a PC screen, say).
 
 Not yet: the other monsters (flyers, the tank, berserkers and parasites,
-so Installation and Comm Center are quieter than Quake's), water and
-translucent surfaces (drawn solid), flickering lights, saving, and
-full-resolution textures. [PLAN.md](PLAN.md) has what's next.
+so Installation and Comm Center are quieter than Quake's), flickering
+lights, saving, and full-resolution textures. [PLAN.md](PLAN.md) has what's next.
 
 ## Speed
 

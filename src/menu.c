@@ -27,7 +27,7 @@ bool                opt_stats;              /* the debugging overlay */
 extern bool         game_during_draw;       /* (main.c) */
 
 /* the options, in order */
-enum { OPT_VOLUME, OPT_FIGHTS, OPT_CROSSHAIR, OPT_BOB, OPT_TRANS, OPT_WATER, OPT_STATS, OPT_BACK, OPT_COUNT };
+enum { OPT_VOLUME, OPT_BRIGHT, OPT_FIGHTS, OPT_CROSSHAIR, OPT_BOB, OPT_TRANS, OPT_WATER, OPT_STATS, OPT_BACK, OPT_COUNT };
 static const char   *trans_names[3] = { "OFF", "MESH", "BLEND" };
 
 static const char   *skill_names[3] = { "EASY", "MEDIUM", "HARD" };
@@ -98,6 +98,8 @@ menu_action         menu_input(u16 pressed)
             opt_volume = imin(imax(opt_volume + d, 0), 15);
             snd_music_volume(opt_volume);   /* (the driver's master level) */
         }
+        else if (sel == OPT_BRIGHT)
+            r_set_bright(imin(imax(r_bright + d, 0), 4));
         else if (sel == OPT_FIGHTS)
             game_during_draw = !game_during_draw;
         else if (sel == OPT_CROSSHAIR)
@@ -216,17 +218,19 @@ void                menu_draw(void)
             break;
         case MENU_OPTIONS:
         {
-            vdp_text(160 - 7 * 4, 50, RGB(255, 255, 255), "OPTIONS");
+            vdp_text(160 - 7 * 4, 44, RGB(255, 255, 255), "OPTIONS");
             fmt(line, "VOLUME %d", opt_volume);
-            item_text(OPT_VOLUME, 72, line);
-            item_text(OPT_FIGHTS, 87, game_during_draw ? "FASTER FIGHTS  ON" : "FASTER FIGHTS OFF");
-            item_text(OPT_CROSSHAIR, 102, opt_crosshair ? "CROSSHAIR  ON" : "CROSSHAIR OFF");
-            item_text(OPT_BOB, 117, opt_gun_bob ? "GUN BOB  ON" : "GUN BOB OFF");
+            item_text(OPT_VOLUME, 64, line);
+            fmt(line, "BRIGHTNESS %d", r_bright);
+            item_text(OPT_BRIGHT, 79, line);
+            item_text(OPT_FIGHTS, 94, game_during_draw ? "FASTER FIGHTS  ON" : "FASTER FIGHTS OFF");
+            item_text(OPT_CROSSHAIR, 109, opt_crosshair ? "CROSSHAIR  ON" : "CROSSHAIR OFF");
+            item_text(OPT_BOB, 124, opt_gun_bob ? "GUN BOB  ON" : "GUN BOB OFF");
             fmt(line, "TRANSLUCENCY %s", trans_names[r_trans]);
-            item_text(OPT_TRANS, 132, line);
-            item_text(OPT_WATER, 147, r_water ? "WATER WAVES  ON" : "WATER WAVES OFF");
-            item_text(OPT_STATS, 162, opt_stats ? "STATISTICS  ON" : "STATISTICS OFF");
-            item_text(OPT_BACK, 184, "BACK");
+            item_text(OPT_TRANS, 139, line);
+            item_text(OPT_WATER, 154, r_water ? "WATER WAVES  ON" : "WATER WAVES OFF");
+            item_text(OPT_STATS, 169, opt_stats ? "STATISTICS  ON" : "STATISTICS OFF");
+            item_text(OPT_BACK, 188, "BACK");
             vdp_text(160 - 19 * 4, 204, RGB(120, 110, 90), "LEFT RIGHT TO CHANGE");
             break;
         }

@@ -14,22 +14,31 @@ typedef struct { u16 srca, size, w, h; char name[12]; } t_pic;
 
 static t_pic        pics[MAX_PICS];
 static int          npics;
+static const u16    *hud_pal;               /* Quake's palette (on the cart) */
+
+/* the palette into VDP2's colour RAM, at the brightness chosen */
+void                hud_palette(void)
+{
+    volatile u16    *cram = (volatile u16 *)0x25F00000;
+    int             i;
+
+    if (hud_pal)
+        for (i = 0; i < 256; ++i)
+            cram[CRAM_BANK + i] = r_gamma(hud_pal[i]);
+}
 
 void                hud_init(void)
 {
     const u8        *b = cart_load("HUD.BIN");
-    const u16       *pal;
     const u8        *tab, *data;
-    volatile u16    *cram = (volatile u16 *)0x25F00000;
     u32             base;
     int             i, k;
 
     if (!b || memcmp(b, "Q2HD", 4))
         return;
     npics = imin(((const u16 *)b)[2], MAX_PICS);
-    pal = (const u16 *)(b + 8);
-    for (i = 0; i < 256; ++i)
-        cram[CRAM_BANK + i] = pal[i];
+    hud_pal = (const u16 *)(b + 8);
+    hud_palette();
     tab = b + 8 + 512;
     data = tab + npics * 20;
     base = vdp_tex_mark();

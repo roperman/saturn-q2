@@ -190,6 +190,43 @@ bool                r_water = false;
 bool                r_water = true;         /* water moves (waves, and a ripple of light) */
 #endif
 int                 r_trans = TRANS_MODE;   /* translucent surfaces: 0 solid, 1 mesh, 2 half-transparent (VDP1) */
+#ifndef BRIGHT
+#define BRIGHT          (0)                 /* (OPT=-DBRIGHT=n: start at another) */
+#endif
+int                 r_bright = BRIGHT;      /* the options' brightness: 0 as baked, to 4 (a gamma on every colour table) */
+
+/* a 5-bit channel through each brightness's curve (1 to 4: gamma 1.15, 1.3, 1.5, 1.75) */
+static const u8     gamma_tab[4][32] = {
+    { 0, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 27, 28, 29, 30, 31 },
+    { 0, 2, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 20, 21, 22, 23, 24, 25, 25, 26, 27, 28, 29, 29, 30, 31 },
+    { 0, 3, 5, 7, 8, 9, 10, 11, 13, 14, 15, 16, 16, 17, 18, 19, 20, 21, 22, 22, 23, 24, 25, 25, 26, 27, 28, 28, 29, 30, 30, 31 },
+    { 0, 4, 6, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 20, 21, 22, 23, 23, 24, 25, 25, 26, 27, 27, 28, 29, 29, 30, 30, 31 },
+};
+
+/* an RGB colour at the brightness chosen (its top bit kept) */
+__attribute__((cold)) u16 r_gamma(u16 c)      /* (the brightness's work's all at a level's start, a gun's change or
+                                                   the options: built small) */
+{
+    const u8        *g;
+
+    if (!r_bright)
+        return c;
+    g = gamma_tab[r_bright - 1];
+    return (u16)((c & 0x8000) | g[c >> 10 & 31] << 10 | g[c >> 5 & 31] << 5 | g[c & 31]);
+}
+
+/* n colours into VDP1's VRAM at vram_ofs, through the brightness */
+static __attribute__((cold)) void luts_copy(u32 vram_ofs, const u16 *src, u32 n)
+{
+    volatile u16    *d = (volatile u16 *)(VDP1_VRAM + vram_ofs);
+    u32             i;
+
+    if (!r_bright)
+        memcpy((void *)d, src, n * 2);
+    else
+        for (i = 0; i < n; ++i)
+            d[i] = r_gamma(src[i]);
+}
 #ifndef MODEL_FAR
 #define MODEL_FAR       (400)               /* a model beyond this (units) uses its coarse mesh */
 #endif
@@ -570,7 +607,7 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
     }
     /* colour tables: all of them, for good; the models' after the level's */
     lut_vram = base;
-    memcpy(vram + base, lv.luts, (u32)lv.nluts * 32);
+    luts_copy(base, lv.luts, (u32)lv.nluts * 16);
     base += (u32)lv.nluts * 32;
     free -= (u32)lv.nluts * 32;
     ntex_all = lv.ntextures;
@@ -584,7 +621,7 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
         md->tex_id0 = ntex_all;
         md->lut0 = (int)((base - lut_vram) / 32);
         ntex_all += (int)n;
-        memcpy(vram + base, md->luts, nl * 32);
+        luts_copy(base, md->luts, nl * 16);
         base += nl * 32;
         free -= nl * 32;
     }
@@ -3315,17 +3352,54 @@ void                r_view_slot(int slot)
 
 /* the gun to be drawn next (src/view.c): its colour tables into VRAM, where the guns share
    one set. The last gun drawn from there is gone from the frames in flight (view.c sees to it) */
-void                r_view_luts(int slot)
+__attribute__((cold)) void r_view_luts(int slot)
 {
     const q_mdl     *md = &models[MDL_VIEW0 + slot];
+    u32             n = (u32)(md->nskins * md->nluts) * 16, k, i, m;
+    u16             *buf = (u16 *)ctx[0].grid;  /* (brighter: through here, a piece at a time; the master's
+                                                   not drawing now) */
 
     if (!md->loaded)
         return;
     while (scu_dma0_busy())
         ;                                   /* (the gun's fetch may be under way: not cut short) */
-    scu_dma0((void *)(VDP1_VRAM + lut_vram + (u32)md->lut0 * 32), md->luts, (u32)(md->nskins * md->nluts) * 32, true);
+    if (!r_bright)
+        scu_dma0((void *)(VDP1_VRAM + lut_vram + (u32)md->lut0 * 32), md->luts, n * 2, true);
+    else
+        for (k = 0; k < n; k += m)
+        {
+            m = n - k < sizeof(ctx[0].grid) / 2 ? n - k : sizeof(ctx[0].grid) / 2;
+            for (i = 0; i < m; ++i)
+                buf[i] = r_gamma(md->luts[k + i]);
+            scu_dma0((void *)(VDP1_VRAM + lut_vram + (u32)md->lut0 * 32 + k * 2), buf, m * 2, true);
+            while (scu_dma0_busy())
+                ;
+        }
     while (scu_dma0_busy())
         ;
+}
+
+static void         sky_colours(void);
+
+/* the options' brightness: every colour table again (the level's, the models', the gun's,
+   the sky's, the status bar's) */
+__attribute__((cold)) void r_set_bright(int b)
+{
+    int             c;
+
+    r_bright = b;
+    luts_copy(lut_vram, lv.luts, (u32)lv.nluts * 16);
+    for (c = 0; c < nmodels_loaded; ++c)
+    {
+        const q_mdl *md = &models[c];
+
+        if (md->loaded)
+            luts_copy(lut_vram + (u32)md->lut0 * 32, md->luts,
+                      (u32)(md->lutmap ? md->nluts : md->nskins * md->nluts) * 16);
+    }
+    view_relut();
+    sky_colours();
+    hud_palette();
 }
 
 /* Sharing the list. The slave starts as soon as the walk starts, taking
@@ -4885,6 +4959,23 @@ static void         sky_vblank(void)
     sky_line = sky_horizon;
 }
 
+/* the sky's colours at the brightness chosen: its 16, and the gradient's above and below it */
+static __attribute__((cold)) void sky_colours(void)
+{
+    const u16       *s = lv.sky;
+    u16             pal[16];
+    int             i;
+
+    if (!s)
+        return;
+    for (i = 0; i < 16; ++i)
+        pal[i] = r_gamma(s[2 + i]);
+    sky_set_palette(pal);
+    sky_above = r_gamma(s[18]);
+    sky_below = r_gamma(s[19]);
+    sky_zenith = r_gamma(s[20]);
+}
+
 void                render_sky_init(void)
 {
     const u16       *s = lv.sky;
@@ -4892,11 +4983,9 @@ void                render_sky_init(void)
     if (!s)
         return;
     sky_h = s[1];
-    sky_above = s[18];
-    sky_below = s[19];
-    sky_zenith = s[20];
     REG16(VDP2_REG + 0x0E) = 0x0300;        /* RAMCTL: banks A and B split; the sky's in B1 */
     sky_init((const u8 *)(s + 21), s[0], sky_h, s + 2);
+    sky_colours();
     sky_enable(true);
     vdp_set_vblank_hook(sky_vblank);
 }

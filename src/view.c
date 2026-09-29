@@ -31,6 +31,13 @@ static int          slot_weapon[VIEW_SLOTS];    /* the gun in each slot, or -1 *
 static int          cur;                        /* the slot shown */
 static int          loading = -1, load_weapon;  /* the slot being read into, and its gun */
 static int          lut_slot = -1;              /* the slot whose colour tables are in VRAM (they share one set) */
+
+/* (the options' brightness changed) the gun's colour tables again */
+void                view_relut(void)
+{
+    if (lut_slot >= 0)
+        r_view_luts(lut_slot);
+}
 static int          state = VS_WAIT, idx;       /* where in the animation */
 static s32          acc, vclock, last_shot;     /* seconds (16.16) */
 static bool         ok;                         /* anything to draw with */

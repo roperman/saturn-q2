@@ -344,6 +344,11 @@ extern bool         r_two_cpus;                             /* the slave draws t
 extern u32          r_clock;                                /* the game's time, 16.16 seconds (the water's movement) */
 extern bool         r_water;                                /* water moves (the options) */
 extern int          r_trans;                                /* translucent surfaces: 0 solid, 1 mesh, 2 half-transparent */
+extern int          r_bright;                               /* brightness: 0 as baked, to 4 */
+u16                 r_gamma(u16 c);                         /* an RGB colour at that brightness */
+void                r_set_bright(int b);                    /* (every colour table again) */
+void                view_relut(void);                       /* (view.c: the gun's colour tables again) */
+void                hud_palette(void);                      /* (hud.c: the status bar's palette again) */
 extern bool         r_use_dsp;                              /* model vertices on the SCU DSP */
 void                render_init(void);                      /* after level_load: colour tables, the cache */
 void                render_world(vdp_writer *w0, vdp_writer *w1);

@@ -101,7 +101,7 @@ static bool         fight_done;
 static g_trace_site fight_sites[16];            /* the traces' call sites, most time first */
 static u32          fight_tr[8];                /* trace.c's counts */
 static u32          fight_seg[6], fight_t[7];   /* the master's frame in parts (us): input, player, game, before, world, after */
-static u32          fight_dl[3];                /* (the world's dynamic lights: the faces' test, the sums, us; faces lit) */
+static u32          fight_dl[5];                /* (the world's dynamic lights: the faces' test, the sums, us; faces lit) */
 static u32          fight_pre[8], fight_pref[8], fight_pt;  /* (the master before the walk, us: movers, pmove, camera+gun,
                                                    sky+effects, entities+sprites, their light, the tint; render_world to
                                                    the slave's signal. fight_pref: this frame's, added in while timing) */
@@ -838,6 +838,25 @@ void                main(void)
             fx_update(0);
             g_render_ents();
             fx_render();
+#ifdef DL_BENCH
+            {
+                /* (OPT=-DDL_BENCH: three dynamic lights in each view, as a fight's: ahead, right, left) */
+                static const s8 at[3][3] = { { 96, 0, -8 }, { 64, 80, 16 }, { 64, -80, 0 } };  /* forward, right, up */
+                int         k, c;
+
+                for (k = 0; k < 3 && r_ndlights < MAX_DLIGHTS; ++k)
+                {
+                    q_dlight *l = &r_dlights[r_ndlights++];
+
+                    for (c = 0; c < 3; ++c)
+                        l->pos[c] = cam.pos[c] + cam.fwd[c] * at[k][0] + cam.right[c] * at[k][1] + cam.up[c] * at[k][2];
+                    l->radius = FIX(200);
+                    l->r = 13;
+                    l->g = 11;
+                    l->b = 5;
+                }
+            }
+#endif
             ents_light();
             vdp_begin();
             r_two_cpus = slave_ok;
@@ -1226,6 +1245,14 @@ void                main(void)
                        fight_pre[6] / n, fight_pre[7] / n);
             vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US TEST %d SUMS %d FACES %d", fight_dl[0] / n, fight_dl[1] / n,
                        fight_dl[2] / n);
+            vdp_printf(8, 80, RGB(160, 220, 255), "DL POINT-LIGHTS %d IN %d", fight_dl[3] / n, fight_dl[4] / n);
+#ifdef DLF_CHECK
+            {
+                extern u32 dlf_checks, dlf_diffs;
+
+                vdp_printf(8, 35, RGB(255, 255, 120), "DL FACES %d DIFF %d", dlf_checks, dlf_diffs);
+            }
+#endif
             vdp_printf(8, 205, RGB(255, 200, 160), "OUT M%d S%d OF %d LATE %d CMD %d %d %d", at_end[0], at_end[1],
                        fight_n + FIGHT_SKIP, at_end[12], at_end[2], at_end[3], at_end[4]);
 #ifdef TEX_WSET
@@ -1517,6 +1544,8 @@ void                main(void)
                 fight_dl[0] += rs.t_dltest;
                 fight_dl[1] += rs.t_dlsum;
                 fight_dl[2] += (u32)rs.n_dlfaces;
+                fight_dl[3] += (u32)rs.n_dlpts;
+                fight_dl[4] += (u32)rs.n_dlin;
                 fight_gmax = imax((s32)fight_gmax, (s32)us_game);
                 ++fight_n;
                 if (fight_us >= 20000000)

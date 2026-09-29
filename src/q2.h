@@ -330,7 +330,7 @@ typedef struct
     int             models, mpolys, nfast, nslow, nexact, pieces, faces_out, cells_all, cells_384, cells_512, muploads, mcpu, mdsp, ns_dl, ns_crop, ns_exact, g_same, g_flat, occ_faces, occ_cells, occ_occluders, ns_small;
     u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys, t_mwait, t_masm, t_mnorm;
     u32             us_rwpre, t_dltest, t_dlsum;    /* (FIGHT_BENCH: render_world to the slave's signal; the world's dynamic lights) */
-    int             n_dlfaces;
+    int             n_dlfaces, n_dlpts, n_dlin;    /* (and dl_face's points x lights, those in reach) */
     u32             t_view;                 /* the gun in your hands (us) */
     u32             us_pre, us_mdsp, us_tree;   /* R_PROFILE: the walk's parts (the master's, us) */
     u32             t_mfar;                     /* R_PROFILE: models beyond 400 units: their time, */

@@ -85,6 +85,44 @@ static const void   *hot_spare(const void *src, u32 bytes, bool high, u32 spare)
     return dst;
 }
 
+/* Each brush's box, from its sides on the axes (every brush has them: qbsp adds them), in
+   whole units rounded out: a trace skips a brush whose box misses its own without reading the
+   brush or its sides (src/trace.c leaf_brushes). With the brushes: LWRAM if there's room with
+   the reserve kept, else the cart */
+static void         brush_bounds(void)
+{
+    u32             bytes = (u32)lv.nbrushes * 12;
+    int             i, k, j;
+
+    if (lw_next + bytes <= LWRAM_END - LW_RESERVE)
+    {
+        lv.brushbounds = (s16 *)lw_next;
+        lw_next += (bytes + 15) & ~15u;
+    }
+    else
+        lv.brushbounds = (s16 *)cart_alloc(bytes);
+    for (i = 0; i < lv.nbrushes; ++i)
+    {
+        const q_brush   *b = &lv.brushes[i];
+        s16             bb[6] = { -32767, -32767, -32767, 32767, 32767, 32767 };
+
+        for (k = 0; k < b->numsides; ++k)
+        {
+            const q_plane   *pl = &lv.planes[lv.brushsides[b->firstside + k].plane];
+            int             ty = pl->type;
+
+            if (ty >= 3)
+                continue;
+            if (pl->n[ty] > 0)
+                bb[3 + ty] = (s16)imin(bb[3 + ty], ((pl->dist + 0xFFFF) >> 16) + 1);
+            else
+                bb[ty] = (s16)imax(bb[ty], ((-pl->dist) >> 16) - 1);
+        }
+        for (j = 0; j < 6; ++j)
+            lv.brushbounds[i * 6 + j] = bb[j];
+    }
+}
+
 const void          *level_hot(const void *src, u32 bytes)
 {
     return hot(src, bytes, true);
@@ -217,6 +255,7 @@ bool                level_load(const char *name)
     lv.brushes = hot_spare(lv.brushes, (u32)lv.nbrushes * sizeof(q_brush), false, LW_RESERVE);
     lv.brushsides = hot_spare(lv.brushsides, h[29] * sizeof(q_brushside), false, LW_RESERVE);
     lv.leafbrushes = hot_spare(lv.leafbrushes, h[31] * 2, false, LW_RESERVE);
+    brush_bounds();
     {
         const s32 *s = (const s32 *)(b + h[24]);
 

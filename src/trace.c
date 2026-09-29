@@ -16,7 +16,12 @@ u32                 trace_later;
 #endif
 
 static s32          t_start[3], t_end[3], t_mins[3], t_maxs[3], t_ext[3];
+static s16          t_bb[6];                /* the box the whole trace sweeps, whole units (a unit more round) */
 static int          t_mask;
+#ifdef BOUNDS_CHECK
+u32                 bounds_checks, bounds_diffs, bounds_skipped;
+static bool         t_nobounds;
+#endif
 static bool         t_ispoint;
 static q_trace      tr;
 static u16          *brush_check, checkcount;
@@ -197,9 +202,21 @@ static void         leaf_brushes(int leafnum, bool test)
         int             bn = lv.leafbrushes[leaf->firstbrush + k];
         const q_brush   *b = &lv.brushes[bn];
 
+        const s16       *bb = &lv.brushbounds[bn * 6];
+
         if (brush_check[bn] == checkcount)
             continue;                       /* already done from another leaf */
         brush_check[bn] = checkcount;
+        /* its box off the trace's: nothing to clip (and the brush and its sides not read) */
+        if (bb[0] > t_bb[3] || bb[3] < t_bb[0] || bb[1] > t_bb[4] || bb[4] < t_bb[1] || bb[2] > t_bb[5]
+            || bb[5] < t_bb[2])
+        {
+#ifdef BOUNDS_CHECK
+            ++bounds_skipped;
+            if (!t_nobounds)
+#endif
+            continue;
+        }
         if (!(b->contents & t_mask) || !b->numsides)
             continue;
         if (test)
@@ -322,8 +339,43 @@ static void         box_leafs_r(int num, const s32 *mins, const s32 *maxs)
         box_leafs[nbox_leafs++] = -1 - num;
 }
 
+static q_trace      trace_box_once(const s32 *start, const s32 *end, const s32 *mins, const s32 *maxs, int headnode,
+                                   int mask);
+
 q_trace             trace_box(const s32 *start, const s32 *end, const s32 *mins, const s32 *maxs, int headnode,
                               int mask)
+{
+    int             i;
+
+    /* the box the whole trace sweeps, in whole units and a unit more all round (the brushes'
+       boxes are rounded out too): a brush off it can't be met */
+    for (i = 0; i < 3; ++i)
+    {
+        t_bb[i] = (s16)(((imin(start[i], end[i]) + mins[i]) >> 16) - 1);
+        t_bb[3 + i] = (s16)(((imax(start[i], end[i]) + maxs[i]) >> 16) + 2);
+    }
+#ifdef BOUNDS_CHECK
+    {
+        /* (OPT=-DBOUNDS_CHECK: without the boxes too; the same?) */
+        q_trace a, b;
+
+        t_nobounds = true;
+        b = trace_box_once(start, end, mins, maxs, headnode, mask);
+        t_nobounds = false;
+        a = trace_box_once(start, end, mins, maxs, headnode, mask);
+        ++bounds_checks;
+        if (a.fraction != b.fraction || a.plane != b.plane || a.startsolid != b.startsolid || a.allsolid != b.allsolid
+            || a.contents != b.contents)
+            ++bounds_diffs;
+        return a;
+    }
+#else
+    return trace_box_once(start, end, mins, maxs, headnode, mask);
+#endif
+}
+
+static q_trace      trace_box_once(const s32 *start, const s32 *end, const s32 *mins, const s32 *maxs, int headnode,
+                                   int mask)
 {
     int             i;
 

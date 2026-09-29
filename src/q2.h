@@ -136,6 +136,7 @@ typedef struct
     int             nspawns;
     const q_start   *starts;
     int             nstarts;
+    s16             *brushbounds;           /* each brush's box: mins[3] maxs[3], whole units (src/level.c, src/trace.c) */
     const u16       *leaflight;             /* per leaf: r g b brightness (8.8), pad */
     const void      *erecs;                 /* the map's entities (game.h q_erec) */
     int             nerecs;

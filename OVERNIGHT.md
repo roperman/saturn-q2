@@ -862,3 +862,36 @@ Sound RAM was full (the gunner's sounds left 4 KB). Now:
 - **Free now**: Outer Base 105 KB, Installation 68 KB, Comm Center 105 KB
   (was 4 KB for all). Checked in a recording (Mednafen's -soundrecord): the
   blaster on Outer Base, and on Installation after the level's changed.
+
+## 21. Traces: the brushes' boxes
+
+A box trace (a monster's step, the player's move) gathers the leaves its
+swept box touches, then clips the brushes listed in them. In the fight 9 a
+frame, each 0.7 ms: the leaves 163 us, the brushes 400 (12 of them, 97
+sides, 8 of the 12 out by their box sides alone), the movers 39, the
+entities 40 (`OPT="-DFIGHT_BENCH -DFIGHT_TRACES"`, its lines now at the top of
+the screen). Most of it is memory: a brush's record in LWRAM, then a side and
+a plane a side, with the slave drawing on the same bus.
+
+Each brush's box now (`lv.brushbounds`: from its sides on the axes, whole
+units, rounded out a unit; worked out as the level loads, in LWRAM if
+there's room, else the cart: Installation's): a brush whose box misses the
+trace's swept box is skipped from one read, its record and sides untouched.
+
+| a box trace, the fight | before | after |
+|---|---|---|
+| brushes clipped / sides | 12 / 97 | 3 / 23 |
+| clipping (us) | 400 | 253 |
+| the monsters' steps, a frame | 5.0 ms | 3.7 ms |
+| traces, a frame | 7.3 ms | 5.3-6.3 ms |
+| the game's tick, a frame | 8.4-8.6 ms | 6.3-7.4 ms |
+
+The fight's frame 40.3 ms (the master's saving goes on drawing, shared with
+the slave), the static benchmark's CPU 1710 (noise). Checked:
+`OPT=-DBOUNDS_CHECK` traces each both ways: 0 different in 8,591. The maps as
+they were (the boxes baked in grew Comm Center's map 27 KB: one gun slot);
+all three load.
+
+Left: the line traces (bullets, sight), which walk the BSP and don't use
+the boxes: ~0.5 ms each, most of a fight with the gunner (up to 32 traces
+and 16 ms a frame); and the leaves' gathering (177 us a box trace).

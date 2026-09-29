@@ -1088,13 +1088,21 @@ void                main(void)
             {
                 int j;
 
-                vdp_printf(8, 133, RGB(255, 200, 160), "BOX %d: BOXOUT%d L%d B%d S%d MOV%d", fight_tr[4] / n,
+                vdp_printf(8, 20, RGB(255, 200, 160), "BOX %d: BOXOUT%d L%d B%d S%d MOV%d", fight_tr[4] / n,
                            fight_tr[0] / imax(fight_tr[4], 1), fight_tr[1] / imax(fight_tr[4], 1),
                            fight_tr[2] / imax(fight_tr[4], 1), fight_tr[3] / imax(fight_tr[4], 1), fight_tr[5] / n);
-                vdp_printf(8, 181, RGB(255, 200, 160), "US G%d C%d M%d E%d", fight_tt[0] / 10,
+#ifdef BOUNDS_CHECK
+                {
+                    extern u32 bounds_checks, bounds_diffs, bounds_skipped;
+
+                    vdp_printf(8, 11, RGB(255, 255, 120), "BOUNDS %d DIFF %d SKIPPED %d", bounds_checks, bounds_diffs,
+                               bounds_skipped);
+                }
+#endif
+                vdp_printf(8, 29, RGB(255, 200, 160), "US G%d C%d M%d E%d", fight_tt[0] / 10,
                            fight_tt[1] / 10, fight_tt[2] / 10, fight_tt[3] / 10);
                 for (j = 0; j < 4 && fight_sites[j].n; ++j)
-                    vdp_printf(8, 145 + 9 * j, RGB(160, 255, 160), "%X %d.%d A FRAME %d.%dMS",
+                    vdp_printf(8, 38 + 9 * j, RGB(160, 255, 160), "%X %d.%d A FRAME %d.%dMS",
                                fight_sites[j].at & 0xFFFFF, fight_sites[j].n * 10 / n / 10,
                                fight_sites[j].n * 10 / n % 10, fight_sites[j].us / n / 1000,
                                fight_sites[j].us / n / 100 % 10);

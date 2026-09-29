@@ -927,3 +927,55 @@ The gunner's fight still does 18-48 traces a tick (7.5-17 ms): box traces,
 ~290 us each there (gathering 65, clipping 130 for 10 brushes looked at and
 3 clipped, the movers 66, the entities 20), with the slave drawing on the
 same bus. All three levels load; the static benchmark's CPU 1708 (noise).
+
+## 22. The cells, and the DSP for the faces' setup
+
+**Where a frame goes** (the static benchmark, `R_PROFILE`, both CPUs, a
+frame; the new CASM and XFORM lines were divided by the views twice at
+first, six times too small): the faces' transforms and culls 7.0 ms (325
+faces, 111 of them culled there), draw_grid's setup 3.3, the grids 10.1,
+the cells 17.8, the models 5.5, the walk 6.8. 214 faces have cells: 1,143
+of them, 5.3 a face, so most of it goes on each face, not each cell. In the
+cells: `cells_asm` 12.2 ms (its loop and cull 4.8, the 140 small crops
+about 2.9 at ~550 cycles each, the 806 commonest cells about 4.5), the C
+around it 5.6.
+
+**Not the cache.** Each face drawn twice, the first undone: the second
+only ~3 ms cheaper in all. (A grid call twice looked like 10.1 -> 3.8 ms
+until it turned out grid_face_asm uses up its rows count: the second did
+one row.) A grid call on a purged cache costs 10.0 ms against 8.9, so the
+grids are compute, ~90 cycles a point. Stores cost 3.5 cycles, a cached
+load 1.6 (a loop timed in-game).
+
+**The DSP for the faces' setup: still no.** The setup's multiplies are
+~20 fmul a face (~1.7 ms of the 7.0, both CPUs); the rest is the face's
+record (32 bytes, two LWRAM lines: ~120 cycles), the axes' cache and the
+compiler's code (a 156-byte stack frame, face_grid built and read back).
+The faces come one at a time as the walk finds them and the slave takes
+each at once, so there's no batch for the DSP to run ahead on.
+
+**Done** (pixels: one CPU, `OPT=-DONE_CPU`, the six views the same before
+and after; appended as well, `-DONE_CPU -DTEST_FIFO`, the master's way with
+two, the order wrong on purpose. With two CPUs a change of speed moves
+where they meet, and a few seams change hands: 7-130 pixels, a delay alone
+does it):
+
+- `cells_frame`: the fifteen things `cells_face` stored for every face that
+  don't change all frame, once a frame for each CPU.
+- The list's bookkeeping in `cells.s`: it reads the writer (count, LINK
+  base, Gouraud count) and brings it up to date itself, where `cells_run`
+  did ~50 loads and stores in C a call.
+- The cull and near tests read each corner's outcode once, not twice.
+
+| | before | after |
+|---|---|---|
+| static benchmark, six views summed: master | 117.4 ms | 110.8 |
+| slave | 158.0 | 151.9 |
+| CPU | 169.4 | 162.9 |
+| the fight: CPU a frame | 37.9 ms | 36.5 |
+| the fight: the slave's drawing | 33.6 ms | 32.2 |
+| the fight: frame | 39.8 ms | 39.8 |
+
+NTSC's 30 fps needs the fight's CPU under 33.3 ms: 3.2 ms to go. What's
+left is per face: the transform and setup in C, ~990 cycles a face drawn
+(~10 ms a frame, both CPUs); in assembly, perhaps half.

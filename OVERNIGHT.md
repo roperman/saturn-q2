@@ -760,7 +760,9 @@ spread (39.8 and 41.5 ms, 41.3-42.2 before); the static benchmark's CPU 1684
   split moved between frames towards the CPU that ran out. Moving slots
   throws out textures the giver's using, so it misses and pulls them back
   (turning 15 / 22, worse); moving only slots it hadn't used for 8 frames,
-  it never moved at all.
+  it never moved at all; moving towards each CPU's share of the cells and
+  model polygons it drew (smoothed), turning 2 / 26 (worse again: cells
+  aren't the textures).
 - **The guns' colour tables**: one set in VRAM, not one a slot. The next gun's
   go in as it comes up, once the last one's three frames gone (`r_view_luts`,
   src/view.c): a weapon switch waits a frame more with no gun up.

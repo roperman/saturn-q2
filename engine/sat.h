@@ -151,7 +151,7 @@ u16                 pad_read(void);                          /* call once per fr
 void                pad_request(void);                  /* ask for the pad now... */
 u16                 pad_collect(void);                  /* ...and have the answer later */
 void                pad_vblank(void);                   /* (the vblank-out interrupt: asks, if pad_by_vblank) */
-void                pad_by_vblank(bool on);             /* the vblank asks for the pad (the SMPC's read is in the picture) */
+bool                pad_by_vblank(bool on);             /* the vblank asks for the pad (the SMPC's read is in the picture); was it */
 
 void                scu_dma0(void *dst, const void *src, u32 bytes, bool bbus_dst);
 
@@ -166,6 +166,7 @@ int                 bup_free_blocks(void);
 
 /* ---- cd.c: files on the game disc ---- */
 bool                snd_init(const char *file);        /* SCSP + sound bank (tools/gen_sound.py) */
+bool                snd_bank(const char *file);        /* another bank in its place (a new level's) */
 void                snd_tick(void);
 extern u32          snd_ticks;
 extern int          snd_stage, snd_size;                     /* 60 Hz: from the field interrupt */

@@ -315,6 +315,7 @@ static bool         load_level(const char *name, const char *spot, bool keep)
         for (;;)
             message(file, "WON'T LOAD");
     memcpy(cur_map, file, sizeof(cur_map));
+    s_level(file);                          /* (its sounds: its monsters') */
     bench_views = cur_map[4] == '2' ? bench_demo2 : bench_demo1;
     models_load_all();
     vdp_tex_release(vram_base);
@@ -417,7 +418,7 @@ void                main(void)
     message("QUAKE II", "LOADING THE MODELS");
     models_load_all();
     message("QUAKE II", "LOADING THE SOUNDS");
-    s_init();
+    s_init(cur_map);
     vram_base = vdp_tex_mark();
     hud_init();
     render_init();

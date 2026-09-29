@@ -1,6 +1,7 @@
 /*
-** Sounds: Quake 2's own, from tools/bake_sound.py's bank (SOUND.BIN) in
-** sound RAM, played by the 68000 (engine/snd.c, engine/m68k/driver.c).
+** Sounds: Quake 2's own, from tools/bake_sound.py's banks (a level's: DEMO1.SND
+** for DEMO1.MAP, what every level has and its monsters') in sound RAM, played
+** by the 68000 (engine/snd.c, engine/m68k/driver.c).
 ** One heard in the world is quieter the further it is from the view, by
 ** Quake's attenuations (ATTN_NORM: silent at 1,000 units; IDLE at 500;
 ** STATIC at 333), and panned to the side of the view it's on.
@@ -10,9 +11,31 @@
 
 static bool         s_ready;
 
-void                s_init(void)
+/* the level's bank: its map's name, .SND */
+static void         bank_file(char *out, const char *map)
 {
-    s_ready = snd_init("SOUND.BIN");
+    int             i;
+
+    for (i = 0; map[i] && map[i] != '.' && i < 10; ++i)
+        out[i] = map[i];
+    memcpy(out + i, ".SND", 5);
+}
+
+void                s_init(const char *map)
+{
+    char            f[16];
+
+    bank_file(f, map);
+    s_ready = snd_init(f);
+}
+
+/* a new level: its bank in place of the last */
+void                s_level(const char *map)
+{
+    char            f[16];
+
+    bank_file(f, map);
+    s_ready = snd_bank(f);
 }
 
 /* id at origin (NULL: the player's own, full and in the middle) */

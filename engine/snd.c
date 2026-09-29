@@ -70,6 +70,31 @@ bool                snd_init(const char *file)
     return true;
 }
 
+/* Another bank (a new level's): the 68000 held while it's read in over the last, the
+   mailbox cleared, and off again (it reads the bank's tables as it starts). The pad's asks
+   of the SMPC (the vblank-out interrupt, sys.c) are held meanwhile: one landing between
+   ours would be taken for it */
+bool                snd_bank(const char *file)
+{
+    bool            pads = pad_by_vblank(false);
+    int             i;
+
+    ready = false;
+    smpc(0x07);                         /* SNDOFF */
+    snd_size = cd_load(file, (void *)(0x25A00000 + SND_BANK_BASE), SND_DSP_RING - SND_BANK_BASE);
+    for (i = 0; i < 128; ++i)
+        MBOX[i] = 0;
+    if (snd_size >= 32)
+    {
+        smpc(0x06);                     /* SNDON */
+        for (i = 0; i < 0x200000 && MBOX[MB_MAGIC] != SND_ALIVE; ++i)
+            ;
+        ready = MBOX[MB_MAGIC] == SND_ALIVE && MBOX[MB_STATUS] == 0;
+    }
+    pad_by_vblank(pads);
+    return ready;
+}
+
 void                snd_music(int id)
 {
     requested = id;

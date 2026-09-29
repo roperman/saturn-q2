@@ -841,3 +841,24 @@ on hard); Comm Center's four are left out, its cart has no room.
 - **Checked**: `MAP=demo2 OPT=-DGUNNER_TEST` stands you on its ledge, god mode:
   it opens up with the chaingun and lobs grenades, and it goes down to the
   blaster (health 175). All three levels load.
+
+## 20. A sound bank a level
+
+Sound RAM was full (the gunner's sounds left 4 KB). Now:
+
+- **A bank a level** (tools/bake_sound.py: cd/DEMO1.SND ...): what every
+  level has (weapons, the player, items, doors, menus) and the sounds of the
+  monsters in it (the soldiers', the infantry's, the gunner's: by their
+  names' start, against the map's entities; Comm Center's gunners, left out
+  anyway, not). The ids are the same in every bank; one a level hasn't got
+  is a moment's silence there. `load_level` reads the level's in
+  (`s_level`, `snd_bank`: the 68000 held in reset, the bank read over the
+  last, the mailbox cleared, the 68000 let go; the pad's asks of the SMPC,
+  from the vblank-out interrupt, held off meanwhile).
+- **More of sound RAM for the bank**: the reverb's delay lines are 16 KB but
+  had 64 KB above the bank; they're at the top now (0x7A000). And the bank
+  starts at 0x2000, not 0x8000 (the driver's 4.6 KB and its stack below; the
+  build checks it). 480 KB for a bank (was 416).
+- **Free now**: Outer Base 105 KB, Installation 68 KB, Comm Center 105 KB
+  (was 4 KB for all). Checked in a recording (Mednafen's -soundrecord): the
+  blaster on Outer Base, and on Installation after the level's changed.

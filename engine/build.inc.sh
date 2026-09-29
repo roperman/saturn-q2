@@ -39,7 +39,10 @@ PY
         "$m68-gcc" $cf68 -c "$ENGINE/m68k/lib.c" -o obj/m68k_lib.o
         "$m68-ld" --no-warn-rwx-segments -T "$ENGINE/m68k/link.ld" -Map obj/m68k.map -o obj/m68k.elf obj/m68k_crt0.o obj/m68k_driver.o obj/m68k_lib.o
         "$m68-objcopy" -O binary obj/m68k.elf "$gen/snd68k.bin"
-        if [ "$(stat -c %s "$gen/snd68k.bin")" -gt 28672 ]; then
+        # (its end, .bss and all, and 1 KB of stack below the sound bank at 0x2000: engine/snd68k.h)
+        local drv_end
+        drv_end=$(grep "__bss_end = \." obj/m68k.map | awk '{print $1}')
+        if [ $((drv_end + 1024)) -gt $((0x2000)) ]; then
             echo "68000 driver too big for its space below the sound bank" >&2
             return 1
         fi

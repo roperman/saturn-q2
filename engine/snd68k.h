@@ -3,17 +3,17 @@
 ** where things live in the 512 KB of sound RAM, and the mailbox between them.
 ** Addresses are the 68000's; the SH-2 sees sound RAM at 0x25A00000.
 **
-**   0x00000  68000 vectors, then the driver's code and data
-**   0x08000  (stack top) the sound bank: tables, songs, samples (SOUND.BIN)
-**   0x70000  the reverb's delay lines (the SCSP DSP's ring buffer, 16 KB)
+**   0x00000  68000 vectors, then the driver's code and data (4.6 KB)
+**   0x02000  (stack top) the sound bank: tables, songs, samples (a level's .SND)
+**   0x7A000  the reverb's delay lines (the SCSP DSP's ring buffer, 16 KB)
 **   0x7FF00  the mailbox page
 */
 #ifndef SND68K_H
 #define SND68K_H
 
-#define SND_BANK_BASE       0x8000
+#define SND_BANK_BASE       0x2000          /* (engine/m68k/crt0.s's stack top, the same) */
 #define SND_MBOX            0x7FF00
-#define SND_DSP_RING        0x70000         /* the bank must end below this */
+#define SND_DSP_RING        0x7A000         /* the bank must end below this (8 KB aligned, 16 KB long) */
 
 /* commands, SH-2 -> 68000: a ring of words, op << 12 | argument */
 #define SND_CMD_PLAY        1       /* argument: song id */

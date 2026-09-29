@@ -16,9 +16,10 @@ if [ ! -f "$OUT" ] || [ -n "$(find tools -newer "$OUT" -name '*.py')" ]; then
 fi
 # the status bar's pictures
 [ -f cd/HUD.BIN ] && [ cd/HUD.BIN -nt tools/bake_hud.py ] || python3 tools/bake_hud.py data/pak0.pak cd/HUD.BIN
-# the sound effects (and their ids for the C)
-[ -f cd/SOUND.BIN ] && [ -f obj/gen/sound_ids.h ] && [ cd/SOUND.BIN -nt tools/bake_sound.py ] \
-    || python3 tools/bake_sound.py data/pak0.pak cd/SOUND.BIN obj/gen/sound_ids.h
+# the sound effects, a bank a level (and their ids for the C)
+rm -f cd/SOUND.BIN
+[ -f cd/DEMO3.SND ] && [ -f obj/gen/sound_ids.h ] && [ cd/DEMO3.SND -nt tools/bake_sound.py ] \
+    || python3 tools/bake_sound.py data/pak0.pak cd obj/gen/sound_ids.h
 # the models (tools/models.txt): whichever are out of date
 python3 tools/bake_models.py data/pak0.pak cd
 # built small (engine/build.inc.sh): start-up, menus, saving, the CD, trigger targets, the gunner (one level's)

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Quake 2's sound effects into a sound bank for the SCSP (engine/m68k/driver.c).
+"""Quake 2's sound effects into a sound bank for the SCSP (engine/m68k/driver.c),
+one a level: what every level has, and the sounds of the monsters in it.
 
-    bake_sound.py data/pak0.pak cd/SOUND.BIN obj/gen/sound_ids.h
+    bake_sound.py data/pak0.pak cd obj/gen/sound_ids.h      (cd/DEMO1.SND ...)
 
+The ids are the same in every level's bank (a sound a level hasn't got is a
+moment's silence there); src/sound.c loads a level's as the level loads.
 The wavs are 22 kHz 16-bit mono; here they're 11 kHz 8-bit (a quarter the
-size: the bank has 425 KB of sound RAM), each cut to at most its `secs`.
+size: the bank has 480 KB of sound RAM), each cut to at most its `secs`.
 The bank's layout is the taxi game's (tools/gen_sound.py there):
 
     "SND1" u32 meta_size
@@ -21,15 +24,27 @@ The bank's layout is the taxi game's (tools/gen_sound.py there):
 
 The header of ids (SND_<NAME>) is for src/sound.c.
 """
+import os
 import struct
 import sys
 
-sys.path.insert(0, __import__("os").path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(__file__))
 from bake_map import Pak                    # noqa: E402
+from q2data import Bsp                      # noqa: E402
+
+MAPS = ["demo1", "demo2", "demo3"]
+# the monsters' sounds (by the name's start): only in the banks of levels with those monsters
+MONSTER_SOUNDS = {
+    "sol_": ("monster_soldier_light", "monster_soldier", "monster_soldier_ss"),
+    "inf_": ("monster_infantry",),
+    "gun_": ("monster_gunner",),
+}
+# monsters a level has that are left out anyway (src/model.c: Comm Center's cart has no room for the gunner)
+LEFT_OUT = {"demo3": ("monster_gunner",)}
 
 RATE = 11025
-BASE = 0x8000                               # engine/snd68k.h SND_BANK_BASE
-TOP = 0x70000                               # SND_DSP_RING: the reverb's delay lines
+BASE = 0x2000                               # engine/snd68k.h SND_BANK_BASE
+TOP = 0x7A000                               # SND_DSP_RING: the reverb's delay lines
 
 # name, the file under sound/, the most seconds kept, its volume (0-127)
 SOUNDS = [
@@ -150,45 +165,61 @@ def pitch_reg(freq):
     return ((octv & 0xF) << 11) | max(0, min(1023, fns))
 
 
+def bank(samples, have):
+    """a bank: every id, those the level hasn't got a moment's silence"""
+    n = len(SOUNDS)
+    hdr_len = 4 + 4 + 8 + 16
+    pitch_off = hdr_len
+    inst_off = pitch_off + 256
+    song_off = inst_off + 20 * (n + 1)
+    sfx_off = song_off + 4
+    meta_size = sfx_off + 4 * n
+    meta_size += -meta_size % 16
+    head = struct.pack(">4sI", b"SND1", meta_size)
+    head += struct.pack(">HHHH", n + 1, 0, n, BASE >> 8)
+    head += struct.pack(">IIII", inst_off, song_off, sfx_off, pitch_off)
+    insts = b""
+    data = b""
+    pitch = pitch_reg(RATE)
+    for pcm in [samples[i] if have[i] else b"" for i in range(n)] + [b"\0" * 4]:
+        if not pcm:
+            insts += b"\0" * 20                # (not used: its sfx is the silence, the last)
+            continue
+        sa = BASE + meta_size + len(data)
+        # one-shots at their own pitch: attack at once, no decay, a quick release
+        insts += struct.pack(">IHHBBBBBBBBHH", sa, 0, len(pcm) - 1, 2 | 4, 31, 0, 0, 0, 20, 0, 0, pitch, 0)
+        data += pcm + b"\0" * (-len(pcm) % 4)
+    meta = head + b"\0" * 256 + insts + b"\0" * 4
+    meta += b"".join(struct.pack(">BBBB", i if have[i] else n, 0, SOUNDS[i][3], 0) for i in range(n))
+    meta += b"\0" * (meta_size - len(meta))
+    return meta + data, len(data)
+
+
 def main():
     pak = Pak(sys.argv[1])
     samples = []
     for name, path, secs, vol in SOUNDS:
         v, rate = wav_pcm(pak.read("sound/%s.wav" % path))
         samples.append(to_11k8(v, rate, secs))
-    n = len(SOUNDS)
-    hdr_len = 4 + 4 + 8 + 16
-    pitch_off = hdr_len
-    inst_off = pitch_off + 256
-    song_off = inst_off + 20 * n
-    sfx_off = song_off + 4
-    meta_size = sfx_off + 4 * n
-    meta_size += -meta_size % 16
-    head = struct.pack(">4sI", b"SND1", meta_size)
-    head += struct.pack(">HHHH", n, 0, n, BASE >> 8)
-    head += struct.pack(">IIII", inst_off, song_off, sfx_off, pitch_off)
-    insts = b""
-    data = b""
-    pitch = pitch_reg(RATE)
-    for pcm in samples:
-        sa = BASE + meta_size + len(data)
-        # one-shots at their own pitch: attack at once, no decay, a quick release
-        insts += struct.pack(">IHHBBBBBBBBHH", sa, 0, len(pcm) - 1, 2 | 4, 31, 0, 0, 0, 20, 0, 0, pitch, 0)
-        data += pcm + b"\0" * (-len(pcm) % 4)
-    meta = head + b"\0" * 256 + insts + b"\0" * 4
-    meta += b"".join(struct.pack(">BBBB", i, 0, SOUNDS[i][3], 0) for i in range(n))
-    meta += b"\0" * (meta_size - len(meta))
-    blob = meta + data
-    if BASE + len(blob) > TOP:
-        sys.exit("bake_sound: %d bytes, more than sound RAM's %d" % (len(blob), TOP - BASE))
-    open(sys.argv[2], "wb").write(blob)
+    for m in MAPS:
+        classes = {e.get("classname") for e in Bsp(pak.read("maps/%s.bsp" % m)).parse_entities()}
+        classes -= set(LEFT_OUT.get(m, ()))
+        have = []
+        for name, _, _, _ in SOUNDS:
+            tag = next((t for t in MONSTER_SOUNDS if name.startswith(t)), None)
+            have.append(tag is None or any(c in classes for c in MONSTER_SOUNDS[tag]))
+        blob, ndata = bank(samples, have)
+        if BASE + len(blob) > TOP:
+            sys.exit("bake_sound: %s: %d bytes, more than sound RAM's %d" % (m, len(blob), TOP - BASE))
+        with open(os.path.join(sys.argv[2], m.upper() + ".SND"), "wb") as f:
+            f.write(blob)
+        print("%s.SND: %d effects, %d KB of samples (%d KB free)" % (m.upper(), sum(have), ndata // 1024,
+                                                                    (TOP - BASE - len(blob)) // 1024))
     with open(sys.argv[3], "w") as f:
         f.write("/* generated by tools/bake_sound.py */\n")
         for i, (name, _, _, _) in enumerate(SOUNDS):
             f.write("#define SND_%s (%d)\n" % (name.upper(), i))
-        f.write("#define SND_COUNT (%d)\n" % n)
-    print("SOUND.BIN: %d effects, %d KB of samples (%d KB free)" % (n, len(data) // 1024,
-                                                                   (TOP - BASE - len(blob)) // 1024))
+        f.write("#define SND_COUNT (%d)\n" % len(SOUNDS))
 
 
 if __name__ == "__main__":

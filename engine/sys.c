@@ -242,10 +242,16 @@ void                pad_vblank(void)
         intback();
 }
 
-/* on: the vblank-out interrupt's running (vdp_set_pipelined) and nothing else asks the SMPC for anything */
-void                pad_by_vblank(bool on)
+/* on: the vblank-out interrupt's running (vdp_set_pipelined) and nothing else asks the SMPC for
+   anything (snd_bank holds it off). What it was */
+bool                pad_by_vblank(bool on)
 {
+    bool            was = by_vblank;
+
     by_vblank = on;
+    while (SMPC_SF & 1)
+        ;                               /* (one asked for already: its answer in) */
+    return was;
 }
 
 u16                 pad_collect(void)

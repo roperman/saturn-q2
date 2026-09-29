@@ -1,5 +1,5 @@
 /* The 68000 sees sound RAM from address 0: vectors, then the driver. It must
-   stay under 0x7000 or so, below its stack and the sound bank at 0x8000. */
+   stay under 0x1C00 or so, below its stack and the sound bank at 0x2000. */
 ENTRY(_start)
 SECTIONS
 {

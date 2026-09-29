@@ -2,7 +2,7 @@
 | of sound RAM and releases the 68000 (SMPC SNDON); it reads its stack and
 | first PC from the vector table at address 0.
         .section .vectors,"a"
-        .long   0x00008000              | stack: grows down from the sound bank
+        .long   0x00002000              | stack: grows down from the sound bank (SND_BANK_BASE)
         .long   _start
         .rept   254
         .long   unhandled               | the driver polls; no interrupts used

@@ -214,7 +214,8 @@ extern const char   *g_next_map;                /* the exit taken: "demo2$base1"
 #define ATTN_NORM       (1)
 #define ATTN_IDLE       (2)
 #define ATTN_STATIC     (3)
-void                s_init(void);
+void                s_init(const char *map);    /* at start-up: the driver, and the level's bank (DEMO1.MAP: DEMO1.SND) */
+void                s_level(const char *map);   /* a new level: its bank */
 void                s_play(int id, const s32 *origin, int atten);
 
 /* src/menu.c */

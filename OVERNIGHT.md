@@ -1111,3 +1111,59 @@ saves yet) weren't used at all: no longer built (6.6 KB of .bss with them).
 The fight benchmark's build no longer needs files built small to fit
 (`COLD_MORE`). Checked: one CPU, the six views' pixels as before; all three
 levels load (`-DLEVEL_TEST`).
+
+## 26. The slave's idle start; the DSP; dynamic lights
+
+The fight benchmark now splits the master's time before the walk (`PRE`)
+and shows the world's dynamic lights (`DLIGHTS`).
+
+**The slave's first job.** For the frame's first ~3.5 ms the slave had
+nothing to draw: the master was reading the pads, moving you (1.2 ms),
+building the entities' list (0.6) and lighting them (0.6), then setting the
+frame up (1.0). Now, with two CPUs and the game's tick during the drawing,
+the slave builds the list as the frame starts (`g_render_ents`: the game's
+done with them, its tick ran in the last frame's drawing) and lights them
+once the master has the camera (`ents_light_pvs`, told by the master whether
+the PVS marked is the camera's: render_world may be marking a new one
+meanwhile). The master waits, if it must, only when render_world puts the
+entities in their leaves, and purges its cache for what the slave wrote.
+Moving you is slower with the slave on the same bus (1.20 -> 1.48 ms), but
+the master's time before the walk is 3.70 -> 3.04 ms, and the fight's CPU
+34.2-35.0 -> 33.5-34.1 ms. `OPT=-DNO_PRE_SLAVE`: as before.
+
+**The DSP.** Looked at for three jobs:
+- *the gun's vertices*: nothing to take. The gun keeps its drawing from
+  frame to frame (the fight's `GUN US ... K414`: 0.4 ms, none of it
+  vertices).
+- *the models' lighting*: 0.7 ms a fight frame, when a dynamic light's near
+  a model (162 normals against each light). The DSP could do the dot
+  products, a third of it: ~0.2 ms off a frame, for a second DSP program
+  and a hand-off mid-drawing. Not done.
+- *the world's dynamic lights*: the big one, but not the DSP's kind of work
+  (below).
+
+**Dynamic lights.** `OPT=-DDL_BENCH` puts three lights by the camera in each
+of the static benchmark's views (radius 200, a muzzle flash's colour):
+
+| six views summed | CPU |
+|---|---|
+| no dynamic lights | 150.5 ms |
+| three lights (dl_row) | 205.1 |
+| three lights, the grid points' sums skipped (`-DNO_DL_SUMS`) | 163.2 |
+| three lights, dl_face | 204.7 |
+| three lights, dl_face with the reach tests | 200.9 |
+
+Three lights near you cost ~9 ms a frame, 7 of it adding them at the lit
+faces' grid points. `dl_face` does a face at a time (each light over all
+its points, the sums packed three to a word) and skips a light for a face
+or a row when the box of its points is out of its reach; the same sums bit
+for bit (`-DDLF_CHECK`: 0 different in 20,227 lit faces). It gains little:
+at ~50 cycles a point and light the arithmetic is the floor in this form
+(the compiler's loop is already close to what assembly would do), and the
+fight's lit faces are small (15 points x lights each), where the reach
+tests cost what they save. The DSP would be no better: each face would be a
+round trip with a CPU waiting (the faces' points exist only as they're
+drawn), both CPUs would share it, the models have it first, and its
+arithmetic wouldn't match. The way down is cheaper arithmetic: the squared
+distance along a row is a quadratic (two additions a point), and so is the
+light's weight; that's ~3x faster, but rounds a little differently.

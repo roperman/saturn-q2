@@ -37,10 +37,6 @@ per face.
 - **The fight's game tick**: box traces are about 0.3 ms each in the
   gunner's fight, 18-48 of them a tick.
 - **VDP1**: some views wait for it now.
-- **HWRAM**: every byte of code takes a byte of demo1's monster frames off
-  to the cart. Code that only runs at a level's start, in the menus or at
-  boot could live in low work RAM instead (the linker places it there, the
-  start-up copies it): 10 KB or more back for the levels.
 
 ## What things cost
 
@@ -67,8 +63,10 @@ part (OVERNIGHT.md section 22): it's instructions, and LWRAM.
 - With both CPUs drawing, a change in speed moves where they meet, and a
   few pixels on seams between cells can change hands. Compare builds with
   `OPT=-DONE_CPU` (and `-DTEST_FIFO` for the master's appended order).
-- HWRAM is tight: each level uses what the code leaves for its hottest
-  data. `OPT=-DLEVEL_TEST` shows what each level has left; check all three
-  after a change that grows the code.
+- HWRAM: each level uses what the code leaves for its hottest data, so
+  code that runs only at start-up, a level's start, in the menus or seldom
+  lives in low work RAM (`engine/link.ld`'s `.lwtext`: some objects, and
+  every function marked `cold`). `OPT=-DLEVEL_TEST` shows what each level
+  has left; check all three after a change that grows the code.
 - Never write to fixed work RAM addresses (a benchmark once did, at
   0x06080000). The level data lives there.

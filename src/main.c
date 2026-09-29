@@ -38,7 +38,7 @@ static int          strlen_(const char *s)
     return n;
 }
 
-static void         message(const char *a, const char *b)
+static __attribute__((cold)) void         message(const char *a, const char *b)
 {
     int             i;
 
@@ -168,7 +168,7 @@ void                slave_main(void)
 /* debugging: next to the next door, lift or button, facing it */
 static int          warp_m;
 
-static void         warp_next(void)
+static __attribute__((cold)) void         warp_next(void)
 {
     int             tries, r, a, k;
 
@@ -206,7 +206,7 @@ static void         warp_next(void)
 /* debugging: in front of the next monster, item or barrel, facing it */
 static int          warp_e = -1;
 
-static void         warp_ent(bool items)
+static __attribute__((cold)) void         warp_ent(bool items)
 {
     int             tries, a;
 
@@ -240,7 +240,7 @@ static void         warp_ent(bool items)
 /* debugging: into the next trigger (which fires it) */
 static int          warp_t;
 
-static void         warp_trigger(void)
+static __attribute__((cold)) void         warp_trigger(void)
 {
     int             n, k;
 
@@ -295,7 +295,7 @@ static bool         same(const char *a, const char *b)
 /* "demo2" in place of this level, you at its start called spot (NULL, or not
    found: the usual one); keep: you as you were (health, armour, weapons, ammo),
    as from one of Quake's levels to the next. false: it's not on the disc */
-static bool         load_level(const char *name, const char *spot, bool keep)
+static __attribute__((cold)) bool         load_level(const char *name, const char *spot, bool keep)
 {
     char            file[16], at[16];
     g_client        was = client;
@@ -368,7 +368,7 @@ static bool         load_level(const char *name, const char *spot, bool keep)
 }
 
 /* the level from the start: its movers, its monsters and items (at the skill chosen), you */
-static void         new_game(void)
+static __attribute__((cold)) void         new_game(void)
 {
     movers_init();
     g_init();

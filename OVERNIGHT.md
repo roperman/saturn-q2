@@ -1082,3 +1082,32 @@ hud.c, sound.c and g_items.c; the brightness code too. Even so demo1 has
 demo2 and demo3 1.7 KB less HWRAM left. Built small the water code would
 cost 1 ms more over the pool for 450 bytes: not worth it. PLAN.md has a
 better way (the cold code in low work RAM).
+
+## 25. The seldom-run code in low work RAM
+
+High work RAM is the fast one, and each level fills what the code leaves
+with its hottest data: every byte of code was a byte of demo1's monster
+frames pushed to the cart. Now the code that runs only at start-up, a
+level's start, in the menus or seldom lives in low work RAM:
+`engine/link.ld`'s `.lwtext` takes level.c's code (but `level_leaf`, marked
+hot: it's each frame, for each entity), menu.c's, cd.c's, g_target.c's,
+m_gunner.c's and cycles.c's, and every function marked `cold` (render_init,
+the brightness's, main.c's level loading and debugging warps). It's linked
+to run at 0x00200000 but loaded after .data; crt0 copies it down before it
+clears .bss, which is laid over where it was loaded, so it costs high work
+RAM nothing. The levels' low work RAM starts after it (15 KB). And
+engine/rotplane.c (the taxi's city floor) and bup.c (backup RAM: nothing
+saves yet) weren't used at all: no longer built (6.6 KB of .bss with them).
+
+| | before | after |
+|---|---|---|
+| code in HWRAM | 127.8 KB | 109.7 KB (15.1 KB in LWRAM) |
+| demo1: HWRAM left / its monsters' frames on the cart | 2.5 KB / 14.8 KB | 12.3 KB / none |
+| demo2: HWRAM left | 25.3 KB | 49.8 KB (more of the traces' data in it) |
+| demo3: HWRAM / LWRAM / cart left | 5.5 / 14.0 / 8.2 KB | 17.5 / 25.5 / 36.9 KB |
+| the static benchmark, six views summed | 152.1 ms | 149.6 (the models 5.1 -> 4.5 ms) |
+| the fight: CPU a frame | 35.4-35.8 ms | 34.4-34.5 |
+
+The fight benchmark's build no longer needs files built small to fit
+(`COLD_MORE`). Checked: one CPU, the six views' pixels as before; all three
+levels load (`-DLEVEL_TEST`).

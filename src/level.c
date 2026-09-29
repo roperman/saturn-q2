@@ -20,6 +20,7 @@
 q_level             lv;
 int                 cart_mb;
 extern u8           _bss_end[];         /* the linker's __bss_end (C names get an underscore) */
+extern u8           _lwtext_end[];      /* the end of the code kept in low work RAM (engine/link.ld) */
 
 /* The cart is on the A-bus, slow to read even through the cache. What the
    renderer reads every frame is copied into work RAM: the BSP into high
@@ -252,7 +253,7 @@ bool                level_load(const char *name)
     lv.nstarts = (int)h[57];
     cart_next = CART_BASE + (((u32)size + 2047) & ~2047u);
     hw_next = (u8 *)(((u32)_bss_end + 15) & ~15u);
-    lw_next = LWRAM_BASE;
+    lw_next = (u8 *)(((u32)_lwtext_end + 15) & ~15u);   /* (after the code that lives there) */
     lv.nodes = hot(lv.nodes, (u32)lv.nnodes * sizeof(q_node), true);
     lv.planes = hot(lv.planes, (u32)lv.nplanes * sizeof(q_plane), true);
     lv.leafs = hot(lv.leafs, (u32)lv.nleafs * sizeof(q_leaf), true);
@@ -278,7 +279,7 @@ bool                level_load(const char *name)
     return true;
 }
 
-int                 level_leaf(const s32 *p)
+__attribute__((hot)) int level_leaf(const s32 *p)     /* (each frame, for each entity: kept in high work RAM) */
 {
     int             n = 0;
 

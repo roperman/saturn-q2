@@ -52,7 +52,7 @@ PY
     # the code's in high work RAM with the level's hottest data: what's rarely run is built
     # small (COLD: file names), leaving that room to the level
     local cold=" ${COLD:-} "
-    for s in "$ENGINE/crt0.s" "$ENGINE/sys.c" "$ENGINE/vdp.c" "$ENGINE/dsp.c" "$ENGINE/rotplane.c" "$ENGINE/sky.c" "$ENGINE/lzss.c" "$ENGINE/bup.c" "$ENGINE/cd.c" $snd $srcs; do
+    for s in "$ENGINE/crt0.s" "$ENGINE/sys.c" "$ENGINE/vdp.c" "$ENGINE/dsp.c" "$ENGINE/sky.c" "$ENGINE/lzss.c" "$ENGINE/cd.c" $snd $srcs; do
         o=obj/$(basename "${s%.*}").o
         case "$cold" in
             *" $(basename "$s") "*) "$CC" $cflags -Os -c "$s" -o "$o" ;;

@@ -7,30 +7,34 @@ RAM cart.
 
 ## Why, and how it's made
 
-I'm making this with Claude, Anthropic's AI model (Claude Opus 5.5). Claude
-has written the code, with me directing: what to work on next, the
-trade-off calls (detail against speed, memory, latency), and playing it. I'm
-doing it to show how easy it now is to make code efficient on old hardware.
+> I'm porting Quake 2 to the Saturn with Claude, Anthropic's AI model, to
+> show how easy it now is to make code efficient on old hardware. I choose
+> what to work on, make the calls where there's a trade-off, and play it.
+> Claude has written most of the code, so the rest of this is in its words.
+> *Danny*
 
-The Saturn has two 28 MHz SH-2 CPUs with 4 KB caches, 2 MB of work RAM and a
-sprite chip that draws quads with no perspective correction and no depth
-buffer. Getting Quake 2 onto that is mostly a job of finding where the time
-goes and taking it back. The speed-ups here mostly went the same way:
-- Claude measures a frame (profile builds, benchmarks that play back fixed
-  views and a scripted fight);
-- finds the hot spot, and tries an idea: often SH-2 assembly, sometimes
-  moving data to faster memory or work to another processor;
-- checks the result: the picture compared pixel for pixel with the build
+I'm Claude (Claude Opus 5.5). The Saturn has two 28 MHz SH-2 CPUs with 4 KB
+caches, 2 MB of work RAM and a sprite chip that draws quads with no
+perspective correction and no depth buffer. Getting Quake 2 onto that has
+mostly been a job of finding where the time goes and winning it back, which
+for me has been the same loop over and over:
+- measure a frame (profile builds, and benchmarks that play back six fixed
+  views or a scripted fight);
+- find the hot spot and try an idea: often SH-2 assembly, sometimes moving
+  data into faster memory or work onto another processor (the SCU's DSP,
+  the second SH-2);
+- check the result: the picture compared pixel for pixel with the build
   before, and new assembly run alongside the C it replaces, result for
   result;
-- keeps the change only if the numbers got better.
+- keep the change only if the numbers got better.
 
-Changes that trade looks for speed (a coarser grid for far-off walls, say)
-are switches, and those calls are mine.
+Anything that trades looks for speed (a coarser grid for far-off walls,
+say) is a switch, and that call is Danny's, as is any that costs memory or
+latency.
 
-[OVERNIGHT.md](OVERNIGHT.md) is the log of all of it: every change, why it
-was made, the before and after measurements, and the ideas that didn't pay.
-Every commit has Claude as co-author.
+[OVERNIGHT.md](OVERNIGHT.md) is my log of it all: each change, why I made
+it, what I measured before and after, and the ideas that didn't pay. Every
+commit has me as co-author.
 
 Two numbers from that log (Mednafen, PAL):
 

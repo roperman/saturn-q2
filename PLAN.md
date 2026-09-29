@@ -3,8 +3,9 @@
 The approach: as much detail as we dare first, then win the frame rate back
 (assembly, data layout, the other processors) rather than cutting detail up
 front. Anything that would change the look is a switch, compared pixel by
-pixel, and the call is mine; the rest has to leave the picture exactly as it
-was. [OVERNIGHT.md](OVERNIGHT.md) has what's been done, section by section.
+pixel, and Danny makes the call; everything else has to leave the picture
+exactly as it was. [OVERNIGHT.md](OVERNIGHT.md) has what's been done,
+section by section.
 
 ## Next: the game
 

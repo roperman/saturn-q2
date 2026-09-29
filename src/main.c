@@ -1003,6 +1003,14 @@ void                main(void)
             vdp_printf(8, 106 + NBENCH * 9, RGB(255, 220, 120), "A %4d %4d %4d %4d %4d", tot[0] / 100,
                        tot[1] / 100, tot[2] / 100, tot[3] / 100, tot[4] / 100);
             n *= NBENCH;
+#ifdef FACE_CHECK
+            {
+                extern u32 face_checks, face_diffs, face_rows3, face_lods;
+
+                vdp_printf(8, 70, RGB(255, 255, 120), "FACES %d DIFF %d ROWS %d FAR %d", face_checks, face_diffs,
+                           face_rows3, face_lods);
+            }
+#endif
 #ifdef R_PROFILE
             vdp_printf(8, 88, RGB(160, 255, 160), "XFORM %d CPRE %d ROWS %d RF %d CELLS %d", bench_ax[0] / n / 100,
                        bench_ax[1] / n / 100, bench_ax[2] / n, bench_ax[7] / n, bench_ax[3] / n);        /* (n: frames x views, here) */
@@ -1131,6 +1139,14 @@ void                main(void)
                     vdp_printf(8, 2, RGB(255, 255, 120), "LINES %d DIFF %d", line_checks, line_diffs);
                 }
 #endif
+#ifdef FACE_CHECK
+                {
+                    extern u32 face_checks, face_diffs, face_rows3, face_lods;
+
+                    vdp_printf(8, 2, RGB(255, 255, 120), "FACES %d DIFF %d ROWS %d FAR %d", face_checks, face_diffs,
+                               face_rows3, face_lods);
+                }
+#endif
                 vdp_printf(8, 29, RGB(255, 200, 160), "US G%d C%d M%d E%d LINES %d N%d US%d", fight_tt[0] / 10,
                            fight_tt[1] / 10, fight_tt[2] / 10, fight_tt[3] / 10, fight_tr[7] / n,
                            fight_tr[6] / imax(fight_tr[7], 1), fight_tt[4] / 10);
@@ -1152,6 +1168,14 @@ void                main(void)
             for (k = 0; k < 3; ++k)
                 vdp_printf(8, 30 + k * 9, RGB(255, 255, 120), "HW %d LW %d CA %d COLD %d", lt_hw[k][0], lt_hw[k][1],
                            lt_hw[k][2], lt_hw[k][3]);
+        }
+#endif
+#if defined(LEVEL_TEST) && defined(FACE_CHECK)
+        {
+            extern u32 face_checks, face_diffs, face_rows3, face_lods;
+
+            vdp_printf(8, 57, RGB(255, 255, 120), "FACES %d DIFF %d ROWS %d FAR %d", face_checks, face_diffs, face_rows3,
+                       face_lods);
         }
 #endif
         if (level_complete)

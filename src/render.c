@@ -35,6 +35,11 @@
 #define FOCAL           (160)               /* 90 degrees across */
 #define NEAR_Z          FIX(8)
 #define MAX_ROW         (257)
+#ifdef ROWS_TEST
+#define WHOLE_MAX       (12)                /* (test: most faces a row at a time; face.s's too, -Wa,--defsym,ROWS_TEST=1) */
+#else
+#define WHOLE_MAX       (2 * MAX_ROW)       /* a face's grid points: at most, for the whole grid at once */
+#endif
 #define MAX_SLOTS       (3072)              /* (VRAM has room for about 2,800) */
 #define MAX_VIS         (2048)              /* (busy views list about 500) */
 #ifndef CLAMP_XY
@@ -130,6 +135,38 @@ _Static_assert(__builtin_offsetof(cell_args, top) == 60 && __builtin_offsetof(ce
 _Static_assert(__builtin_offsetof(cell_args, cell0) == 96 && __builtin_offsetof(cell_args, cl0) == 100
                && __builtin_offsetof(cell_args, slot_w) == 132, "src/cells.s: C_ROW, C_CROP");
 void                cells_asm(cell_args *a);
+
+/* src/face.s: a face's setup (face_setup's, bit for bit). Its results first (small
+   offsets), then the frame's (face_frame); the offsets are face.s's A_ */
+typedef struct
+{
+    v3              fo;                     /* its first grid point (view space; its steps: ga, gk) */
+    int             fnu, fnv;
+    v3              dut, dvt;               /* its axes, one stored texel apart */
+    int             eu0, eu1, ev0, ev1;     /* its edge columns' and rows' texels */
+    const q_cell    *cells;
+    const u16       *light;
+    s32             rt[3], up[3], fw[3];    /* the camera's axes, */
+    s32             pos[3];                 /* and where it is */
+    s32             ky, lod_z, rcp_n;
+    u32             frame;
+    const s32       *mover_ofs;
+    s32             *axis_view;
+    const s32       *axes;
+    const q_face    *faces;
+    const q_cell    *cells0, *lodcells;
+    const u16       *lights0, *lodlights;
+    const q_lodface *lodfaces;
+    s32             N;
+    gv              *grid;
+    grid_args       *ga;
+    s32             *gk;
+}                   face_args;
+_Static_assert(__builtin_offsetof(face_args, light) == 64 && __builtin_offsetof(face_args, rt) == 68
+               && __builtin_offsetof(face_args, frame) == 128 && __builtin_offsetof(face_args, gk) == 180
+               && sizeof(q_face) == 32 && sizeof(q_lodface) == 16 && __builtin_offsetof(q_face, firstcell) == 24
+               && __builtin_offsetof(grid_args, e1) == 36, "src/face.s: face_args");
+int                 face_asm(face_args *a, int fi, int model);   /* (OPT=-DNO_FACE_ASM: face_setup, the C) */
 bool                r_cells_asm = true;
 bool                r_nosplit;              /* (for comparing: whole tiles near the camera in one piece) */
 bool                r_dl_verts = true;
@@ -165,9 +202,7 @@ typedef struct
     s32             gk[22];                 /* grid_k, and grid_face_asm's (the guard band at the end, as grid_k) */
     grid_args       ga;
     cell_args       ca;
-    v3              fo;                     /* the face's first grid point (its steps: ga, gk) */
-    int             fnu, fnv;
-    v3              dut, dvt;               /* the face's axes, one stored texel apart (view space) */
+    face_args       fa;                     /* a face's setup (its first grid point, its steps: ga, gk) */
     u8              dmask;                  /* the dynamic lights reaching this face */
     bool            lit;                    /* ...added to the face's lights at its grid points already */
     const u16       *raw_light;             /* (then: the face's own lights, for cell_split) */
@@ -1044,14 +1079,14 @@ static __attribute__((noinline)) void cell_pos(const r_ctx *x, int i, int j, v3 
     const v3        *f = (const v3 *)&x->gk[GK_F0];     /* f0, dv, f1 */
     v3              a0, a1, b0, b1;
 
-    grid_step(&a0, &x->ga.e0, &x->ga.d, &x->ga.e1, x->fnu, i);
-    grid_step(&a1, &x->ga.e0, &x->ga.d, &x->ga.e1, x->fnu, i + 1);
-    grid_step(&b0, &f[0], &f[1], &f[2], x->fnv, j);
-    grid_step(&b1, &f[0], &f[1], &f[2], x->fnv, j + 1);
-    P[0].x = x->fo.x + a0.x + b0.x; P[0].y = x->fo.y + a0.y + b0.y; P[0].z = x->fo.z + a0.z + b0.z;
-    P[1].x = x->fo.x + a1.x + b0.x; P[1].y = x->fo.y + a1.y + b0.y; P[1].z = x->fo.z + a1.z + b0.z;
-    P[2].x = x->fo.x + a1.x + b1.x; P[2].y = x->fo.y + a1.y + b1.y; P[2].z = x->fo.z + a1.z + b1.z;
-    P[3].x = x->fo.x + a0.x + b1.x; P[3].y = x->fo.y + a0.y + b1.y; P[3].z = x->fo.z + a0.z + b1.z;
+    grid_step(&a0, &x->ga.e0, &x->ga.d, &x->ga.e1, x->fa.fnu, i);
+    grid_step(&a1, &x->ga.e0, &x->ga.d, &x->ga.e1, x->fa.fnu, i + 1);
+    grid_step(&b0, &f[0], &f[1], &f[2], x->fa.fnv, j);
+    grid_step(&b1, &f[0], &f[1], &f[2], x->fa.fnv, j + 1);
+    P[0].x = x->fa.fo.x + a0.x + b0.x; P[0].y = x->fa.fo.y + a0.y + b0.y; P[0].z = x->fa.fo.z + a0.z + b0.z;
+    P[1].x = x->fa.fo.x + a1.x + b0.x; P[1].y = x->fa.fo.y + a1.y + b0.y; P[1].z = x->fa.fo.z + a1.z + b0.z;
+    P[2].x = x->fa.fo.x + a1.x + b1.x; P[2].y = x->fa.fo.y + a1.y + b1.y; P[2].z = x->fa.fo.z + a1.z + b1.z;
+    P[3].x = x->fa.fo.x + a0.x + b1.x; P[3].y = x->fa.fo.y + a0.y + b1.y; P[3].z = x->fa.fo.z + a0.z + b1.z;
 }
 
 /* Row j of the face's lights with the dynamic lights added: at the grid
@@ -1062,9 +1097,9 @@ static __attribute__((noinline)) void dl_row(const r_ctx *x, u16 *out, const u16
 {
     const v3        *f = (const v3 *)&x->gk[GK_F0];
     v3              a, b, V;
-    int             i, n = x->fnu;
+    int             i, n = x->fa.fnu;
 
-    grid_step(&b, &f[0], &f[1], &f[2], x->fnv, j);
+    grid_step(&b, &f[0], &f[1], &f[2], x->fa.fnv, j);
     a.x = a.y = a.z = 0;
     for (i = 0; i <= n; ++i)
     {
@@ -1076,7 +1111,7 @@ static __attribute__((noinline)) void dl_row(const r_ctx *x, u16 *out, const u16
 
             a.x += st->x; a.y += st->y; a.z += st->z;
         }
-        V.x = x->fo.x + a.x + b.x; V.y = x->fo.y + a.y + b.y; V.z = x->fo.z + a.z + b.z;
+        V.x = x->fa.fo.x + a.x + b.x; V.y = x->fa.fo.y + a.y + b.y; V.z = x->fa.fo.z + a.z + b.z;
         out[i] = dlight_add(x->dmask, &V, raw[i]);
     }
 }
@@ -1088,7 +1123,7 @@ static void         dl_check(const r_ctx *x, const u16 *lit, const u16 *raw, int
     int             i;
     v3              P[4];
 
-    for (i = 0; i < x->fnu; ++i)
+    for (i = 0; i < x->fa.fnu; ++i)
     {
         cell_pos(x, i, j, P);
         dl_checks += 4;
@@ -1279,7 +1314,7 @@ static __attribute__((noinline)) bool cell_corners(r_ctx *x, const q_cell *cell,
         }
     else
     {
-        const v3 *du = &x->dut, *dv = &x->dvt;
+        const v3 *du = &x->fa.dut, *dv = &x->fa.dvt;
         const v3 *o = &P[0];
 
         q[0].x = o->x + du->x * u0 + dv->x * v0; q[0].y = o->y + du->y * u0 + dv->y * v0; q[0].z = o->z + du->z * u0 + dv->z * v0;
@@ -1373,6 +1408,38 @@ static void         cells_face(r_ctx *x, int stride, const q_cell *cell0)
 
     a->cell0 = cell0;
     a->stride2 = (u32)stride * 2;
+}
+
+/* face.s: what's the same all frame */
+static void         face_frame(r_ctx *x)
+{
+    face_args       *a = &x->fa;
+    int             k;
+
+    for (k = 0; k < 3; ++k)
+    {
+        a->rt[k] = cam.right[k];
+        a->up[k] = cam.up[k];
+        a->fw[k] = cam.fwd[k];
+        a->pos[k] = cam.pos[k];
+    }
+    a->ky = ky;
+    a->lod_z = r_lod_z;
+    a->rcp_n = rcp_n;
+    a->frame = frame;
+    a->mover_ofs = &mover_ofs[0][0];
+    a->axis_view = axis_view;
+    a->axes = lv.axes;
+    a->faces = lv.faces;
+    a->cells0 = lv.cells;
+    a->lodcells = lv.lodcells;
+    a->lights0 = lv.lights;
+    a->lodlights = lv.lodlights;
+    a->lodfaces = lv.lodfaces;
+    a->N = lv.N;
+    a->grid = x->grid;
+    a->ga = &x->ga;
+    a->gk = x->gk;
 }
 
 /* ...and what's the same all frame (once x->fifo's set) */
@@ -1610,36 +1677,18 @@ static __attribute__((noinline)) void cell_c(r_ctx *x, const q_cell *cell, gv *t
 }
 
 
-/* A face's grid and its cells (draw_face's setup chose which grid: the face's,
-   or its coarse one): its own function, so that the setup's choosing doesn't
-   cost the compiler registers in this, the part that counts */
-typedef struct
-{
-    v3              o, du, dv;              /* the first point, a cell along u and v: view space */
-    int             nu, nv, eu0, eu1, ev0, ev1;
-    const q_cell    *cells;
-    const u16       *light;
-}                   face_grid;
+/* A face's grid and its cells. First its setup (face_asm in src/face.s;
+   face_setup here, the same bit for bit, for OPT=-DNO_FACE_ASM and
+   -DFACE_CHECK): which grid (the face's, or its coarse one when it's far),
+   whether it's in view, its steps (x->fa, x->ga, x->gk) and, if it fits,
+   the whole grid at once; then its cells (face_cells: for a big face, its
+   grid and cells a row at a time). */
 
-static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, const q_face *f, int model)
+/* the dynamic lights close enough to its plane (and in front of it) */
+static void         face_dlights(r_ctx *x, const q_face *f, int model)
 {
-    v3              o = gp->o, du = gp->du, dv = gp->dv, rowp, e0, e1, f0, f1;
-    s32             dtx, dty;
-    gv              *top = x->grid, *bot = x->grid + MAX_ROW, *tmp;
-    const u16       *light = gp->light;
-    int             i, j, nu = gp->nu, nv = gp->nv, N = lv.N, stride = nu + 1;
-    int             eu0 = gp->eu0, eu1 = gp->eu1, ev0 = gp->ev0, ev1 = gp->ev1, ct, cb, k;
-    bool            whole, fast_ok;
-    const q_cell    *row_cells = gp->cells;
-    vdp_writer      *w = x->w;
-    int             count0 = x->w->count;
-    u16             lit[2 * MAX_ROW];       /* the lights with the dynamic lights added: the whole face's, or two rows */
-#ifdef R_PROFILE
-    u32             pt = frt_read(), pt2;
-    int             gc0 = x->w->gcount;
-#endif
+    int             i;
 
-    /* the dynamic lights close enough to its plane (and in front of it) */
     x->dmask = 0;
     for (i = 0; i < r_ndlights; ++i)
     {
@@ -1653,185 +1702,22 @@ static __attribute__((noinline)) void draw_grid(r_ctx *x, const face_grid *gp, c
         if (dist > -FIX(8) && dist < r_dlights[i].radius)
             x->dmask |= (u8)(1 << i);
     }
-    /* one stored texel along each axis: times 1/N (a variable shift would be a library call) */
-    x->dut.x = fmul(du.x, rcp_n); x->dut.y = fmul(du.y, rcp_n); x->dut.z = fmul(du.z, rcp_n);
-    x->dvt.x = fmul(dv.x, rcp_n); x->dvt.y = fmul(dv.y, rcp_n); x->dvt.z = fmul(dv.z, rcp_n);
-    dtx = fmul(du.z, kx);
-    dty = fmul(du.z, ky);
-    /* the steps into and out of the face's edge columns and rows (a whole tile's if it isn't cropped) */
-    k = (nu == 1 ? eu1 : N) - eu0;
-    e0.x = x->dut.x * k; e0.y = x->dut.y * k; e0.z = x->dut.z * k;
-    e1.x = x->dut.x * eu1; e1.y = x->dut.y * eu1; e1.z = x->dut.z * eu1;
-    k = (nv == 1 ? ev1 : N) - ev0;
-    f0.x = x->dvt.x * k; f0.y = x->dvt.y * k; f0.z = x->dvt.z * k;
-    f1.x = x->dvt.x * ev1; f1.y = x->dvt.y * ev1; f1.z = x->dvt.z * ev1;
-
-    /* the grid's steps, where the assembly (and grid_pos) find them */
-    {
-        s32 *gk = x->gk;
-
-        x->ga.e0 = e0; x->ga.d = du; x->ga.e1 = e1;
-        gk[GK_F0] = f0.x; gk[GK_F0 + 1] = f0.y; gk[GK_F0 + 2] = f0.z;
-        gk[GK_F0 + 3] = dv.x; gk[GK_F0 + 4] = dv.y; gk[GK_F0 + 5] = dv.z;
-        gk[GK_F0 + 6] = f1.x; gk[GK_F0 + 7] = f1.y; gk[GK_F0 + 8] = f1.z;
-        x->fo = o;
-        x->fnu = nu;
-        x->fnv = nv;
-    }
-    PROF((pt2 = frt_read(), x->st.p_setup += (pt2 - pt) & 0xFFFF, pt = pt2));
-    /* the grid: the whole face at once if it fits (the assembly), or a row at a time */
-    whole = r_grid_asm && (nu + 1) * (nv + 1) <= 2 * MAX_ROW;
-    if (whole)
-    {
-        x->ga.p = o;
-        x->gk[GK_ROWS] = nv;
-        grid_face_asm(top, nu + 1, &x->ga, x->gk);
-        bot = top + stride;
-    }
-    else if (r_grid_asm)
-    {
-        x->ga.p = o;
-        grid_row_asm(top, nu + 1, &x->ga, grid_k);
-    }
-    else
-        grid_row(top, nu + 1, &o, &du, &e0, &e1, dtx, dty);
-    rowp = o;
-    PROF((x->st.gverts += (nu + 1) * (nv + 1), x->st.seen += nu * nv));
-    PROF((pt2 = frt_read(), x->st.p_grid += (pt2 - pt) & 0xFFFF, pt = pt2));
-    /* dynamic lights: added to the lights at each grid point, then drawn as any other face */
-    x->lit = x->dmask && r_dl_verts;
-    if (x->lit)
-    {
-        x->raw_light = light;
-        if (whole)
-        {
-            for (j = 0; j <= nv; ++j)
-                dl_row(x, lit + j * stride, light + j * stride, j);
-#ifdef DL_CHECK
-            for (j = 0; j < nv; ++j)
-                dl_check(x, lit + j * stride, light + j * stride, stride, j);
-#endif
-            light = lit;
-        }
-        else
-            dl_row(x, lit, light, 0);       /* (row 0; each row's next as it comes) */
-    }
-    fast_ok = r_cells_asm && (!x->dmask || x->lit) && !r_debug;
-    if (fast_ok)
-        cells_face(x, stride, row_cells);
-    if (whole && fast_ok && w->count + nu * nv <= w->cmax && w->gcount + nu * nv <= w->gmax)
-    {
-        /* the common cells of the whole face in assembly, then the C for what it left */
-        int n, li;
-
-        x->ca.cl0 = (u32)eu0; x->ca.cr1 = (u32)eu1; x->ca.ct0 = (u32)ev0; x->ca.cb1 = (u32)ev1;
-        x->ca.rows0 = (u32)nv;
-        PROF((pt2 = frt_read(), x->st.p_cpre += (pt2 - pt) & 0xFFFF));
-        n = cells_run(x, top, top + stride, row_cells, light, nu, nv);
-
-        PROF((x->st.nexact += n));          /* (profile: X counts the cells the assembly left) */
-        for (li = 0; li < n; ++li)
-        {
-            int c = x->ca.def[li], jj = c / nu;
-
-            i = c - jj * nu;
-            cell_c(x, row_cells + c, top + jj * stride, top + (jj + 1) * stride, light + jj * stride, stride, i, jj,
-                   i == 0 ? eu0 : 0, i == nu - 1 ? eu1 : N, jj == 0 ? ev0 : 0, jj == nv - 1 ? ev1 : N);
-        }
-        PROF((pt2 = frt_read(), x->st.p_cells += (pt2 - pt) & 0xFFFF, pt = pt2));
-    }
-    else for (j = 0; j < nv; ++j, light += stride, row_cells += nu)
-    {
-        const v3    *step = j == 0 ? &f0 : j == nv - 1 ? &f1 : &dv;
-        int         n = nu, li;
-        const u16   *list = cell_all, *lrow = light;
-
-        ct = j == 0 ? ev0 : 0;
-        cb = j == nv - 1 ? ev1 : N;
-        PROF((++x->st.n_rows, x->st.n_rfaces += j == 0));
-        if (!whole)
-        {
-            rowp.x += step->x; rowp.y += step->y; rowp.z += step->z;
-            if (r_grid_asm)
-            {
-                x->ga.p = rowp;
-                grid_row_asm(bot, nu + 1, &x->ga, grid_k);
-            }
-            else
-                grid_row(bot, nu + 1, &rowp, &du, &e0, &e1, dtx, dty);
-        }
-        if (x->lit && !whole)
-        {
-            /* the lit lights: rows j and j + 1 */
-            dl_row(x, lit + stride, x->raw_light + (j + 1) * stride, j + 1);
-#ifdef DL_CHECK
-            dl_check(x, lit, x->raw_light + j * stride, stride, j);
-#endif
-            lrow = lit;
-        }
-        /* a row at a time: the common cells in assembly if there's room in the lists */
-        if (fast_ok && w->count + nu <= w->cmax && w->gcount + nu <= w->gmax)
-        {
-            x->ca.cell0 = row_cells;
-            x->ca.cl0 = (u32)eu0; x->ca.cr1 = (u32)eu1; x->ca.ct0 = (u32)ct; x->ca.cb1 = (u32)cb;
-            x->ca.rows0 = 1;
-            n = cells_run(x, top, bot, row_cells, lrow, nu, 1);
-            list = x->ca.def;
-            PROF((x->st.nexact += n));
-        }
-        for (li = 0; li < n; ++li)
-        {
-            i = list[li];
-            cell_c(x, row_cells + i, top, bot, lrow, stride, i, j, i == 0 ? eu0 : 0, i == nu - 1 ? eu1 : N, ct, cb);
-        }
-        if (x->lit && !whole)
-            memcpy(lit, lit + stride, (u32)stride * 2);     /* (row j + 1 is the next's first) */
-        PROF((pt2 = frt_read(), x->st.p_cells += (pt2 - pt) & 0xFFFF, pt = pt2));
-        if (whole)
-        {
-            top = bot;
-            bot += stride;
-        }
-        else
-        {
-            tmp = top; top = bot; bot = tmp;
-        }
-    }
-    x->st.cells += x->w->count - count0;    /* once a face, not a store a cell */
-#ifdef R_PROFILE
-    {
-        /* (profile: Gouraud tables the same as the one before, and flat ones) */
-        const u32   *gs = x->w->gst;
-        int         k;
-
-        for (k = gc0 + 1; k < x->w->gcount; ++k)
-        {
-            x->st.g_same += gs[k * 2] == gs[k * 2 - 2] && gs[k * 2 + 1] == gs[k * 2 - 1];
-            x->st.g_flat += gs[k * 2] == gs[k * 2 + 1] && (gs[k * 2] >> 16) == (gs[k * 2] & 0xFFFF);
-        }
-    }
-#endif
 }
 
-
-static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
+#if defined(NO_FACE_ASM) || defined(FACE_CHECK)
+/* 0: nothing to draw (the sky, say); 1: out of view; 2: its steps and the whole grid
+   done; 3: its steps done, the grid too big to do at once (or the assembly grid's off) */
+static __attribute__((noinline)) int face_setup(r_ctx *x, const q_face *f, int model)
 {
-    const q_face    *f = &lv.faces[fi];
-    face_grid       g;
-    v3              o, du, dv;
-    s32             d[3];
+    face_args       *a = &x->fa;
+    v3              o, du, dv, e0, e1, f0, f1;
+    s32             d[3], zmin, *gk = x->gk;
     const u16       *light;
-    int             nu = f->nu, nv = f->nv, eu0 = f->eu0, eu1 = f->eu1, ev0 = f->ev0, ev1 = f->ev1;
+    int             nu = f->nu, nv = f->nv, eu0 = f->eu0, eu1 = f->eu1, ev0 = f->ev0, ev1 = f->ev1, k, N = lv.N;
     const q_cell    *row_cells;
-    s32             zmin;
-#ifdef R_PROFILE
-    u32             pxf;
-#endif
 
     if (f->flags & (FF_SKY | FF_NODRAW) || nu + 1 > MAX_ROW)
-        return;
-    ++x->st.faces;
-    PROF(pxf = frt_read());
+        return 0;
     d[0] = f->origin[0] + mover_ofs[model][0] - cam.pos[0];
     d[1] = f->origin[1] + mover_ofs[model][1] - cam.pos[1];
     d[2] = f->origin[2] + mover_ofs[model][2] - cam.pos[2];
@@ -1863,11 +1749,7 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
 
         if (view_oc(o.x, o.y, o.z) & view_oc(o.x + ux, o.y + uy, o.z + uz) & view_oc(o.x + vx, o.y + vy, o.z + vz)
             & view_oc(o.x + ux + vx, o.y + uy + vy, o.z + uz + vz))
-        {
-            PROF(++x->st.faces_out);
-            PROF(x->st.p_xform += (frt_read() - pxf) & 0xFFFF);
-            return;
-        }
+            return 1;
         zmin = imin(imin(o.z, o.z + uz), imin(o.z + vz, o.z + uz + vz));
         PROF(x->st.cells_all += nu * nv);
     }
@@ -1892,12 +1774,263 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
         light = &lv.lodlights[lf->firstlight];
         PROF(x->st.cells_384 += nu * nv);
     }
+    /* one stored texel along each axis: times 1/N (a variable shift would be a library call) */
+    a->dut.x = fmul(du.x, rcp_n); a->dut.y = fmul(du.y, rcp_n); a->dut.z = fmul(du.z, rcp_n);
+    a->dvt.x = fmul(dv.x, rcp_n); a->dvt.y = fmul(dv.y, rcp_n); a->dvt.z = fmul(dv.z, rcp_n);
+    /* the steps into and out of the face's edge columns and rows (a whole tile's if it isn't cropped) */
+    k = (nu == 1 ? eu1 : N) - eu0;
+    e0.x = a->dut.x * k; e0.y = a->dut.y * k; e0.z = a->dut.z * k;
+    e1.x = a->dut.x * eu1; e1.y = a->dut.y * eu1; e1.z = a->dut.z * eu1;
+    k = (nv == 1 ? ev1 : N) - ev0;
+    f0.x = a->dvt.x * k; f0.y = a->dvt.y * k; f0.z = a->dvt.z * k;
+    f1.x = a->dvt.x * ev1; f1.y = a->dvt.y * ev1; f1.z = a->dvt.z * ev1;
+    /* the grid's steps, where the assembly (and grid_pos) find them */
+    x->ga.p = o; x->ga.e0 = e0; x->ga.d = du; x->ga.e1 = e1;
+    gk[GK_F0] = f0.x; gk[GK_F0 + 1] = f0.y; gk[GK_F0 + 2] = f0.z;
+    gk[GK_F0 + 3] = dv.x; gk[GK_F0 + 4] = dv.y; gk[GK_F0 + 5] = dv.z;
+    gk[GK_F0 + 6] = f1.x; gk[GK_F0 + 7] = f1.y; gk[GK_F0 + 8] = f1.z;
+    a->fo = o;
+    a->fnu = nu;
+    a->fnv = nv;
+    a->eu0 = eu0; a->eu1 = eu1; a->ev0 = ev0; a->ev1 = ev1;
+    a->cells = row_cells;
+    a->light = light;
+    /* the grid: the whole face at once if it fits (the assembly), or a row at a time */
+    if (!r_grid_asm || (nu + 1) * (nv + 1) > WHOLE_MAX)
+        return 3;
+    gk[GK_ROWS] = nv;
+    grid_face_asm(x->grid, nu + 1, &x->ga, gk);
+    return 2;
+}
+
+#endif
+
+#ifdef R_PROFILE
+/* (profile: Gouraud tables the same as the one before, and flat ones) */
+static void         prof_gouraud(r_ctx *x, int gc0)
+{
+    const u32       *gs = x->w->gst;
+    int             k;
+
+    for (k = gc0 + 1; k < x->w->gcount; ++k)
+    {
+        x->st.g_same += gs[k * 2] == gs[k * 2 - 2] && gs[k * 2 + 1] == gs[k * 2 - 1];
+        x->st.g_flat += gs[k * 2] == gs[k * 2 + 1] && (gs[k * 2] >> 16) == (gs[k * 2] & 0xFFFF);
+    }
+}
+#endif
+
+/* a face's cells, its grid done if whole; if not (a big face), its grid and cells a row at
+   a time */
+static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int model, bool whole)
+{
+    const face_args *a = &x->fa;
+    const s32       *gk = x->gk;
+    v3              rowp, du, e0, e1;
+    s32             dtx, dty;
+    gv              *top = x->grid, *bot = x->grid + MAX_ROW, *tmp;
+    const u16       *light = a->light;
+    const q_cell    *row_cells = a->cells;
+    int             i, j, nu = a->fnu, nv = a->fnv, N = lv.N, stride = nu + 1;
+    int             eu0 = a->eu0, eu1 = a->eu1, ev0 = a->ev0, ev1 = a->ev1, ct, cb;
+    bool            fast_ok;
+    vdp_writer      *w = x->w;
+    int             count0 = w->count;
+    u16             lit[2 * MAX_ROW];       /* the lights with the dynamic lights added: the whole face's, or two rows */
+#ifdef R_PROFILE
+    u32             pt = frt_read(), pt2;
+    int             gc0 = w->gcount;
+#endif
+
+    if (whole)
+        bot = top + stride;
+    else
+    {
+        /* its first row */
+        rowp = a->fo; du = x->ga.d; e0 = x->ga.e0; e1 = x->ga.e1;
+        dtx = fmul(du.z, kx);
+        dty = fmul(du.z, ky);
+        if (r_grid_asm)
+        {
+            x->ga.p = rowp;
+            grid_row_asm(top, nu + 1, &x->ga, grid_k);
+        }
+        else
+            grid_row(top, nu + 1, &rowp, &du, &e0, &e1, dtx, dty);
+        PROF((pt2 = frt_read(), x->st.p_grid += (pt2 - pt) & 0xFFFF, pt = pt2));
+    }
+    /* dynamic lights: added to the lights at each grid point, then drawn as any other face */
+    face_dlights(x, f, model);
+    x->lit = x->dmask && r_dl_verts;
+    if (x->lit)
+    {
+        x->raw_light = light;
+        if (whole)
+        {
+            for (j = 0; j <= nv; ++j)
+                dl_row(x, lit + j * stride, light + j * stride, j);
+#ifdef DL_CHECK
+            for (j = 0; j < nv; ++j)
+                dl_check(x, lit + j * stride, light + j * stride, stride, j);
+#endif
+            light = lit;
+        }
+        else
+            dl_row(x, lit, light, 0);       /* (row 0; each row's next as it comes) */
+    }
+    fast_ok = r_cells_asm && (!x->dmask || x->lit) && !r_debug;
+    if (fast_ok)
+        cells_face(x, stride, row_cells);
+    if (whole && fast_ok && w->count + nu * nv <= w->cmax && w->gcount + nu * nv <= w->gmax)
+    {
+        /* the common cells of the whole face in assembly, then the C for what it left */
+        int n, li;
+
+        x->ca.cl0 = (u32)eu0; x->ca.cr1 = (u32)eu1; x->ca.ct0 = (u32)ev0; x->ca.cb1 = (u32)ev1;
+        x->ca.rows0 = (u32)nv;
+        PROF((pt2 = frt_read(), x->st.p_cpre += (pt2 - pt) & 0xFFFF));
+        n = cells_run(x, top, bot, row_cells, light, nu, nv);
+
+        PROF((x->st.nexact += n));          /* (profile: X counts the cells the assembly left) */
+        for (li = 0; li < n; ++li)
+        {
+            int c = x->ca.def[li], jj = c / nu;
+
+            i = c - jj * nu;
+            cell_c(x, row_cells + c, top + jj * stride, top + (jj + 1) * stride, light + jj * stride, stride, i, jj,
+                   i == 0 ? eu0 : 0, i == nu - 1 ? eu1 : N, jj == 0 ? ev0 : 0, jj == nv - 1 ? ev1 : N);
+        }
+        PROF((pt2 = frt_read(), x->st.p_cells += (pt2 - pt) & 0xFFFF, pt = pt2));
+    }
+    else for (j = 0; j < nv; ++j, light += stride, row_cells += nu)
+    {
+        int         n = nu, li;
+        const u16   *list = cell_all, *lrow = light;
+
+        ct = j == 0 ? ev0 : 0;
+        cb = j == nv - 1 ? ev1 : N;
+        PROF((++x->st.n_rows, x->st.n_rfaces += j == 0));
+        if (!whole)
+        {
+            /* the next row: f0 after the first, f1 before the last, dv between */
+            const s32 *step = gk + (j == 0 ? GK_F0 : j == nv - 1 ? GK_F0 + 6 : GK_F0 + 3);
+
+            rowp.x += step[0]; rowp.y += step[1]; rowp.z += step[2];
+            if (r_grid_asm)
+            {
+                x->ga.p = rowp;
+                grid_row_asm(bot, nu + 1, &x->ga, grid_k);
+            }
+            else
+                grid_row(bot, nu + 1, &rowp, &du, &e0, &e1, dtx, dty);
+            if (x->lit)
+            {
+                /* the lit lights: rows j and j + 1 */
+                dl_row(x, lit + stride, x->raw_light + (j + 1) * stride, j + 1);
+#ifdef DL_CHECK
+                dl_check(x, lit, x->raw_light + j * stride, stride, j);
+#endif
+                lrow = lit;
+            }
+        }
+        /* a row at a time: the common cells in assembly if there's room in the lists */
+        if (fast_ok && w->count + nu <= w->cmax && w->gcount + nu <= w->gmax)
+        {
+            x->ca.cell0 = row_cells;
+            x->ca.cl0 = (u32)eu0; x->ca.cr1 = (u32)eu1; x->ca.ct0 = (u32)ct; x->ca.cb1 = (u32)cb;
+            x->ca.rows0 = 1;
+            n = cells_run(x, top, bot, row_cells, lrow, nu, 1);
+            list = x->ca.def;
+            PROF((x->st.nexact += n));
+        }
+        for (li = 0; li < n; ++li)
+        {
+            i = list[li];
+            cell_c(x, row_cells + i, top, bot, lrow, stride, i, j, i == 0 ? eu0 : 0, i == nu - 1 ? eu1 : N, ct, cb);
+        }
+        if (x->lit && !whole)
+            memcpy(lit, lit + stride, (u32)stride * 2);     /* (row j + 1 is the next's first) */
+        PROF((pt2 = frt_read(), x->st.p_cells += (pt2 - pt) & 0xFFFF, pt = pt2));
+        if (whole)
+        {
+            top = bot;
+            bot += stride;
+        }
+        else
+        {
+            tmp = top; top = bot; bot = tmp;
+        }
+    }
+    x->st.cells += w->count - count0;       /* once a face, not a store a cell */
+#ifdef R_PROFILE
+    prof_gouraud(x, gc0);
+#endif
+}
+
+#ifdef FACE_CHECK
+/* (OPT=-DFACE_CHECK: face_asm's results against face_setup's, every face; the axes'
+   cache emptied first for every other, so both work them out) */
+u32                 face_checks, face_diffs, face_rows3, face_lods;   /* (and how many a row at a time, far) */
+
+static int          face_check(r_ctx *x, const q_face *f, int fi, int model)
+{
+    face_args       fa;
+    grid_args       ga;
+    s32             gk[GK_F0 + 9], *c = axis_view + f->axes * 8;
+    u32             sum = 0, sum2 = 0;
+    int             r, r2, k, n = 0;
+
+    if (fi & 1)
+        c[3] = c[7] = -1;
+    r = face_asm(&x->fa, fi, model);
+    fa = x->fa;
+    ga = x->ga;
+    memcpy(gk, x->gk, sizeof(gk));
+    if (r == 2)
+        for (n = (fa.fnu + 1) * (fa.fnv + 1), k = 0; k < n; ++k)
+            sum = sum * 31 + x->grid[k].xy + x->grid[k].ocd;
+    if (fi & 1)
+        c[3] = c[7] = -1;
+    r2 = face_setup(x, f, model);
+    ++face_checks;
+    face_rows3 += r2 == 3;
+    face_lods += r2 >= 2 && x->fa.cells >= lv.lodcells && lv.lodcells;
+    for (k = 0; k < n; ++k)
+        sum2 = sum2 * 31 + x->grid[k].xy + x->grid[k].ocd;
+    if (r != r2 || (r >= 2 && (memcmp(&fa, &x->fa, __builtin_offsetof(face_args, rt))
+                               || memcmp(&ga.e0, &x->ga.e0, 3 * sizeof(v3)) || memcmp(gk + GK_F0, x->gk + GK_F0, 9 * 4)))
+        || (r == 2 && (memcmp(&ga.p, &x->ga.p, sizeof(v3)) || gk[GK_ROWS] != x->gk[GK_ROWS] || sum != sum2)))
+        ++face_diffs;
+    return r2;
+}
+#endif
+
+static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
+{
+    const q_face    *f = &lv.faces[fi];
+    int             r;
+#ifdef R_PROFILE
+    u32             pxf = frt_read();
+#endif
+
+#if defined(FACE_CHECK)
+    r = face_check(x, f, fi, model);        /* (the C's results kept) */
+#elif defined(NO_FACE_ASM)
+    r = face_setup(x, f, model);
+#else
+    r = face_asm(&x->fa, fi, model);
+#endif
     PROF(x->st.p_xform += (frt_read() - pxf) & 0xFFFF);
-    g.o = o; g.du = du; g.dv = dv;
-    g.nu = nu; g.nv = nv; g.eu0 = eu0; g.eu1 = eu1; g.ev0 = ev0; g.ev1 = ev1;
-    g.cells = row_cells;
-    g.light = light;
-    draw_grid(x, &g, f, model);
+    if (r == 0)
+        return;
+    ++x->st.faces;
+    if (r == 1)
+    {
+        PROF(++x->st.faces_out);
+        return;
+    }
+    PROF((x->st.gverts += (x->fa.fnu + 1) * (x->fa.fnv + 1), x->st.seen += x->fa.fnu * x->fa.fnv));
+    face_cells(x, f, model, r == 2);
 }
 
 /* src/mdraw.s: a model's whole mesh from the DSP into screen space (offsets fixed there) */
@@ -4110,6 +4243,7 @@ void                render_slave(void)
 
     part_begin(x);
     cells_frame(x);
+    face_frame(x);
     for (;;)
     {
         int n = SHARE->published, hi = SHARE->hi, done = SHARE->walk_done;
@@ -4149,6 +4283,7 @@ static void         draw_master(void)
         x->fifo = false;
 #endif
         cells_frame(x);
+        face_frame(x);
         for (i = 0; i < nvis; ++i)
             draw_item(x, i, false);
     }
@@ -4158,6 +4293,7 @@ static void         draw_master(void)
 
         x->fifo = true;
         cells_frame(x);
+        face_frame(x);
         SHARE->hi = hi;
         SHARE->walk_done = 1;
         while (hi - 1 >= SHARE->lo)

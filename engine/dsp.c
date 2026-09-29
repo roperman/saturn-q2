@@ -6,6 +6,9 @@
 #include "xformb.h"
 #include "xformp.h"
 #include "xformm.h"
+#ifdef DSP_LIGHT
+#include "xformml.h"
+#endif
 #include "xformf.h"
 
 void                dsp_init(void)
@@ -46,8 +49,13 @@ void                dsp_init_models(void)
 
     DSP_PPAF = 0;
     DSP_PPAF = 1u << 15;
+#ifdef DSP_LIGHT
+    for (i = 0; i < XFORMML_PROG_LEN; ++i)
+        DSP_PPD = xformml_prog[i];          /* (the lighting after: xformml.dsp) */
+#else
     for (i = 0; i < XFORMM_PROG_LEN; ++i)
         DSP_PPD = xformm_prog[i];
+#endif
 }
 
 void                dsp_models(const u32 *stream, s32 *out, int models, volatile u32 *count)
@@ -58,8 +66,34 @@ void                dsp_models(const u32 *stream, s32 *out, int models, volatile
     DSP_PDD = (u32)models;
     DSP_PDD = ((u32)count & 0x07FFFFFF) >> 2;
     DSP_PDD = 0;
+#ifdef DSP_LIGHT
+    DSP_PDA = 42;                           /* (no lighting jobs) */
+    DSP_PDD = 0;
+#endif
     DSP_PPAF = (1u << 16) | (1u << 15);     /* run from PC = 0 */
 }
+
+#ifdef DSP_LIGHT
+/* ...and then, the same program run on (xformml.dsp), the models' lighting: ljobs (9 words
+   each), the normals, a count of jobs done */
+void                dsp_models_lit(const u32 *stream, s32 *out, int models, volatile u32 *count, const u32 *ljobs,
+                                   int nljobs, const s32 *normals, volatile u32 *lcount)
+{
+    DSP_PDA = 32;                           /* RAM0[32..36]: headers, out, models, the count's address, 0 */
+    DSP_PDD = ((u32)stream & 0x07FFFFFF) >> 2;
+    DSP_PDD = ((u32)out & 0x07FFFFFF) >> 2;
+    DSP_PDD = (u32)models;
+    DSP_PDD = ((u32)count & 0x07FFFFFF) >> 2;
+    DSP_PDD = 0;
+    DSP_PDA = 40;                           /* RAM0[40..44]: the lighting's jobs, normals, how many, count's address, 0 */
+    DSP_PDD = ((u32)ljobs & 0x07FFFFFF) >> 2;
+    DSP_PDD = ((u32)normals & 0x07FFFFFF) >> 2;
+    DSP_PDD = (u32)nljobs;
+    DSP_PDD = ((u32)lcount & 0x07FFFFFF) >> 2;
+    DSP_PDD = 0;
+    DSP_PPAF = (1u << 16) | (1u << 15);     /* run from PC = 0 */
+}
+#endif
 
 /* xformf.dsp: faces' grids into view space (a test) */
 void                dsp_init_faces(void)

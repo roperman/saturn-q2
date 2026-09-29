@@ -357,6 +357,20 @@ static s32          rcp_n, wscale;          /* 1/N (16.16); 65536 / N^2 (interpo
 static u32          dspm_stream[DSPM_MODELS * 24] __attribute__((aligned(16)));
 static s32          dspm_out[DSPM_BLOCKS * 48] __attribute__((aligned(16)));
 static u32          dspm_count __attribute__((aligned(16)));
+#ifdef DSP_LIGHT
+/* (OPT=-DDSP_LIGHT) the models' lighting on the DSP too (xformm.dsp, run on after their
+   vertices): a job for each model and dynamic light near it, 162 weights out */
+#define DSPL_JOBS       (8)
+#define DSPL_N          (176)               /* the 162 normals, padded to 11 x 16 */
+static u32          dspl_jobs[DSPL_JOBS * 9] __attribute__((aligned(16)));
+static s32          dspl_out[DSPL_JOBS * DSPL_N] __attribute__((aligned(16)));
+static s32          dspl_norm[DSPL_N * 3] __attribute__((aligned(16)));
+static u32          dspl_count __attribute__((aligned(16)));
+static s8           ent_lj0[MAX_ENTITIES], ent_ljn[MAX_ENTITIES];   /* each entity's first job, how many (0: the CPU) */
+#endif
+#ifdef DSPL_CHECK
+u32                 dspl_checks, dspl_diffs;    /* (OPT="-DDSP_LIGHT -DDSPL_CHECK": its weights against the C's) */
+#endif
 static s16          ent_dsp[MAX_ENTITIES], ent_blk[MAX_ENTITIES];  /* its place in the DSP's list (or -1), its first block */
 bool                r_use_dsp, r_dsp_ok;
 static s32          *axis_view;             /* the axes in view space: du and its frame, dv and its (draw_face) */
@@ -625,6 +639,17 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
         base += nl * 32;
         free -= nl * 32;
     }
+#ifdef DSP_LIGHT
+    /* the DSP's normals (every model's are Quake's 162), words, padded with nothing */
+    memset(dspl_norm, 0, sizeof(dspl_norm));
+    for (c = 0; c < nmodels_loaded; ++c)
+        if (models[c].loaded)
+        {
+            for (i = 0; i < 162 * 3; ++i)
+                dspl_norm[i] = models[c].normals[i];
+            break;
+        }
+#endif
     /* the guns' two slots (src/view.c): room for the biggest's textures; and one gun's colour
        tables, the one to be drawn's (r_view_luts: the other's three frames gone by then) */
     for (c = 0; c < VIEW_SLOTS; ++c)
@@ -4008,6 +4033,9 @@ static void         models_to_dsp(void)
 {
     u32             *st = dspm_stream;
     int             i, k, nm = 0, nb = 0;
+#ifdef DSP_LIGHT
+    int             nlj = 0;
+#endif
 
     rs_mdsp = 0;
     for (i = 0; i < nents; ++i)
@@ -4044,6 +4072,52 @@ static void         models_to_dsp(void)
         ++rs_mdsp;
         ent_blk[i] = (s16)nb;
         nb += blocks;
+#ifdef DSP_LIGHT
+        {
+            /* its lighting: a job for each dynamic light near it (draw_model's test and
+               direction), all of them or none (then the CPU does it) */
+            s32 c = fcos(e->yaw), sn = fsin(e->yaw);
+            int li, near = 0;
+
+            ent_ljn[i] = 0;
+            for (li = 0; li < ndl; ++li)
+            {
+                const q_dlight  *l = &r_dlights[li];
+                s32             dx = (l->pos[0] - e->origin[0]) >> 16, dy = (l->pos[1] - e->origin[1]) >> 16;
+                s32             dz = (l->pos[2] - e->origin[2]) >> 16, r = l->radius >> 16;
+
+                near += dx * dx + dy * dy + dz * dz < r * r;
+            }
+            if (near && nlj + near <= DSPL_JOBS)
+            {
+                ent_lj0[i] = (s8)nlj;
+                ent_ljn[i] = (s8)near;
+                for (li = 0; li < ndl; ++li)
+                {
+                    const q_dlight  *l = &r_dlights[li];
+                    s32             dx = (l->pos[0] - e->origin[0]) >> 16, dy = (l->pos[1] - e->origin[1]) >> 16;
+                    s32             dz = (l->pos[2] - e->origin[2]) >> 16, r = l->radius >> 16;
+                    s32             d2 = dx * dx + dy * dy + dz * dz, f, len;
+                    u32             *jb = dspl_jobs + nlj * 9;
+
+                    if (d2 >= r * r)
+                        continue;
+                    f = ((r * r - d2) * dl[li].inv) >> 8;
+                    len = (s32)isqrt((u32)d2) + 1;
+                    jb[0] = ((u32)(dspl_out + nlj * DSPL_N) & 0x07FFFFFF) >> 2;
+                    jb[1] = 0;
+                    jb[2] = (u32)(((dx * c + dy * sn) >> 2) / len * 4);
+                    jb[3] = (u32)(((dy * c - dx * sn) >> 2) / len * 4);
+                    jb[4] = (u32)((dz << 14) / len * 4);
+                    jb[5] = 42600;
+                    jb[6] = (u32)(f * 4);
+                    jb[7] = (u32)(f * 4 * 5734);
+                    jb[8] = (u32)((f * 5734) >> 14);
+                    ++nlj;
+                }
+            }
+        }
+#endif
     }
     if ((k = view_to_dsp(st, nm, nb)) > 0)
     {
@@ -4055,7 +4129,12 @@ static void         models_to_dsp(void)
     if (nm)
     {
         *(volatile u32 *)UNCACHED(&dspm_count) = 0;
+#ifdef DSP_LIGHT
+        *(volatile u32 *)UNCACHED(&dspl_count) = 0;
+        dsp_models_lit(dspm_stream, dspm_out, nm, &dspm_count, dspl_jobs, nlj, dspl_norm, &dspl_count);
+#else
         dsp_models(dspm_stream, dspm_out, nm, &dspm_count);
+#endif
     }
 }
 
@@ -4127,6 +4206,49 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
 
         if (d2 >= r * r)
             continue;
+#ifdef DSP_LIGHT
+        if (ent_dsp[ei] >= 0 && ent_ljn[ei] > 0)
+        {
+            /* the weights from the DSP (this model's jobs are this light and those after, in
+               order): wait if it's not there yet, and read them past the cache */
+            const s32   *wt = (const s32 *)UNCACHED(dspl_out + ent_lj0[ei] * DSPL_N);
+            int         n;
+
+            while (*(volatile u32 *)UNCACHED(&dspl_count) <= (u32)ent_lj0[ei])
+                ;
+            if (gt == e->gbase)
+            {
+                memcpy(x->gtab, e->gbase, sizeof(x->gtab));
+                gt = x->gtab;
+            }
+#ifdef DSPL_CHECK
+            {
+                s32 fc = ((r * r - d2) * dl[i].inv) >> 8, lc = (s32)isqrt((u32)d2) + 1;
+                s32 cx = ((dx * c + dy * sn) >> 2) / lc, cy = ((dy * c - dx * sn) >> 2) / lc, cz = (dz << 14) / lc;
+                const s16 *nr = m->normals;
+
+                for (n = 0; n < 162; ++n, nr += 3)
+                {
+                    s32 dot = (nr[0] * cx + nr[1] * cy + nr[2] * cz) >> 14;
+
+                    ++dspl_checks;
+                    dspl_diffs += wt[n] != (fc * (5734 + (dot > 0 ? (dot * 10650) >> 14 : 0))) >> 14;
+                }
+            }
+#endif
+            for (n = 0; n < 162; ++n)
+            {
+                s32 w = wt[n];
+                u16 g0 = x->gtab[n];
+                int rr = (g0 & 31) + ((l->r * w) >> 16), gg = ((g0 >> 5) & 31) + ((l->g * w) >> 16);
+                int bb = ((g0 >> 10) & 31) + ((l->b * w) >> 16);
+
+                x->gtab[n] = (u16)(0x8000 | imin(bb, 31) << 10 | imin(gg, 31) << 5 | imin(rr, 31));
+            }
+            ++ent_lj0[ei];                  /* (the next light's job) */
+            continue;
+        }
+#endif
         f = ((r * r - d2) * dl[i].inv) >> 8;            /* 0..65536 at the origin */
         len = (s32)isqrt((u32)d2) + 1;
         /* the direction to the light, in the model's space (turned back by its yaw), 2.14 */

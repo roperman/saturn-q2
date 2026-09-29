@@ -1167,3 +1167,34 @@ drawn), both CPUs would share it, the models have it first, and its
 arithmetic wouldn't match. The way down is cheaper arithmetic: the squared
 distance along a row is a quadratic (two additions a point), and so is the
 light's weight; that's ~3x faster, but rounds a little differently.
+
+## 27. Two routines in one DSP program: the models' lighting (a test)
+
+`OPT=-DDSP_LIGHT` loads `engine/xformml.dsp`: the models' vertices
+(xformm.dsp's routine) and then, the same program run on, their lighting. So
+the DSP runs two jobs from one load (202 of its 256 instructions; the
+lighting loop's start, past a D1 immediate's reach, set from data RAM). The
+host could as well start it at the second routine's address (the assembler
+names every label's).
+
+The lighting: a job for each model and dynamic light near it, set up by the
+CPU at the frame's start (models_to_dsp: the light's direction wants a square
+root and divides, which the DSP hasn't got). The DSP gives each of Quake's
+162 normals its weight of the light, the C's integer steps exactly (a shift
+by 14 is a multiply by 4 and ALH, the top of a 48-bit sum; the weight's
+"dot > 0" a conditional jump): `-DDSPL_CHECK`, 96,552 and 87,318 weights
+through two fights, 0 different. The CPU adds the colours and clamps; after
+each job the DSP counts, so a CPU drawing a model waits for its jobs only.
+
+It's slower: the models' lighting 0.7 -> 2.0 ms a fight frame, the CPU
+34.8 ms. The DSP does all the models' vertices (2.9 ms) before any lighting,
+and the slave draws the near models early, so it waits for their lighting
+behind everyone's vertices. For it to pay, each model's lighting would want
+to follow its own vertices and the models to go in the order they're drawn;
+the most it could save is the 0.7 ms the lighting costs. Kept as the switch.
+
+Also tried, `OPT=-DSTEP_DL` (section 26's cheaper arithmetic): the squared
+distance along a row stepped as a quadratic. Slower (-DDL_BENCH 200.9 ->
+204.1 ms): a lit point's cost is its weight and three colours, not its
+distance, and the rows are short. And it rounds differently: up to one
+5-bit shade on some cells.

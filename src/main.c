@@ -1253,6 +1253,13 @@ void                main(void)
                 vdp_printf(8, 35, RGB(255, 255, 120), "DL FACES %d DIFF %d", dlf_checks, dlf_diffs);
             }
 #endif
+#ifdef DSPL_CHECK
+            {
+                extern u32 dspl_checks, dspl_diffs;
+
+                vdp_printf(8, 26, RGB(255, 255, 120), "DSP LIGHT %d DIFF %d", dspl_checks, dspl_diffs);
+            }
+#endif
             vdp_printf(8, 205, RGB(255, 200, 160), "OUT M%d S%d OF %d LATE %d CMD %d %d %d", at_end[0], at_end[1],
                        fight_n + FIGHT_SKIP, at_end[12], at_end[2], at_end[3], at_end[4]);
 #ifdef TEX_WSET

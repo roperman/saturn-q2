@@ -16,6 +16,7 @@ engine_build()
     python3 "$REPO/tools/dspasm.py" "$ENGINE/xformb.dsp" "$gen/xformb.h" xformb_prog >/dev/null
     python3 "$REPO/tools/dspasm.py" "$ENGINE/xformp.dsp" "$gen/xformp.h" xformp_prog >/dev/null
     python3 "$REPO/tools/dspasm.py" "$ENGINE/xformm.dsp" "$gen/xformm.h" xformm_prog >/dev/null
+    python3 "$REPO/tools/dspasm.py" "$ENGINE/xformml.dsp" "$gen/xformml.h" xformml_prog >/dev/null
     python3 "$REPO/tools/dspasm.py" "$ENGINE/xformf.dsp" "$gen/xformf.h" xformf_prog >/dev/null
     python3 - "$gen/sintab.h" <<'PY'
 import math, sys

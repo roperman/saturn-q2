@@ -191,7 +191,7 @@ q_trace             g_trace(const s32 *start, const s32 *mins, const s32 *maxs, 
     s32             lo[3], hi[3];
 
 #ifdef FIGHT_BENCH
-    extern u32      tr_ticks[4];
+    extern u32      tr_ticks[5];
     u32             tt0 = frt_read();
 #endif
 

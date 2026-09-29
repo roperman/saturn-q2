@@ -892,6 +892,38 @@ the slave), the static benchmark's CPU 1710 (noise). Checked:
 they were (the boxes baked in grew Comm Center's map 27 KB: one gun slot);
 all three load.
 
-Left: the line traces (bullets, sight), which walk the BSP and don't use
-the boxes: ~0.5 ms each, most of a fight with the gunner (up to 32 traces
-and 16 ms a frame); and the leaves' gathering (177 us a box trace).
+### Line traces, the movers, HWRAM
+
+- **The line walk** (bullets, sight; `trace_line`): the C made a call at
+  every node (six arguments, lv's bases read each time). First a loop down
+  the side the line's wholly on, a call only where a plane cuts it; then the
+  walk in assembly (`src/tline.s`, `line_asm`): the far parts kept on a
+  stack of its own, the bases in registers, the crossing's fraction by the
+  divider and the midpoint by the C's own truncating multiplies. A 500-unit
+  line (the stats line's LINE, at Outer Base's start): 562 -> 349 (the loop)
+  -> 301 us; Installation's 326 -> 190. The walk's mostly memory now (a node
+  and its plane in different lines). `OPT=-DLINE_CHECK`: the walk as it was
+  alongside, 0 different in 3,015 lines (the gunner's fight).
+- **The movers**: a trace looked at every mover's record, its place and
+  whether it had gone (three lines a mover; Installation has 36). Now a table
+  of their boxes where they are (`tbox`, made again when one's moved):
+  107 -> 66 us a box trace there.
+- **HWRAM**: once the models have had theirs, what a trace reads for every
+  brush goes into what's left (`level_trace_hot`: the boxes, the leaves'
+  lists, the brushes; 4 KB kept): Installation's boxes were on the cart.
+  Comm Center gets its lists in. The marks of what's been done
+  (`brush_check`) went to LWRAM (only a brush whose box meets the trace's
+  is marked now, so it's hardly read), and level.c's built small: Outer Base
+  had run out of HWRAM for the fight benchmark's build.
+
+| | before (section 21 start) | now |
+|---|---|---|
+| the fight: traces a frame | 11, 7.3 ms | 13, 5.2 ms |
+| the fight: the game's tick | 8.4-8.6 ms | 6.4 ms |
+| the fight: frames over 40 ms | 14 of 495 | 0 of 502 |
+| Installation, the gunner's fight: a trace | 0.42-0.46 ms | 0.35-0.42 ms |
+
+The gunner's fight still does 18-48 traces a tick (7.5-17 ms): box traces,
+~290 us each there (gathering 65, clipping 130 for 10 brushes looked at and
+3 clipped, the movers 66, the entities 20), with the slave drawing on the
+same bus. All three levels load; the static benchmark's CPU 1708 (noise).

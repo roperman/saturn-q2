@@ -27,8 +27,8 @@ static q_trace      tr;
 static u16          *brush_check, checkcount;
 static int          box_leafs[MAX_BOX_LEAFS], nbox_leafs;
 #ifdef FIGHT_BENCH
-u32                 tr_count[6];            /* (the fight benchmark: nodes, leaves, brushes, sides, box traces, movers') */
-u32                 tr_ticks[4];            /* gathering the leaves, clipping, the movers, the entities */
+u32                 tr_count[8];            /* (the fight benchmark: brushes looked at, leaves, brushes clipped, sides, box traces, movers'; line traces' nodes, line traces) */
+u32                 tr_ticks[5];            /* gathering the leaves, clipping, the movers, the entities; line traces */
 # define TR_T0          u32 tt0 = frt_read()
 # define TR_TICKS(i)    (tr_ticks[i] += (frt_read() - tt0) & 0xFFFF, tt0 = frt_read())
 # define TR_COUNT(i, n) (tr_count[i] += (n))
@@ -40,7 +40,7 @@ u32                 tr_ticks[4];            /* gathering the leaves, clipping, t
 
 void                trace_init(void)
 {
-    brush_check = level_alloc((u32)lv.nbrushes * 2);
+    brush_check = level_alloc_low((u32)lv.nbrushes * 2);  /* (read only for brushes whose box the trace's meets) */
     memset(brush_check, 0, (u32)lv.nbrushes * 2);
     trace_world_init();
 }
@@ -118,7 +118,6 @@ static void         clip_box_brush(const q_brush *b)
             startout = true;
         if (d1 > 0 && d2 >= d1)
         {
-            TR_COUNT(0, i < 6);             /* (the benchmark: out by its box) */
             return;                         /* completely in front of this side: no hit */
         }
         if (d1 <= 0 && d2 <= 0)
@@ -204,10 +203,9 @@ static void         leaf_brushes(int leafnum, bool test)
 
         const s16       *bb = &lv.brushbounds[bn * 6];
 
-        if (brush_check[bn] == checkcount)
-            continue;                       /* already done from another leaf */
-        brush_check[bn] = checkcount;
-        /* its box off the trace's: nothing to clip (and the brush and its sides not read) */
+        TR_COUNT(0, 1);                     /* (the benchmark: brushes looked at) */
+        /* its box off the trace's: nothing to clip (and the brush and its sides not read); before
+           the mark that it's been done (most are off, and a store's dear with the slave drawing) */
         if (bb[0] > t_bb[3] || bb[3] < t_bb[0] || bb[1] > t_bb[4] || bb[4] < t_bb[1] || bb[2] > t_bb[5]
             || bb[5] < t_bb[2])
         {
@@ -217,6 +215,9 @@ static void         leaf_brushes(int leafnum, bool test)
 #endif
             continue;
         }
+        if (brush_check[bn] == checkcount)
+            continue;                       /* already done from another leaf */
+        brush_check[bn] = checkcount;
         if (!(b->contents & t_mask) || !b->numsides)
             continue;
         if (test)
@@ -494,8 +495,82 @@ static int          l_mask;
 
 /* Down the tree with the part of the line in this subtree (p1 at p1f to p2
    at p2f); entered across plane pl (NULL at the start). Reaching a leaf
+   that matches the mask is the hit, at p1. false: stopped (tr filled in).
+   Down a side the line's wholly on, a loop (most nodes); where a plane cuts
+   it, a call for the near part, then the loop goes on with the far */
+static bool         line_check(int num, s32 p1f, s32 p2f, const s32 *p1_in, const s32 *p2, const q_plane *entered)
+{
+    s32             p1[3], mid[3], t1, t2, frac, midf;
+    int             side, i;
+
+    p1[0] = p1_in[0];
+    p1[1] = p1_in[1];
+    p1[2] = p1_in[2];
+    for (;;)
+    {
+        const q_node    *node;
+        const q_plane   *pl;
+
+        if (num < 0)
+        {
+            const q_leaf *leaf = &lv.leafs[-1 - num];
+
+            if (!(leaf->contents & l_mask))
+                return true;
+            tr.plane = entered;
+            tr.fraction = p1f;
+            tr.contents = leaf->contents;
+            for (i = 0; i < 3; ++i)
+                tr.endpos[i] = p1[i];
+            return false;
+        }
+        TR_COUNT(6, 1);
+        node = &lv.nodes[num];
+        pl = &lv.planes[node->plane];
+        if (pl->type < 3)
+        {
+            t1 = p1[pl->type] - pl->dist;
+            t2 = p2[pl->type] - pl->dist;
+        }
+        else
+        {
+            t1 = dot(p1, pl->n) - pl->dist;
+            t2 = dot(p2, pl->n) - pl->dist;
+        }
+        if (t1 >= 0 && t2 >= 0)
+        {
+            num = node->child[0];
+            continue;
+        }
+        if (t1 < 0 && t2 < 0)
+        {
+            num = node->child[1];
+            continue;
+        }
+        /* it crosses: the near side up to a hair short of the plane, then the far side from there */
+        frac = iclamp(t1 < 0 ? frac_div(t1 + DIST_EPSILON, t1 - t2) : frac_div(t1 - DIST_EPSILON, t1 - t2), 0, FIX(1));
+        midf = p1f + fmul(p2f - p1f, frac);
+        for (i = 0; i < 3; ++i)
+            mid[i] = p1[i] + fmul(p2[i] - p1[i], frac);
+        side = t1 < 0;
+        if (!line_check(node->child[side], p1f, midf, p1, mid, entered))
+            return false;
+        /* crossing to the back of a plane we're in front of: the plane faces us; the other way, its opposite */
+        entered = &lv.planes[side ? node->plane ^ 1 : node->plane];
+        num = node->child[side ^ 1];
+        p1f = midf;
+        p1[0] = mid[0];
+        p1[1] = mid[1];
+        p1[2] = mid[2];
+    }
+}
+
+#ifdef LINE_CHECK
+/* (OPT=-DLINE_CHECK: the walk as it was, a call a node, to compare) */
+/* Down the tree with the part of the line in this subtree (p1 at p1f to p2
+   at p2f); entered across plane pl (NULL at the start). Reaching a leaf
    that matches the mask is the hit, at p1. false: stopped (tr filled in). */
-static bool         line_check(int num, s32 p1f, s32 p2f, const s32 *p1, const s32 *p2, const q_plane *entered)
+static bool         line_check_ref(int num, s32 p1f, s32 p2f, const s32 *p1, const s32 *p2, const q_plane *entered)
 {
     const q_node    *node;
     const q_plane   *pl;
@@ -528,35 +603,107 @@ static bool         line_check(int num, s32 p1f, s32 p2f, const s32 *p1, const s
         t2 = dot(p2, pl->n) - pl->dist;
     }
     if (t1 >= 0 && t2 >= 0)
-        return line_check(node->child[0], p1f, p2f, p1, p2, entered);
+        return line_check_ref(node->child[0], p1f, p2f, p1, p2, entered);
     if (t1 < 0 && t2 < 0)
-        return line_check(node->child[1], p1f, p2f, p1, p2, entered);
+        return line_check_ref(node->child[1], p1f, p2f, p1, p2, entered);
     /* it crosses: the near side up to a hair short of the plane, then the far side from there */
     frac = iclamp(t1 < 0 ? frac_div(t1 + DIST_EPSILON, t1 - t2) : frac_div(t1 - DIST_EPSILON, t1 - t2), 0, FIX(1));
     midf = p1f + fmul(p2f - p1f, frac);
     for (i = 0; i < 3; ++i)
         mid[i] = p1[i] + fmul(p2[i] - p1[i], frac);
     side = t1 < 0;
-    if (!line_check(node->child[side], p1f, midf, p1, mid, entered))
+    if (!line_check_ref(node->child[side], p1f, midf, p1, mid, entered))
         return false;
     /* crossing to the back of a plane we're in front of: the plane faces us; the other way, its opposite */
-    return line_check(node->child[side ^ 1], midf, p2f, mid, p2, &lv.planes[side ? node->plane ^ 1 : node->plane]);
+    return line_check_ref(node->child[side ^ 1], midf, p2f, mid, p2, &lv.planes[side ? node->plane ^ 1 : node->plane]);
 }
+
+#endif
+
+/* the walk in assembly (src/tline.s): its offsets are its L_ */
+#define LINE_STACK      (64)
+typedef struct
+{
+    const q_node    *nodes;
+    const q_plane   *planes;
+    const q_leaf    *leafs;
+    s32             mask;
+    s32             p1[3], p2[3];
+    s32             p1f, p2f;
+    const q_plane   *entered;
+    s32             contents;
+    s32             stack[LINE_STACK * 10];
+}                   line_args;
+_Static_assert(__builtin_offsetof(line_args, p1) == 16 && __builtin_offsetof(line_args, p1f) == 40
+               && __builtin_offsetof(line_args, entered) == 48 && __builtin_offsetof(line_args, stack) == 56,
+               "src/tline.s: line_args");
+int                 line_asm(line_args *a, int num);
 
 q_trace             trace_line(const s32 *start, const s32 *end, int headnode, int mask)
 {
-    int             i;
+    line_args       la;
+    int             i, r;
+    TR_T0;
 
     memset(&tr, 0, sizeof(tr));
     tr.fraction = FIX(1);
     l_mask = mask;
-    if (line_check(headnode, 0, FIX(1), start, end, NULL))
+    TR_COUNT(7, 1);
+    la.nodes = lv.nodes;
+    la.planes = lv.planes;
+    la.leafs = lv.leafs;
+    la.mask = mask;
+    for (i = 0; i < 3; ++i)
+    {
+        la.p1[i] = start[i];
+        la.p2[i] = end[i];
+    }
+    la.p1f = 0;
+    la.p2f = FIX(1);
+    la.entered = NULL;
+    r = line_asm(&la, headnode);
+    if (r == 2)
+        r = line_check(headnode, 0, FIX(1), start, end, NULL);     /* (deeper than the asm keeps) */
+    else if (r == 0)
+    {
+        tr.plane = la.entered;
+        tr.fraction = la.p1f;
+        tr.contents = la.contents;
+        for (i = 0; i < 3; ++i)
+            tr.endpos[i] = la.p1[i];
+    }
+    if (r)
         for (i = 0; i < 3; ++i)
             tr.endpos[i] = end[i];
     else if (!tr.plane)
         tr.startsolid = tr.allsolid = true;     /* solid where it started */
+    TR_TICKS(4);
+#ifdef LINE_CHECK
+    {
+        /* (OPT=-DLINE_CHECK: the old walk too: the same?) */
+        extern u32 line_checks, line_diffs;
+        q_trace t = tr;
+
+        memset(&tr, 0, sizeof(tr));
+        tr.fraction = FIX(1);
+        if (line_check_ref(headnode, 0, FIX(1), start, end, NULL))
+            for (i = 0; i < 3; ++i)
+                tr.endpos[i] = end[i];
+        else if (!tr.plane)
+            tr.startsolid = tr.allsolid = true;
+        ++line_checks;
+        if (t.fraction != tr.fraction || t.plane != tr.plane || t.contents != tr.contents
+            || t.endpos[0] != tr.endpos[0] || t.endpos[1] != tr.endpos[1] || t.endpos[2] != tr.endpos[2]
+            || t.startsolid != tr.startsolid)
+            ++line_diffs;
+        tr = t;
+    }
+#endif
     return tr;
 }
+#ifdef LINE_CHECK
+u32                 line_checks, line_diffs;
+#endif
 
 int                 point_contents(const s32 *p, int num)
 {

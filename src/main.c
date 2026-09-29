@@ -99,10 +99,10 @@ static int          fight_frames = -1;          /* -1: not running */
 static u32          fight_us, fight_cpu, fight_game, fight_gmax, fight_n, fight_swaps[8], fight_ntr, fight_ttr;
 static bool         fight_done;
 static g_trace_site fight_sites[16];            /* the traces' call sites, most time first */
-static u32          fight_tr[6];                /* trace.c's counts */
+static u32          fight_tr[8];                /* trace.c's counts */
 static u32          fight_seg[6], fight_t[7];   /* the master's frame in parts (us): input, player, game, before, world, after */
 # define FT(k)          (fight_t[k] = frt_read())
-static u32          fight_tt[4];                /* a box trace's parts, 0.1 us */
+static u32          fight_tt[5];                /* a box trace's parts, 0.1 us; a line trace's */
 static u32          fight_gun;                  /* the gun in your hands (us) */
 static u32          fight_vph[4];               /* ...its vertices, sort, commands, kept (render.c view_ph) */
 static u32          fight_r[14];
@@ -326,6 +326,7 @@ static bool         load_level(const char *name, const char *spot, bool keep)
     g_init();
     render_sky_init();
     models_hot();
+    level_trace_hot();                      /* (after the models: what HWRAM's left) */
     fx_reset();
     for (i = 0; i < MAX_ENTITIES; ++i)
     {
@@ -427,6 +428,7 @@ void                main(void)
     g_init();
     render_sky_init();
     models_hot();
+    level_trace_hot();                      /* (after the models: what HWRAM's left) */
     view_level_init();
 #ifdef LEVEL_TEST
     {
@@ -1088,7 +1090,7 @@ void                main(void)
             {
                 int j;
 
-                vdp_printf(8, 20, RGB(255, 200, 160), "BOX %d: BOXOUT%d L%d B%d S%d MOV%d", fight_tr[4] / n,
+                vdp_printf(8, 20, RGB(255, 200, 160), "BOX %d: LOOKED%d L%d B%d S%d MOV%d", fight_tr[4] / n,
                            fight_tr[0] / imax(fight_tr[4], 1), fight_tr[1] / imax(fight_tr[4], 1),
                            fight_tr[2] / imax(fight_tr[4], 1), fight_tr[3] / imax(fight_tr[4], 1), fight_tr[5] / n);
 #ifdef BOUNDS_CHECK
@@ -1099,8 +1101,16 @@ void                main(void)
                                bounds_skipped);
                 }
 #endif
-                vdp_printf(8, 29, RGB(255, 200, 160), "US G%d C%d M%d E%d", fight_tt[0] / 10,
-                           fight_tt[1] / 10, fight_tt[2] / 10, fight_tt[3] / 10);
+#ifdef LINE_CHECK
+                {
+                    extern u32 line_checks, line_diffs;
+
+                    vdp_printf(8, 2, RGB(255, 255, 120), "LINES %d DIFF %d", line_checks, line_diffs);
+                }
+#endif
+                vdp_printf(8, 29, RGB(255, 200, 160), "US G%d C%d M%d E%d LINES %d N%d US%d", fight_tt[0] / 10,
+                           fight_tt[1] / 10, fight_tt[2] / 10, fight_tt[3] / 10, fight_tr[7] / n,
+                           fight_tr[6] / imax(fight_tr[7], 1), fight_tt[4] / 10);
                 for (j = 0; j < 4 && fight_sites[j].n; ++j)
                     vdp_printf(8, 38 + 9 * j, RGB(160, 255, 160), "%X %d.%d A FRAME %d.%dMS",
                                fight_sites[j].at & 0xFFFFF, fight_sites[j].n * 10 / n / 10,
@@ -1207,6 +1217,32 @@ void                main(void)
                 vdp_printf(8, 150, c, "TEX MOST %d %d OF %d", r_wset[0], r_wset[1], r_wset[4]);
             }
 #endif
+#ifdef LINE_CHECK
+            {
+                extern u32 line_checks, line_diffs;
+
+                vdp_printf(8, 160, c, "LINES %d DIFF %d", line_checks, line_diffs);
+            }
+#endif
+#ifdef WHERE_TEST
+            vdp_printf(8, 140, c, "N%X P%X L%X", (u32)lv.nodes, (u32)lv.planes, (u32)lv.leafs);
+            vdp_printf(8, 149, c, "B%X S%X LB%X BB%X", (u32)lv.brushes, (u32)lv.brushsides, (u32)lv.leafbrushes,
+                       (u32)lv.brushbounds);
+#endif
+#if defined(GUNNER_TEST) && defined(FIGHT_BENCH)
+            {
+                /* (the gunner's fight, since the start: the line traces, and a box trace's parts) */
+                extern u32 tr_count[8], tr_ticks[5];
+
+                vdp_printf(8, 62, c, "LN %d N%d US%d BOX %d L%d B%d S%d MV%d", tr_count[7], tr_count[6] / imax(tr_count[7], 1),
+                           frt_to_us(tr_ticks[4]) / imax(tr_count[7], 1), tr_count[4], tr_count[1] / imax(tr_count[4], 1),
+                           tr_count[2] / imax(tr_count[4], 1), tr_count[3] / imax(tr_count[4], 1), tr_count[5]);
+                vdp_printf(8, 80, c, "CAND %d", tr_count[0] / imax(tr_count[4], 1));
+                vdp_printf(8, 71, c, "BOX US G%d C%d M%d E%d", frt_to_us(tr_ticks[0]) / imax(tr_count[4], 1),
+                           frt_to_us(tr_ticks[1]) / imax(tr_count[4], 1), frt_to_us(tr_ticks[2]) / imax(tr_count[4], 1),
+                           frt_to_us(tr_ticks[3]) / imax(tr_count[4], 1));
+            }
+#endif
             vdp_printf(8, 58, c, "MODELS %d POLYS %d %dUS", rs.models, rs.mpolys, rs.t_models);
             {
                 extern int g_ntraces;
@@ -1256,7 +1292,7 @@ void                main(void)
                     fight_swaps[k] = vdp_swap_fields[k];
                 memset(g_trace_sites, 0, sizeof(g_trace_sites));
                 {
-                    extern u32 tr_count[6], tr_ticks[4];
+                    extern u32 tr_count[8], tr_ticks[5];
 
                     memset(tr_count, 0, sizeof(tr_count));
                     memset(tr_ticks, 0, sizeof(tr_ticks));
@@ -1316,11 +1352,12 @@ void                main(void)
                         fight_swaps[k] = vdp_swap_fields[k] - fight_swaps[k];
                     memcpy(fight_sites, g_trace_sites, sizeof(fight_sites));
                     {
-                        extern u32 tr_count[6], tr_ticks[4];
+                        extern u32 tr_count[8], tr_ticks[5];
 
                         memcpy(fight_tr, tr_count, sizeof(fight_tr));
                         for (k = 0; k < 4; ++k)
                             fight_tt[k] = frt_to_us(tr_ticks[k]) * 10 / imax(tr_count[4], 1);
+                        fight_tt[4] = frt_to_us(tr_ticks[4]) * 10 / imax(tr_count[7], 1);
                     }
                     for (k = 1; k < 16; ++k)
                     {

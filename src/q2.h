@@ -30,6 +30,7 @@ void                cycles_measure(void);                   /* src/cycles.c: wha
 void                *level_alloc_low(u32 bytes);            /* low work RAM, for what isn't hot */
 u32                 level_heap(void);                       /* src/level.c: the top of what the level took of work RAM (high) */
 void                level_free(u32 *hw, u32 *lw, u32 *cart);    /* ...and what's left: high work RAM, low, the cart */
+void                level_trace_hot(void);  /* (the last thing at a level's start) the traces' brushes into HWRAM, what fits */
 
 /* ---- the baked level (tools/bake_map.py writes it; big-endian, so these overlay it) ---- */
 
@@ -142,6 +143,7 @@ typedef struct
     int             nerecs;
     const char      *strings;
     int             nplanes, nnodes, nleafs, nfaces, ntextures, nluts, nclusters, nmodels, nbrushes;
+    int             nleafbrushes;
     int             T, N, nshift;           /* cell size in texels; stored texels a side, log2 */
     s32             start[3];
     int             start_yaw;

@@ -25,6 +25,7 @@ typedef struct
 s32                 (*mover_ofs)[3];
 static m_state      *ms;
 u8                  *mover_gone;            /* blown up (func_explosive): not drawn, not solid */
+u32                 movers_version;         /* one more each time a mover moves or goes (src/pmove.c's boxes) */
 
 static s32          len_units(const s32 *v)
 {
@@ -45,6 +46,7 @@ static void         place(int m)
 
     for (k = 0; k < 3; ++k)
         mover_ofs[m][k] = fmul(mv->move[k], ms[m].frac);
+    ++movers_version;
 }
 
 void                movers_init(void)
@@ -60,6 +62,7 @@ void                movers_init(void)
         ms = level_alloc((u32)lv.nmodels * sizeof(m_state));
     }
     memset(mover_gone, 0, (u32)lv.nmodels);
+    ++movers_version;
     for (m = 0; m < lv.nmodels; ++m)
     {
         const q_mover   *mv = &lv.movers[m];
@@ -137,7 +140,10 @@ static void         fire_targets(int target)
 void                mover_hide(int model)
 {
     if (model > 0 && model < lv.nmodels)
+    {
         mover_gone[model] = 1;
+        ++movers_version;
+    }
 }
 
 bool                mover_live(int model)

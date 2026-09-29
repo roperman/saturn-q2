@@ -123,6 +123,17 @@ static void         brush_bounds(void)
     }
 }
 
+/* What a trace reads for every brush it might meet, into HWRAM if there's room once
+   everything else has had its share (the models' records last of all): the brushes' boxes,
+   the leaves' lists of them, the brushes. Installation has the room (its boxes are on the
+   cart otherwise); 4 KB kept */
+void                level_trace_hot(void)
+{
+    lv.brushbounds = (s16 *)hot_spare(lv.brushbounds, (u32)lv.nbrushes * 12, true, 4096);
+    lv.leafbrushes = hot_spare(lv.leafbrushes, (u32)lv.nleafbrushes * 2, true, 4096);
+    lv.brushes = hot_spare(lv.brushes, (u32)lv.nbrushes * sizeof(q_brush), true, 4096);
+}
+
 const void          *level_hot(const void *src, u32 bytes)
 {
     return hot(src, bytes, true);
@@ -224,7 +235,7 @@ bool                level_load(const char *name)
     lv.models = (const q_model *)(b + h[22]);   lv.nmodels = (int)h[23];
     lv.brushes = (const q_brush *)(b + h[26]);  lv.nbrushes = (int)h[27];
     lv.brushsides = (const q_brushside *)(b + h[28]);
-    lv.leafbrushes = (const u16 *)(b + h[30]);
+    lv.leafbrushes = (const u16 *)(b + h[30]);   lv.nleafbrushes = (int)h[31];
     lv.movers = (const q_mover *)(b + h[32]);
     lv.facevis = h[35] ? b + h[34] : NULL;
     lv.sky = h[37] ? (const u16 *)(b + h[36]) : NULL;

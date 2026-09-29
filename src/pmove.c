@@ -43,6 +43,32 @@ static s32          len3(const s32 *v)
 typedef struct { s32 mins[3], maxs[3]; s32 headnode; int m; } t_mover;
 static t_mover      *tmov;
 static int          ntmov;
+/* each mover's box where it is now (gone: none), side by side: a trace's loop over the movers
+   reads these alone (its record, its place and whether it's gone were three lines a mover);
+   made again when something's moved (movers_version) */
+static s32          (*tbox)[6];
+static u32          tbox_version;
+extern u32          movers_version;
+
+static void         tbox_refresh(void)
+{
+    int             i, k;
+
+    if (tbox_version == movers_version)
+        return;
+    for (i = 0; i < ntmov; ++i)
+    {
+        const t_mover   *mo = &tmov[i];
+        const s32       *o = mover_ofs[mo->m];
+
+        for (k = 0; k < 3; ++k)
+        {
+            tbox[i][k] = mover_gone[mo->m] ? 0x7FFFFFFF : mo->mins[k] + o[k];
+            tbox[i][3 + k] = mover_gone[mo->m] ? -0x7FFFFFFF : mo->maxs[k] + o[k];
+        }
+    }
+    tbox_version = movers_version;
+}
 
 /* the ladders (brushes with CONTENTS_LADDER, 1 or 2 a level): bounds from their axial sides
    (each's the brush's back), so check_ladder can leave out its trace when you're nowhere near */
@@ -60,6 +86,8 @@ void                trace_world_init(void)
     for (m = 1, ntmov = 0; m < lv.nmodels; ++m)
         ntmov += lv.movers[m].kind != MV_NONE;
     tmov = level_alloc((u32)(ntmov ? ntmov : 1) * sizeof(t_mover));
+    tbox = level_alloc((u32)(ntmov ? ntmov : 1) * 24);
+    tbox_version = movers_version - 1;
     for (m = 1, ntmov = 0; m < lv.nmodels; ++m)
         if (lv.movers[m].kind != MV_NONE)
         {
@@ -122,15 +150,12 @@ static bool         ladder_near(const s32 *lo, const s32 *hi)
         if (k == 3)
             return true;
     }
+    tbox_refresh();
     for (i = 0; i < ntmov; ++i)
     {
-        const t_mover   *mo = &tmov[i];
-        const s32       *o = mover_ofs[mo->m];
+        const s32       *b = tbox[i];
 
-        for (k = 0; k < 3; ++k)
-            if (mo->maxs[k] + o[k] < lo[k] || mo->mins[k] + o[k] > hi[k])
-                break;
-        if (k == 3 && !mover_gone[mo->m])
+        if (b[3] >= lo[0] && b[0] <= hi[0] && b[4] >= lo[1] && b[1] <= hi[1] && b[5] >= lo[2] && b[2] <= hi[2])
             return true;
     }
     return false;
@@ -145,7 +170,7 @@ q_trace             trace_world(const s32 *start, const s32 *p_mins, const s32 *
     int             i, m, k;
 
 #ifdef FIGHT_BENCH
-    extern u32      tr_ticks[4];
+    extern u32      tr_ticks[5];
     u32             tt0 = frt_read();
 #endif
 
@@ -155,19 +180,19 @@ q_trace             trace_world(const s32 *start, const s32 *p_mins, const s32 *
         lo[k] = imin(start[k], end[k]) + p_mins[k] - FIX(1);
         hi[k] = imax(start[k], end[k]) + p_maxs[k] + FIX(1);
     }
+    tbox_refresh();
     for (i = 0; i < ntmov; ++i)
     {
-        const t_mover   *mo = &tmov[i];
+        const s32       *b = tbox[i];
+        const t_mover   *mo;
         const s32       *o;
         q_trace         mt;
 
+        if (b[3] < lo[0] || b[0] > hi[0] || b[4] < lo[1] || b[1] > hi[1] || b[5] < lo[2] || b[2] > hi[2])
+            continue;
+        mo = &tmov[i];
         m = mo->m;
         o = mover_ofs[m];
-        for (k = 0; k < 3; ++k)
-            if (mo->maxs[k] + o[k] < lo[k] || mo->mins[k] + o[k] > hi[k])
-                break;
-        if (k < 3 || mover_gone[m])
-            continue;
         for (k = 0; k < 3; ++k)
         {
             ls[k] = start[k] - o[k];
@@ -175,7 +200,7 @@ q_trace             trace_world(const s32 *start, const s32 *p_mins, const s32 *
         }
 #ifdef FIGHT_BENCH
         {
-            extern u32 tr_count[6];
+            extern u32 tr_count[8];
 
             ++tr_count[5];
         }

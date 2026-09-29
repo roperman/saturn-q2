@@ -70,6 +70,7 @@ static volatile int erase_state;
 #define ERASE_LINE      (208)           /* NTSC: 224 visible lines, ~1ms before vblank */
 
 static void         (*field_hook)(void);
+static void         (*list_hook)(void);
 
 /* Pipelined frames (vdp_set_pipelined): vdp_submit sends the list and returns
    at once, and the CPUs start the next frame. The timer-0 interrupt near the
@@ -423,6 +424,11 @@ void                vdp_set_field_hook(void (*fn)(void))
     field_hook = fn;
 }
 
+void                vdp_set_list_hook(void (*fn)(void))
+{
+    list_hook = fn;
+}
+
 void                vdp_set_vblank_hook(void (*fn)(void))
 {
     vblank_hook = fn;
@@ -674,8 +680,11 @@ int                 vdp_submit(void)
             }
         vdp_us_wait = frt_to_us((frt_read() - t) & 0xFFFF);
     }
-    /* this list slot was last drawn two frames ago, so it's free to overwrite */
+    /* this list slot was last drawn two frames ago, so it's free to overwrite (and
+       VRAM that frame used: list_hook's) */
     t = frt_read();
+    if (list_hook)
+        list_hook();
     dma_range(0, 1 + writers[0].count);
     dma_range(writers[1].first, writers[1].count);
     dma_range(OVL_FIRST, overlay_count + 1);

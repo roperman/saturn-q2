@@ -310,7 +310,7 @@ const q_mdl         *view_frame(int *f0, int *f1, s32 *lerp);   /* what to draw 
 void                r_view_slot(int slot);  /* (render.c) a slot's new gun: its old textures forgotten */
 void                r_view_luts(int slot);  /* (render.c) the gun to be drawn: its colour tables up */
 void                r_view_level(void);     /* (render.c) a new level (the gun's) */
-extern u32          r_full[2];              /* (render.c) frames each CPU's texture cache ran out */
+extern u32          r_full[3];              /* (render.c) frames each CPU's texture cache ran out; late uploads */
 void                ents_light(void);                       /* their base lighting, before drawing (master) */
 
 /* hud.c */
@@ -328,6 +328,7 @@ typedef struct
     u32             t_mfar;                     /* R_PROFILE: models beyond 400 units: their time, */
     int             mfar;                       /* and how many */
     u32             p_setup, p_grid, p_cells, p_slow, p_corners, p_xform;   /* R_PROFILE: FRT ticks */
+    int             late;                       /* textures into slots two frames back (render.c tex_load) */
 }                   r_stats;
 extern r_stats      rs;
 extern int          r_debug;

@@ -773,5 +773,17 @@ spread (39.8 and 41.5 ms, 41.3-42.2 before); the static benchmark's CPU 1684
 - **Memory**: the command staging is in HWRAM: demo1 1.1 KB more free and 4.3
   KB more of the monsters' records there (COLD 12,980 to 8,720); the carts 12
   KB more; all three levels load.
-- Left: fast turning still runs out now and then (the slave, 19 of 552 in the
-  benchmark), since textures three frames back are still in flight.
+- **Late uploads**: a slot is reused three frames after it was last drawn
+  (two frames may be in flight), its upload at the frame's end. When a CPU
+  has none of those left, it takes one two frames back and its upload waits
+  (`UP_LATE`) till `vdp_submit` has seen VDP1 finish that frame
+  (`vdp_set_list_hook`, `r_late_uploads`), before the new list goes over.
+  Only uploads that can go by DMA are late (the queue's 256 a CPU; the copy
+  by the CPU when it's full is done at once, so never into those slots).
+  Turning with the gun, ran out 16 / 21 -> 2 / 16; the fight 0 / 1 -> 0 / 0;
+  the static benchmark 6 / 6 -> 3 / 3; no time lost (the turning
+  benchmark's frames 2,297 -> 2,296). `UPLOAD_CHECK`: 12,883 uploads read
+  back from VRAM, 1,428 of them late, none different.
+- Left: walking into big views the master still runs out in bursts (22
+  frames running, 1,059 cells); the slave doesn't. The split suits turning
+  and fights, not every view.

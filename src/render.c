@@ -177,10 +177,11 @@ typedef struct
     s16             mhead[MBUCKETS], mnext[MAX_MPOLYS];
     r_stats         st;
     int             slot0, nslots, hand;
-    bool            full;
+    bool            full;                   /* no slot free this frame, even two frames back */
+    bool            tight;                  /* none three frames back: those two back, their uploads late */
     u16             *tex_slot;              /* per texture: its slot or 0xFFFF */
     const void      *up_src[UPQ];           /* textures to copy into VRAM at the frame's end (tex_upload) */
-    u32             up_dst[UPQ];            /* VRAM offset << 8 | longs */
+    u32             up_dst[UPQ];            /* VRAM offset << 8 | longs (| UP_LATE) */
     int             nup;
 }                   r_ctx;
 
@@ -190,7 +191,7 @@ bool                r_two_cpus;
 q_cam               cam;
 
 static r_ctx        ctx[2];
-u32                 r_full[2];              /* frames each CPU's part of the texture cache ran out (the benchmarks) */
+u32                 r_full[3];              /* frames each CPU's part of the texture cache ran out; late uploads (the benchmarks) */
 #ifdef TEX_WSET
 u32                 r_wset[5];              /* most textures a frame, each CPU; their sums; the slots each */
 #endif
@@ -229,6 +230,7 @@ static u32          lut_vram;               /* VRAM offset of colour table 0 */
 static u32          slot_vram, slot_bytes;
 static u16          slot_tex[MAX_SLOTS], slot_frame[MAX_SLOTS];
 #define SLOT_NONE       (0xFFFF)            /* slot_tex: none (free now) */
+#define UP_LATE         (0x80000000u)       /* up_dst: into a slot two frames back: not till VDP1's done with that (r_late_uploads) */
 #ifndef SPLIT_M
 # define SPLIT_M        (45)                /* the master's part of the texture cache, % (the slave draws more of the list; the gun is the master's) */
 #endif
@@ -400,6 +402,8 @@ static bool         cull_box(const s16 *mins, const s16 *maxs, u8 *mask)
     return false;
 }
 
+static void         r_late_uploads(void);
+
 void                render_init(void)
 {
     int             i, c;
@@ -565,64 +569,70 @@ void                render_init(void)
     }
     for (c = 0; c < MAX_SLOTS; ++c)
         slot_tex[c] = SLOT_NONE;
+    ctx[0].nup = ctx[1].nup = 0;            /* (no late uploads from the last level's) */
+    vdp_set_list_hook(r_late_uploads);
 }
 
-/* a texture into this CPU's part of the cache: -1 if no slot is free */
 /* A texture into its slot: queued for the SCU's DMA at the frame's end (the
    cart to VDP1's VRAM on the SCU's own buses, not the CPUs'; a CPU's store
-   to VRAM is 111 cycles), or copied now if the queue's full */
-static void         tex_upload(r_ctx *x, u32 vram, const void *src, u32 bytes)
+   to VRAM is 111 cycles), or copied now if the queue's full. Late: into a
+   slot two frames back, queued till VDP1's done with that frame
+   (r_late_uploads; the caller's seen there's room in the queue) */
+static void         tex_upload(r_ctx *x, u32 vram, const void *src, u32 bytes, bool late)
 {
-    if (r_dma_uploads && x->nup < UPQ && !(((u32)src | vram | bytes) & 3))
+    if (late || (r_dma_uploads && x->nup < UPQ && !(((u32)src | vram | bytes) & 3)))
     {
         x->up_src[x->nup] = src;
-        x->up_dst[x->nup++] = vram << 8 | bytes >> 2;
+        x->up_dst[x->nup++] = vram << 8 | bytes >> 2 | (late ? UP_LATE : 0);
     }
     else
         memcpy((u8 *)VDP1_VRAM + vram, src, bytes);
 }
 
-s32                 tex_load(r_ctx *x, int t);      /* (src/mdraw.s calls it) */
-
-__attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
+/* a slot this CPU's part of the cache can have: unused for age frames (or never used), -1 none */
+static int          slot_find(r_ctx *x, int age)
 {
-    int             s = 0, n;
-    const q_tex     *tx;
+    int             n, s;
 
-    if (x->full)
-        return -1;
     for (n = 0; n < x->nslots; ++n)
     {
         s = x->slot0 + x->hand;
         if (++x->hand == x->nslots)
             x->hand = 0;
-        if (slot_tex[s] == SLOT_NONE || (u16)(frame - slot_frame[s]) >= 3)  /* (two frames may be in flight) */
-            break;
+        if (slot_tex[s] == SLOT_NONE || (u16)(frame - slot_frame[s]) >= age)
+            return s;
     }
-    if (n == x->nslots)
-    {
-        x->full = true;
-        ++x->st.nocache;
+    return -1;
+}
+
+s32                 tex_load(r_ctx *x, int t);      /* (src/mdraw.s calls it) */
+
+/* A texture into this CPU's part of the cache: its VRAM offset, -1 if no slot's free. Two
+   frames may be in flight, VDP1 drawing one and one waiting for its swap: a slot's reused three
+   frames after it was last drawn, its upload at this frame's end. When there are none of those
+   (the view turning fast), one two frames back: its upload's late, once VDP1's done with that
+   frame (vdp_submit, r_late_uploads), before this one's list goes to it. */
+__attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
+{
+    int             s = -1;
+    const q_tex     *tx = NULL;
+    const void      *src = NULL;
+    u32             bytes = 0, vram;
+    bool            late = false;
+
+    if (x->full)
         return -1;
-    }
-    if (slot_tex[s] != SLOT_NONE)
-        x->tex_slot[slot_tex[s]] = 0xFFFF;
-    slot_tex[s] = (u16)t;
-    x->tex_slot[t] = (u16)s;
-    slot_frame[s] = frame;
     if (t < lv.ntextures)
     {
         tx = &lv.textures[t];
-        slot_lut[s] = tx->lut;
-        slot_w[s] = (u8)tx->w;
-        tex_upload(x, slot_vram + (u32)s * slot_bytes, lv.texdata + tx->ofs, (u32)tx->w * tx->h / 2);
+        src = lv.texdata + tx->ofs;
+        bytes = (u32)tx->w * tx->h / 2;
     }
     else
     {
         /* a model's: which one, which skin, which polygon's */
         int m;
 
-        ++x->st.muploads;
         for (m = 0; m < MDL_COUNT + VIEW_SLOTS; ++m)
         {
             const q_mdl *md = &models[m];
@@ -632,14 +642,43 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
             {
                 const q_mtex *mt = &md->tex[k % md->ntex];
 
-                tex_upload(x, slot_vram + (u32)s * slot_bytes,
-                           md->texdata + (u32)(k / md->ntex) * md->per_skin + mt->ofs, (u32)mt->w * mt->h / 2);
+                src = md->texdata + (u32)(k / md->ntex) * md->per_skin + mt->ofs;
+                bytes = (u32)mt->w * mt->h / 2;
                 break;
             }
         }
+        if (!src)
+            return -1;
     }
+    if (!x->tight && (s = slot_find(x, 3)) < 0)
+        x->tight = true;
+    if (x->tight)
+    {
+        if (!r_dma_uploads || x->nup >= UPQ || (((u32)src | bytes) & 3) || (s = slot_find(x, 2)) < 0)
+        {
+            x->full = true;
+            ++x->st.nocache;
+            return -1;
+        }
+        late = true;
+        ++x->st.late;
+    }
+    if (slot_tex[s] != SLOT_NONE)
+        x->tex_slot[slot_tex[s]] = 0xFFFF;
+    slot_tex[s] = (u16)t;
+    x->tex_slot[t] = (u16)s;
+    slot_frame[s] = frame;
+    vram = slot_vram + (u32)s * slot_bytes;
+    if (tx)
+    {
+        slot_lut[s] = tx->lut;
+        slot_w[s] = (u8)tx->w;
+    }
+    else
+        ++x->st.muploads;
+    tex_upload(x, vram, src, bytes, late);
     ++x->st.uploads;
-    return (s32)(slot_vram + (u32)s * slot_bytes);
+    return (s32)vram;
 }
 
 /* a texture's VRAM offset (bytes), uploading it if need be; -1: no slot free */
@@ -4009,10 +4048,48 @@ static void         draw_item(r_ctx *x, int i, bool uncached)
 u32                 upload_checks, upload_diffs;
 #endif
 
+/* a queued texture into VRAM (tex_upload) */
+static void         upload_one(const void *src, u32 d)
+{
+    u32             vram = (d & ~UP_LATE) >> 8, bytes = (d & 255) * 4;
+
+    scu_dma0((void *)(VDP1_VRAM + vram), src, bytes, true);
+    while (scu_dma0_busy())
+        ;
+#ifdef UPLOAD_CHECK
+    {
+        /* (OPT=-DUPLOAD_CHECK: read back and compared) */
+        extern u32 upload_checks, upload_diffs;
+
+        ++upload_checks;
+        if (memcmp((const void *)(VDP1_VRAM + vram), src, bytes))
+            ++upload_diffs;
+    }
+#endif
+}
+
+/* (vdp_submit, once VDP1's done with the frame before last) the late uploads: into slots
+   that frame used */
+static void         r_late_uploads(void)
+{
+    int             i, k;
+
+    for (i = 0; i < 2; ++i)
+    {
+        r_ctx       *c = i ? (r_ctx *)UNCACHED(&ctx[1]) : &ctx[0];
+        int         n = c->nup;
+
+        for (k = 0; k < n; ++k)
+            upload_one(c->up_src[k], c->up_dst[k]);
+        c->nup = 0;
+    }
+}
+
 static void         part_begin(r_ctx *x)
 {
     memset(&x->st, 0, sizeof(x->st));
     x->full = false;
+    x->tight = false;
     x->nup = 0;
 }
 
@@ -4364,31 +4441,24 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
     if (r_two_cpus)
         wait_signal();
     /* both done: the textures they queued into VRAM (the slave's queue read
-       uncached: it wrote it), before VDP1 can draw them (after the swap) */
+       uncached: it wrote it), before VDP1 can draw them (after the swap); the
+       late ones kept, at the front, for r_late_uploads */
     for (i = 0; i < 2; ++i)
     {
         r_ctx       *c = i ? (r_ctx *)UNCACHED(&ctx[1]) : &ctx[0];
-        int         n = c->nup, k;
+        int         n = c->nup, k, nl = 0;
 
         for (k = 0; k < n; ++k)
         {
-            u32 d = c->up_dst[k];
-
-            scu_dma0((void *)(VDP1_VRAM + (d >> 8)), c->up_src[k], (d & 255) * 4, true);
-            while (scu_dma0_busy())
-                ;
-#ifdef UPLOAD_CHECK
+            if (c->up_dst[k] & UP_LATE)
             {
-                /* (OPT=-DUPLOAD_CHECK: read back and compared) */
-                extern u32 upload_checks, upload_diffs;
-
-                ++upload_checks;
-                if (memcmp((const void *)(VDP1_VRAM + (d >> 8)), c->up_src[k], (d & 255) * 4))
-                    ++upload_diffs;
+                c->up_src[nl] = c->up_src[k];
+                c->up_dst[nl++] = c->up_dst[k];
             }
-#endif
+            else
+                upload_one(c->up_src[k], c->up_dst[k]);
         }
-        c->nup = 0;
+        c->nup = nl;
     }
 #ifdef OCC_COUNT
     occ_count();
@@ -4404,7 +4474,9 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.near += s->near;
         rs.uploads += s->uploads;
         rs.nocache += s->nocache;
+        rs.late += s->late;
         r_full[i] += s->nocache > 0;
+        r_full[2] += (u32)s->late;
 #ifdef TEX_WSET
         {
             /* (OPT=-DTEX_WSET: the textures each CPU's part of the cache held for this frame) */

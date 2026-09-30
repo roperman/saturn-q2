@@ -1402,3 +1402,45 @@ models keep theirs a frame behind. (The DSP could do all of them, a frame
 behind, from the cart's copies of the faces and their lights, which its DMA
 can reach, as low work RAM isn't: ~1.2 ms off the frame, for a program of
 its own swapped in beside the models'.)
+
+## 31. The walls' dynamic lights: before the DSP, what they cost
+
+Before writing the DSP's walls I measured what it would take off. In the
+fight (NTSC), the slave spends 2.8 ms a frame on the walls' dynamic lights
+(dl_face 1.8, its points' loop dl_points 1.0) and the master almost none:
+the lit faces are the near ones, and the slave draws from the front. But
+there are only ~20 lit faces a frame, ~16 points each, mostly one light:
+the sums themselves are a few hundred points x lights. Most of the time was
+around them: each row's box tested against each light, a call and its setup
+for each row and light, each row unpacked and packed on its own.
+
+That changes what the DSP would buy. Its arithmetic isn't the cost; and to
+use it the CPUs would have to write each lit face's grid to the cart (15.5
+cycles a word, ~30 words a face) and add its results to the faces' own
+lights as they're drawn, which is much of what dl_face does now. Worth it
+only as the whole job on the DSP (the faces' grids and lights read from the
+cart by it, the finished colours read back): a program of ~200 words,
+swapped with the models' each frame, the lights a frame behind, for maybe
+half a millisecond more than the change below.
+
+**dl_face a face at a time.** The whole face's sums unpacked once; each
+light in reach of any of it (face_dlights' box test) over all its points by
+one call of `dl_rows` (src/dlight.s: dl_points' loop, with the rows' starts
+stepped there too); packed once at the end. No row's reach is tested: at
+~16 points a face those tests cost more than the points they'd skip, and
+the three lights of `DL_BENCH`, bigger faces, don't miss them either. The
+same sums bit for bit (`-DDLF_CHECK`: 21,320 lit faces, 0 different);
+`-DNO_DL_ASM` is the C it was, a row at a time. Its sums take 2 KB of stack
+(the slave's frames on the way to it: ~3.5 KB of its 16).
+
+| | before | after |
+|---|---|---|
+| the fight, NTSC: frame / CPU | 34.7 / 33.2 ms | 34.1 / 32.6 |
+| the fight, PAL: CPU | 33.9 | 33.2 |
+| the walls' dynamic lights, both CPUs (FIGHT_BENCH's DLIGHTS) | 3.0 ms | 1.9 |
+| the slave's profile: dl_face + its loop | 1.80 + 0.97 | 1.01 + 0.93 |
+| the static benchmark with `DL_BENCH` (three lights), six views' CPU | 200.1 ms | 191.0 |
+
+What's left of it is the work: the sums (dl_rows) and unpacking and packing
+each point (~40 cycles a point in all, and low work RAM's misses reading the
+faces' lights).

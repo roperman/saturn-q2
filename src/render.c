@@ -1253,13 +1253,13 @@ static __attribute__((noinline)) void dl_row(const r_ctx *x, u16 *out, const u16
     }
 }
 
-/* The dynamic lights at all of a whole face's grid points (dl_row's, a face at a time): a row
-   at a time, the lights in reach of it (its box) each over its points, its numbers held in
-   registers, the point's sums (r g b, 10 bits each: 31 and 8 lights of 31 fit) packed in a
-   word, clamped and made Gouraud colours at the end; a row none reaches copied. The same sums
-   as dlight_add's, bit for bit: the same point (its steps added in another order), each
-   light's share truncated the same way, the clamp after them all. raw and out may be the
-   same */
+/* The dynamic lights at all of a whole face's grid points (dl_row's, a face at a time): the
+   point's sums (r g b, 10 bits each: 31 and 8 lights of 31 fit) packed in a word, each light
+   in reach of the face (face_dlights) over its points, clamped and made Gouraud colours at the
+   end. The same sums as dlight_add's, bit for bit: the same point (its steps added in another
+   order), each light's share truncated the same way, the clamp after them all. raw and out
+   may be the same. (OPT=-DNO_DL_ASM: the C it was, a row at a time, each row's lights tested
+   against its box and a row none reaches copied) */
 /* how far (whole units squared) a light at l is from the box lo .. hi (16.16), each way a unit
    less than it is: the sums' points round their offsets down, so this is never more than any
    point's d2 in the box (a light it says is out of reach is out of reach of all of them) */
@@ -1292,10 +1292,7 @@ static void         dl_box(const v3 *p, int n, v3 *lo, v3 *hi)
     }
 }
 
-/* a light and a row's first point for src/dlight.s (dl_points): offsets as it has them */
-typedef struct { s32 r2, inv; u32 lr, lg, lb; s32 p[3], e0[3], d[3], e1[3]; } dl_pts;
-u32                 dl_points(u32 *acc, int nu, const dl_pts *q);
-
+#ifdef NO_DL_ASM
 static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw, const dl_light *L)
 {
     const face_args *a = &x->fa;
@@ -1304,13 +1301,7 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
     unsigned        mask = x->dmask;
     u32             acc[MAX_ROW];
     v3              across, b;              /* a whole row; the row's start (grid_step's, stepped) */
-#ifndef NO_DL_ASM
-    dl_pts          q;
 
-    q.e0[0] = e0->x; q.e0[1] = e0->y; q.e0[2] = e0->z;
-    q.d[0] = d->x; q.d[1] = d->y; q.d[2] = d->z;
-    q.e1[0] = e1->x; q.e1[1] = e1->y; q.e1[2] = e1->z;
-#endif
     grid_step(&across, e0, d, e1, nu, nu);
     b.x = b.y = b.z = 0;
     for (j = 0; j <= nv; ++j, raw += nu + 1, out += nu + 1)
@@ -1350,30 +1341,11 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
         }
         for (li = 0; rm; ++li, rm >>= 1)
         {
-#ifdef NO_DL_ASM
             s32         r2, inv, px, py, pz;
             u32         lr, lg, lb;
-#endif
 
             if (!(rm & 1))
                 continue;
-#ifndef NO_DL_ASM
-            /* (src/dlight.s: the same, a light at a time along the row) */
-            q.r2 = L[li].r2;
-            q.inv = L[li].inv;
-            q.lr = L[li].r;
-            q.lg = L[li].g;
-            q.lb = L[li].b;
-            q.p[0] = r0x - L[li].x;
-            q.p[1] = r0y - L[li].y;
-            q.p[2] = r0z - L[li].z;
-#ifdef FIGHT_BENCH
-            x->st.n_dlpts += nu + 1;
-            x->st.n_dlin += (int)dl_points(acc, nu, &q);
-#else
-            dl_points(acc, nu, &q);
-#endif
-#else
             r2 = L[li].r2;
             inv = L[li].inv;
             lr = L[li].r;
@@ -1402,7 +1374,6 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
                 d2 = dx * dx + dy * dy + dz * dz;
 #ifdef FIGHT_BENCH
                 ++x->st.n_dlpts;
-                x->st.n_dlin += d2 < r2;
 #endif
                 if (d2 < r2)
                 {
@@ -1411,7 +1382,6 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
                     acc[i] += ((lr * f) >> 16) | ((lg * f) >> 16) << 10 | ((lb * f) >> 16) << 20;
                 }
             }
-#endif
         }
         for (i = 0; i <= nu; ++i)
         {
@@ -1422,6 +1392,67 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
         }
     }
 }
+#else
+/* (the same, a face at a time: the whole face's sums unpacked, each light in reach of any of it
+   over all its points (src/dlight.s dl_rows: its rows' starts stepped there too), packed at the
+   end; no row's reach tested: in a fight a lit face is ~16 points, and those tests, calls and
+   setups a row cost more than the points they'd skip) */
+typedef struct { s32 r2, inv; u32 lr, lg, lb; s32 p[3], e0[3], d[3], e1[3], f0[3], dv[3], f1[3]; s32 nu, nv, j; } dl_pts;
+void                dl_rows(u32 *acc, dl_pts *q);
+
+static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw, const dl_light *L)
+{
+    const face_args *a = &x->fa;
+    const s32       *fs = &x->gk[GK_F0];
+    int             np = (a->fnu + 1) * (a->fnv + 1), i, li;
+    unsigned        m;
+    u32             acc[WHOLE_MAX];
+    dl_pts          q;
+
+    for (i = 0; i < np; ++i)
+    {
+        u32 c = raw[i];
+
+        acc[i] = (c & 31) | (c >> 5 & 31) << 10 | (c >> 10 & 31) << 20;
+    }
+    q.e0[0] = x->ga.e0.x; q.e0[1] = x->ga.e0.y; q.e0[2] = x->ga.e0.z;
+    q.d[0] = x->ga.d.x; q.d[1] = x->ga.d.y; q.d[2] = x->ga.d.z;
+    q.e1[0] = x->ga.e1.x; q.e1[1] = x->ga.e1.y; q.e1[2] = x->ga.e1.z;
+    for (i = 0; i < 3; ++i)
+    {
+        q.f0[i] = fs[i];
+        q.dv[i] = fs[3 + i];
+        q.f1[i] = fs[6 + i];
+    }
+    q.nu = a->fnu;
+    q.nv = a->fnv;
+    for (li = 0, m = x->dmask; m; ++li, m >>= 1)
+    {
+        if (!(m & 1))
+            continue;
+        q.r2 = L[li].r2;
+        q.inv = L[li].inv;
+        q.lr = L[li].r;
+        q.lg = L[li].g;
+        q.lb = L[li].b;
+        q.p[0] = a->fo.x - L[li].x;
+        q.p[1] = a->fo.y - L[li].y;
+        q.p[2] = a->fo.z - L[li].z;
+        q.j = 0;
+        dl_rows(acc, &q);
+#ifdef FIGHT_BENCH
+        x->st.n_dlpts += np;
+#endif
+    }
+    for (i = 0; i < np; ++i)
+    {
+        u32 c = acc[i];
+
+        out[i] = (u16)(0x8000 | imin((int)(c >> 20), 31) << 10 | imin((int)(c >> 10 & 1023), 31) << 5
+                       | imin((int)(c & 1023), 31));
+    }
+}
+#endif
 
 
 /* ---- the walls' dynamic lights, a frame behind (a test, OPT=-DWALLS_AHEAD: off) ----
@@ -5869,7 +5900,6 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.t_dlsum += frt_to_us(s->t_dlsum);
         rs.n_dlfaces += s->n_dlfaces;
         rs.n_dlpts += s->n_dlpts;
-        rs.n_dlin += s->n_dlin;
         rs.n_wlhit += s->n_wlhit;
         rs.portal_out += s->portal_out;
         rs.nfast += s->nfast;

@@ -1404,20 +1404,22 @@ void                main(void)
                        fight_pre[6] / n, fight_pre[7] / n);
             vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US SUMS %d FACES %d AHEAD %d", fight_dl[1] / n, fight_dl[2] / n,
                        fight_dl[5] / n);
+            vdp_printf(8, 62, RGB(160, 220, 255), "SLAVE US: FIRST %d DYN %d END %d", fight_sl[0] / n,
+                       fight_sl[1] / n, fight_sl[2] / n);
+#ifdef WALLS_AHEAD
             {
                 extern u32 wl_stop[3];
 
-                vdp_printf(8, 62, RGB(160, 220, 255), "SLAVE US: FIRST %d DYN %d END %d", fight_sl[0] / n,
-                           fight_sl[1] / n, fight_sl[2] / n);
                 vdp_printf(8, 80, RGB(160, 220, 255), "AHEAD STOPS: NEXT %d ROOM %d ALL %d", wl_stop[0], wl_stop[1],
                            wl_stop[2]);
             }
+#endif
 
 #ifdef DLF_CHECK
             {
                 extern u32 dlf_checks, dlf_diffs;
 
-                vdp_printf(8, 35, RGB(255, 255, 120), "DL FACES %d DIFF %d", dlf_checks, dlf_diffs);
+                vdp_printf(8, 80, RGB(255, 255, 120), "DL FACES %d DIFF %d", dlf_checks, dlf_diffs);
             }
 #endif
 #ifdef DSPL_CHECK
@@ -1720,7 +1722,6 @@ void                main(void)
                 fight_dl[1] += rs.t_dlsum;
                 fight_dl[2] += (u32)rs.n_dlfaces;
                 fight_dl[3] += (u32)rs.n_dlpts;
-                fight_dl[4] += (u32)rs.n_dlin;
                 fight_dl[5] += (u32)rs.n_wlhit;
                 fight_po[0] += rs.t_flow;
                 fight_po[1] += (u32)rs.n_reach;

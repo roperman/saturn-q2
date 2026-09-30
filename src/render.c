@@ -389,6 +389,9 @@ bool                r_use_dsp, r_dsp_ok;
 static s32          *axis_view;             /* the axes in view space: du and its frame, dv and its (draw_face) */
 
 
+#ifdef PPD_TEST
+u32                 ppd_ticks;
+#endif
 /* the DSP self-test's findings (shown by main.c) */
 s32                 dsp_test[8];
 
@@ -408,6 +411,19 @@ static void         dsp_selftest(void)
     }
     for (k = 0; k < 32; ++k)
         cart_in[k] = in[k];
+#ifdef PPD_TEST
+    {
+        /* (OPT=-DPPD_TEST: what loading a DSP program costs a CPU: the models' program, 4 times) */
+        extern u32 ppd_ticks;
+        u32 t0 = frt_read();
+
+        dsp_init_models();
+        dsp_init_models();
+        dsp_init_models();
+        dsp_init_models();
+        ppd_ticks = (frt_read() - t0) & 0xFFFF;
+    }
+#endif
     dsp_init_models();
     for (pass = 0; pass < 2; ++pass)
     {
@@ -2554,6 +2570,17 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
                 if (!wl_hit)
 #endif
                     dl_face(x, lit, x->wave ? lit : light, dl);
+#endif
+#ifdef FS_STATS
+                if (!x->wave && !model && a->light == &lv.lights[f->firstlight & 0xFFFFFF])
+                {
+                    int np = stride * (nv + 1), nl = __builtin_popcount(x->dmask);
+
+                    ++x->st.fs[np <= 16 ? 0 : np <= 32 ? 1 : np <= 48 ? 2 : np <= 64 ? 3 : 4];
+                    x->st.fs[5] += stride > 12;
+                    x->st.fs[6] += stride > 16;
+                    ++x->st.fs[nl <= 1 ? 7 : nl == 2 ? 8 : 9];
+                }
 #endif
 #ifdef FIGHT_BENCH
                 x->st.t_dlsum += (frt_read() - tdl) & 0xFFFF;
@@ -5900,6 +5927,14 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.t_dlsum += frt_to_us(s->t_dlsum);
         rs.n_dlfaces += s->n_dlfaces;
         rs.n_dlpts += s->n_dlpts;
+#ifdef FS_STATS
+        {
+            int k;
+
+            for (k = 0; k < 10; ++k)
+                rs.fs[k] += s->fs[k];
+        }
+#endif
         rs.n_wlhit += s->n_wlhit;
         rs.portal_out += s->portal_out;
         rs.nfast += s->nfast;

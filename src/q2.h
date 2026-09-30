@@ -351,6 +351,9 @@ typedef struct
     u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys, t_mwait, t_masm, t_mnorm;
     u32             us_rwpre, t_dltest, t_dlsum;    /* (FIGHT_BENCH: render_world to the slave's signal; the world's dynamic lights) */
     int             n_dlfaces, n_dlpts;            /* (and dl_face's points x lights) */
+#ifdef FS_STATS
+    int             fs[10];                         /* (lit whole faces: points <=16 <=32 <=48 <=64 more; rows over 12, 16 points; lights 1, 2, 3+) */
+#endif
     int             n_wlhit;                        /* (lit faces found lit already: r_wall_ahead) */
     int             portal_out, n_reach, n_proj, n_ptest;  /* faces not seen through the portals, clusters reached,
                                                        portals projected, looked at */

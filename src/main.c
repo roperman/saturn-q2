@@ -102,6 +102,9 @@ static g_trace_site fight_sites[16];            /* the traces' call sites, most 
 static u32          fight_tr[8];                /* trace.c's counts */
 static u32          fight_seg[6], fight_t[7];   /* the master's frame in parts (us): input, player, game, before, world, after */
 static u32          fight_dl[6];
+#ifdef FS_STATS
+u32                 fs_sum[11];
+#endif
 static u32          fight_po[5];                /* (the portals: the flow's us, clusters reached, portals projected, faces culled) */                /* (the world's dynamic lights: the faces' test, the sums, us; faces lit) */
 static u32          fight_pre[8], fight_pref[8], fight_pt;  /* (the master before the walk, us: movers, pmove, camera+gun,
                                                    sky+effects, entities+sprites, their light, the tint; render_world to
@@ -577,8 +580,49 @@ bool                game_during_draw;
 bool                game_during_draw = true;    /* START + UP switches it; the options too */
 #endif
 
+#ifdef DSP_SWAP_TEST
+#include "dsp.h"
+/* (OPT=-DDSP_SWAP_TEST: the DSP's program swapped twice a frame, as the walls' would be: after
+   the models' job, another program (xform.dsp) with a job of its own, checked; the models'
+   program back before the next frame's) */
+u32                 swap_n[3];              /* (swaps and checked jobs, wrong ones, DSP still busy) */
+static s32          swap_in[48] __attribute__((aligned(16)));
+static s32          swap_out[48] __attribute__((aligned(16)));
+
+static void         swap_test(void)
+{
+    static const s32 m[12] = { FIX(100), FIX(1), 0, 0, FIX(200), 0, FIX(1), 0, FIX(300), 0, 0, FIX(1) };
+    const s32       *out = (const s32 *)UNCACHED(swap_out);
+    int             k, bad = 0;
+
+    if (dsp_busy())
+    {
+        ++swap_n[2];
+        return;
+    }
+    for (k = 0; k < 16; ++k)
+    {
+        swap_in[3 * k] = k + (int)(swap_n[0] & 7);
+        swap_in[3 * k + 1] = 2 * k;
+        swap_in[3 * k + 2] = 3 * k;
+    }
+    memset((void *)UNCACHED(swap_out), 0xEE, sizeof(swap_out));
+    dsp_init();
+    dsp_transform(m, swap_in, swap_out, 16);
+    dsp_wait();
+    for (k = 0; k < 16; ++k)
+        bad |= out[k] != FIX(100 + k + (int)(swap_n[0] & 7)) || out[16 + k] != FIX(200 + 2 * k)
+               || out[32 + k] != FIX(300 + 3 * k);
+    ++swap_n[0];
+    swap_n[1] += (u32)bad;
+}
+#endif
+
 static void         game_step(void)
 {
+#ifdef DSP_SWAP_TEST
+    swap_test();
+#endif
     u32             tg = frt_read();
 
     g_player_fire(pad_now & PAD_B && !(pad_now & PAD_START), cam.pos, cam.yaw, cam.pitch);
@@ -1401,6 +1445,10 @@ void                main(void)
 #endif
         if (game_during_draw && !paused)
             r_during = game_step;
+#ifdef DSP_SWAP_TEST
+        dsp_wait();
+        dsp_init_models();                      /* (the models' program back) */
+#endif
 #ifndef NO_PREMOVE
         if (pre_slave && r_two_cpus && !paused && bench_view < 0)
         {
@@ -1528,6 +1576,9 @@ void                main(void)
 #endif
 
             vdp_printf(8, 96, RGB(255, 220, 120), "FIGHT: %d FRAMES", fight_n);
+#ifdef DSP_SWAP_TEST
+            vdp_printf(8, 80, RGB(255, 255, 120), "SWAPS %d BAD %d BUSY %d", swap_n[0], swap_n[1], swap_n[2]);
+#endif
             /* (how many pictures were up 1, 2, 3 and 4+ fields: 30 fps on NTSC is all of them 2) */
             vdp_printf(8, 187, RGB(255, 220, 120), "FIELDS UP 1:%d 2:%d 3:%d 4+:%d", fight_swaps[1], fight_swaps[2],
                        fight_swaps[3], fight_swaps[4] + fight_swaps[5] + fight_swaps[6] + fight_swaps[7]);
@@ -1567,7 +1618,17 @@ void                main(void)
             vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US SUMS %d FACES %d AHEAD %d", fight_dl[1] / n, fight_dl[2] / n,
                        fight_dl[5] / n);
 #else
+#ifdef FS_STATS
+            {
+                extern u32 fs_sum[11];
+
+                vdp_printf(8, 71, RGB(255, 255, 120), "PT %d %d %d %d %d R %d %d", fs_sum[0], fs_sum[1], fs_sum[2],
+                           fs_sum[3], fs_sum[4], fs_sum[5], fs_sum[6]);
+                vdp_printf(8, 80, RGB(255, 255, 120), "L %d %d %d DL %d", fs_sum[7], fs_sum[8], fs_sum[9], fs_sum[10] * 10 / n);
+            }
+#else
             vdp_printf(8, 71, RGB(160, 220, 255), "WALL DL US %d FACES %d", fight_dl[1] / n, fight_dl[2] / n);
+#endif
 #endif
             vdp_printf(8, 62, RGB(160, 220, 255), "SLAVE US: FIRST %d DYN %d END %d", fight_sl[0] / n,
                        fight_sl[1] / n, fight_sl[2] / n);
@@ -1578,6 +1639,7 @@ void                main(void)
                 vdp_printf(8, 80, RGB(160, 220, 255), "AHEAD STOPS: NEXT %d ROOM %d ALL %d", wl_stop[0], wl_stop[1],
                            wl_stop[2]);
             }
+#elif defined(DSP_SWAP_TEST)
 #elif !defined(DLF_CHECK)
             vdp_printf(8, 80, RGB(160, 220, 255), "EARLY MOVE W%d M%d MASTER %d %d%%", fight_pm[0] / n,
                        fight_pm[1] / n, fight_pm[2] / n, fight_pm[3] * 100 / n);
@@ -1696,6 +1758,13 @@ void                main(void)
 
                 vdp_printf(8, 108, c, "GRID PT%d BAD%d DSP %s%s HEAP %x", cyc[0], grid_bad, r_dsp_ok ? "OK" : "BAD",
                            r_use_dsp ? " ON" : "", level_heap());
+#ifdef PPD_TEST
+                {
+                    extern u32 ppd_ticks;
+
+                    vdp_printf(8, 117, c, "PPD WRITE X10 %d CYCLES", ppd_ticks * 128 * 10 / (4 * 125));
+                }
+#endif
 #ifdef WALK_CHECK
                 {
                     extern int walk_diff, walk_len, walk_clen, walk_first, walk_total, walk_frames;
@@ -1892,6 +1961,17 @@ void                main(void)
                 fight_dl[1] += rs.t_dlsum;
                 fight_dl[2] += (u32)rs.n_dlfaces;
                 fight_dl[3] += (u32)rs.n_dlpts;
+#ifdef FS_STATS
+                {
+                    extern u32 fs_sum[11];
+                    extern int r_ndlights;
+                    int k;
+
+                    for (k = 0; k < 10; ++k)
+                        fs_sum[k] += (u32)rs.fs[k];
+                    fs_sum[10] += (u32)r_ndlights;
+                }
+#endif
                 fight_dl[5] += (u32)rs.n_wlhit;
                 fight_po[0] += rs.t_flow;
                 fight_po[1] += (u32)rs.n_reach;

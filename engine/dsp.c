@@ -53,10 +53,15 @@ void                dsp_init_models(void)
     for (i = 0; i < XFORMML_PROG_LEN; ++i)
         DSP_PPD = xformml_prog[i];          /* (the lighting after: xformml.dsp) */
 #else
-    for (i = 0; i < XFORMM_PROG_LEN; ++i)
+    for (i = 0; i <= XFORMM_PROG_MDONE; ++i)
+        DSP_PPD = xformm_prog[i];
+    DSP_PPAF = (1u << 15) | XFORMM_PROG_LOAD;   /* (and its loader at the end: the walls' programs') */
+    for (i = XFORMM_PROG_LOAD; i < XFORMM_PROG_LEN; ++i)
         DSP_PPD = xformm_prog[i];
 #endif
 }
+
+static bool         walls_set;              /* (dsp_walls_params since the last job) */
 
 void                dsp_models(const u32 *stream, s32 *out, int models, volatile u32 *count)
 {
@@ -66,8 +71,36 @@ void                dsp_models(const u32 *stream, s32 *out, int models, volatile
     DSP_PDD = (u32)models;
     DSP_PDD = ((u32)count & 0x07FFFFFF) >> 2;
     DSP_PDD = 0;
+    if (!walls_set)
+    {
+        DSP_PDA = 40;                       /* (no walls after them) */
+        DSP_PDD = 0;
+    }
+    walls_set = false;
     DSP_PPAF = (1u << 16) | (1u << 15);     /* run from PC = 0 */
 }
+
+#ifndef DSP_LIGHT
+/* The walls' dynamic lights (engine/walls1.dsp, walls2.dsp: src/render.c), after the models'
+   job (or alone: dsp_walls_start): their numbers into RAM0[40..56], which the models' job
+   leaves alone. faces 0: none (the models' job just ends) */
+void                dsp_walls_params(const dsp_walls_p *p)
+{
+    const u32       *w = (const u32 *)p;
+    int             i;
+
+    DSP_PDA = 40;
+    for (i = 0; i < (int)(sizeof(*p) / 4); ++i)
+        DSP_PDD = w[i];
+    walls_set = true;
+}
+
+void                dsp_walls_start(void)
+{
+    walls_set = false;
+    DSP_PPAF = (1u << 16) | (1u << 15) | XFORMM_PROG_WALLS;
+}
+#endif
 
 #ifdef DSP_LIGHT
 /* ...with the models' lighting (xformml.dsp): ljobs (9 words each, in the models' order,

@@ -1068,6 +1068,13 @@ void                main(void)
                 memset(fight_po, 0, sizeof(fight_po));
                 memset(fight_sl, 0, sizeof(fight_sl));
                 memset(fight_pm, 0, sizeof(fight_pm));
+#ifdef DSP_WALLS
+                {
+                    extern u32 dw_stat[4];
+
+                    memset(dw_stat, 0, sizeof(dw_stat));
+                }
+#endif
                 fight_gun = 0;
                 {
                     extern u32 view_ph[4];
@@ -1627,7 +1634,8 @@ void                main(void)
                 vdp_printf(8, 80, RGB(255, 255, 120), "L %d %d %d DL %d", fs_sum[7], fs_sum[8], fs_sum[9], fs_sum[10] * 10 / n);
             }
 #else
-            vdp_printf(8, 71, RGB(160, 220, 255), "WALL DL US %d FACES %d", fight_dl[1] / n, fight_dl[2] / n);
+            vdp_printf(8, 71, RGB(160, 220, 255), "WALL DL US %d FACES %d DSP %d", fight_dl[1] / n, fight_dl[2] / n,
+                       fight_dl[5] / n);
 #endif
 #endif
             vdp_printf(8, 62, RGB(160, 220, 255), "SLAVE US: FIRST %d DYN %d END %d", fight_sl[0] / n,
@@ -1640,6 +1648,13 @@ void                main(void)
                            wl_stop[2]);
             }
 #elif defined(DSP_SWAP_TEST)
+#elif defined(DSP_WALLS)
+            {
+                extern u32 dw_stat[4];
+
+                vdp_printf(8, 80, RGB(160, 220, 255), "DSP WALLS %d A FRAME RAN %d%% LIGHTS %d", dw_stat[0] / n,
+                           dw_stat[1] * 100 / n, dw_stat[3]);
+            }
 #elif !defined(DLF_CHECK)
             vdp_printf(8, 80, RGB(160, 220, 255), "EARLY MOVE W%d M%d MASTER %d %d%%", fight_pm[0] / n,
                        fight_pm[1] / n, fight_pm[2] / n, fight_pm[3] * 100 / n);
@@ -1758,6 +1773,15 @@ void                main(void)
 
                 vdp_printf(8, 108, c, "GRID PT%d BAD%d DSP %s%s HEAP %x", cyc[0], grid_bad, r_dsp_ok ? "OK" : "BAD",
                            r_use_dsp ? " ON" : "", level_heap());
+#ifdef WALLS_TEST
+                {
+                    extern u32 wt_res[9];
+
+                    vdp_printf(8, 126, c, "WALLS F%d P%d BAD F%d P%d US%d %s", wt_res[0], wt_res[1], wt_res[2], wt_res[3],
+                               wt_res[4], wt_res[5] ? "DONE" : "STUCK");
+                    vdp_printf(8, 135, c, "LIT %d NOT DL_FACE'S %d BY %d", wt_res[6], wt_res[7], wt_res[8]);
+                }
+#endif
 #ifdef PPD_TEST
                 {
                     extern u32 ppd_ticks;

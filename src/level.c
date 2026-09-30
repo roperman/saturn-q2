@@ -265,11 +265,13 @@ bool                level_load(const char *name)
     lv.planes = hot(lv.planes, (u32)lv.nplanes * sizeof(q_plane), true);
     lv.leafs = hot(lv.leafs, (u32)lv.nleafs * sizeof(q_leaf), true);
     lv.marks = hot(lv.marks, h[7] * 2, true);
+    lv.axes_cart = lv.axes;
     lv.axes = hot(lv.axes, h[47] * 24, true);
     lv.naxes = (int)h[47];
     lv.faces_cart = lv.faces;
     lv.faces = hot(lv.faces, (u32)lv.nfaces * sizeof(q_face), false);
     lv.cells = hot(lv.cells, h[11] * sizeof(q_cell), false);
+    lv.lights_cart = lv.lights;
     lv.lights = hot(lv.lights, h[13] * 2, false);
     lv.brushes = hot_spare(lv.brushes, (u32)lv.nbrushes * sizeof(q_brush), false, LW_RESERVE);
     lv.brushsides = hot_spare(lv.brushsides, h[29] * sizeof(q_brushside), false, LW_RESERVE);

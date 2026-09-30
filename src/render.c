@@ -276,6 +276,9 @@ typedef struct
     int             nup;
     u16             wl_rec[32];             /* the whole faces it lit this frame (the next frame's, lit ahead: r_wall_ahead) */
     int             wl_nrec;
+#ifdef DSP_WALLS
+    u8              wl_ow[32];              /* (and their lit lights' words: the DSP's, dw_frame) */
+#endif
 }                   r_ctx;
 
 r_stats             rs;
@@ -1492,6 +1495,308 @@ static u32          wl_words;               /* ...the room for lights each has *
 u32                 wl_stop[3];             /* (why the slave stopped: the next frame, no room, all done) */
 #endif
 
+/* ---- the walls' dynamic lights on the DSP (engine/walls1.dsp, walls2.dsp) ----
+
+   Two programs, one after the other after the models' job: walls1.dsp sets out each listed
+   face's numbers (from the cart's copies of its record and axes), walls2.dsp lights it (its
+   lights from the cart's copy) and writes its lit lights to the cart. dw_model is what they
+   work out, in C (OPT=-DWALLS_TEST checks them against it at a level's start) */
+#if defined(DSP_WALLS) || defined(WALLS_TEST)
+static int          wl_face_setup(r_ctx *x, int fi, const dl_light *L, const q_dlight *ls, int nl);
+#define DW_FACES        (24)                /* faces a frame, at most */
+#define DW_BLOCK        (14 + 36 + 31)      /* a face's block (walls1.dsp's), at most */
+#define DW_OUT          (32)                /* its lit lights (words), at most: 62 points */
+#define DW_LIGHTS       (3)
+static const u8     *dw_prog;               /* the programs (cd/WALLS.BIN), on the cart */
+static u32          *dw_blocks, *dw_out[2]; /* (on the cart) */
+static u32          dw_job[DW_FACES] __attribute__((aligned(16)));
+static s32          dw_lt[DW_LIGHTS * 8] __attribute__((aligned(16)));
+
+/* room in walls2.dsp's RAM for f: 12 points a row, 62 in all */
+static __attribute__((unused)) bool dw_fits(const q_face *f)
+{
+    return f->nu < 12 && (f->nu + 1) * (f->nv + 1) <= 62;
+}
+
+/* a light for the programs: -x -y -z (16.16, the world), r2, -(inv << 8), r g b */
+static void         dw_light(s32 *o, const q_dlight *l)
+{
+    s32             rad = l->radius >> 16, r2 = imax(rad * rad, 4);
+
+    o[0] = -l->pos[0];
+    o[1] = -l->pos[1];
+    o[2] = -l->pos[2];
+    o[3] = r2;
+    o[4] = -(((1 << 24) / r2) << 8);
+    o[5] = l->r;
+    o[6] = l->g;
+    o[7] = l->b;
+}
+
+/* what the programs work out for face fi, lights lt (nl): its lit lights */
+static __attribute__((unused)) void dw_model(int fi, const s32 *lt, int nl, u16 *out)
+{
+    const q_face    *f = &lv.faces[fi];
+    const s32       *ax = &lv.axes[f->axes * 6];
+    const u16       *raw = &lv.lights[f->firstlight & 0xFFFFFF];
+    int             nu = f->nu, nv = f->nv, N = lv.N, rcp = 65536 / N, i, j, c, l, k = 0;
+    s32             dut[3], dvt[3], A[12][3];
+
+    for (c = 0; c < 3; ++c)
+    {
+        dut[c] = (s32)(((s64)ax[c] * rcp) >> 16);
+        dvt[c] = (s32)(((s64)ax[3 + c] * rcp) >> 16);
+    }
+    for (i = 0; i <= nu; ++i)
+    {
+        s32 a = i == 0 ? 0 : i == nu ? (nu - 1) * N - f->eu0 + f->eu1 : i * N - f->eu0;
+
+        for (c = 0; c < 3; ++c)
+            A[i][c] = a * dut[c];
+    }
+    for (j = 0; j <= nv; ++j)
+    {
+        s32 b = j == 0 ? 0 : j == nv ? (nv - 1) * N - f->ev0 + f->ev1 : j * N - f->ev0, R[3];
+
+        for (c = 0; c < 3; ++c)
+            R[c] = f->origin[c] + b * dvt[c];
+        for (i = 0; i <= nu; ++i, ++k)
+        {
+            u32 v = raw[k] & 0x7FFF;
+            s32 s[3], P[3];
+
+            s[0] = (s32)(v & 31);
+            s[1] = (s32)(v >> 5 & 31);
+            s[2] = (s32)(v >> 10 & 31);
+            for (c = 0; c < 3; ++c)
+                P[c] = R[c] + A[i][c];
+            for (l = 0; l < nl; ++l)
+            {
+                const s32   *L = &lt[l * 8];
+                s32         d2 = 0, d, fw;
+
+                for (c = 0; c < 3; ++c)
+                {
+                    d = (s32)(((s64)P[c] + L[c]) >> 16);
+                    d2 += d * d;
+                }
+                if (d2 - L[3] >= 0)
+                    continue;
+                fw = (s32)(((s64)(d2 - L[3]) * L[4]) >> 16);
+                for (c = 0; c < 3; ++c)
+                    s[c] += (s32)(((s64)fw * L[5 + c]) >> 16);
+            }
+            out[k] = (u16)(0x8000 + imin(s[0], 31) + 32 * imin(s[1], 31) + 1024 * imin(s[2], 31));
+        }
+    }
+}
+
+/* the programs' numbers: faces n from dw_job, lights nl from dw_lt, lit lights to out */
+static void         dw_params(int n, int nl, const u32 *out)
+{
+    dsp_walls_p     p;
+
+    p.faces = p.faces2 = (u32)n;
+    p.job = ((u32)dw_job & 0x07FFFFFF) >> 2;
+    p.blocks = ((u32)dw_blocks & 0x07FFFFFF) >> 2;
+    p.out = ((u32)out & 0x07FFFFFF) >> 2;
+    p.lights = ((u32)dw_lt & 0x07FFFFFF) >> 2;
+    p.light_words = (u32)nl * 8;
+    p.lights1 = (u32)nl - 1;
+    p.axes = ((u32)lv.axes_cart & 0x07FFFFFF) >> 2;
+    p.raw = ((u32)lv.lights_cart & 0x07FFFFFF) >> 2;
+    p.n = (u32)lv.N;
+    p.rcp = (u32)(65536 / lv.N);
+    p.prog1 = ((u32)dw_prog & 0x07FFFFFF) >> 2;
+    p.prog2 = (((u32)dw_prog + 1024) & 0x07FFFFFF) >> 2;
+    p.c3 = 3;
+    p.c6 = 6;
+    p.c7fff = 0x7FFF;
+    p.prog0 = (((u32)dw_prog + 2048) & 0x07FFFFFF) >> 2;
+    dsp_walls_params(&p);
+}
+
+#ifdef DSP_WALLS
+/* (OPT=-DDSP_WALLS) the walls' dynamic lights on the DSP, a frame behind: each CPU notes the
+   whole faces it lit (wl_record); the next frame, after the models' job, the DSP lights them
+   again with that frame's lights (dw_frame: the master, as it starts the models' job), for the
+   frame after, whose walls go by those lights (lsrc: a frame behind, as the models'); a face lit
+   then that it did is drawn with its (dw_find), the rest by dl_face as before */
+static u32          dw_count;               /* (frames: which half of the buffers) */
+static int          dw_n[2];                /* the faces the DSP lit for a frame, */
+static u16          dw_face[2][DW_FACES];   /* ...which, */
+static u16          dw_off[2][DW_FACES];    /* ...and where their lit lights are (words into dw_out) */
+u32                 dw_stat[4];             /* (FIGHT_BENCH: faces given the DSP, frames it ran, too many lights) */
+
+/* (models_to_dsp, the DSP idle) this frame's walls job, for the next frame: the faces the CPUs
+   lit last frame (the slave's, the nearest, first), with this frame's lights; after the models'
+   job (dsp_models starts it, the parameters set). The next frame draws with dw_count's half then
+   (what this job writes). (Started after the walk instead, with the faces the slave had lit by
+   then: fewer of the next frame's lit faces, 5 a fight frame of 20, not 10) */
+static bool         dw_frame(void)
+{
+    int             q = (int)((++dw_count + 1) & 1), n = 0, off = 0, c, k, nl = r_ndlights;     /* (next frame's half) */
+
+    dw_n[q] = 0;
+    if (!dw_prog || !nl)
+        return false;
+    if (nl > DW_LIGHTS)
+    {
+        ++dw_stat[3];                       /* (too many lights) */
+        return false;
+    }
+    for (c = 1; c >= 0; --c)
+    {
+        /* the faces the CPUs lit last frame: the slave's (the nearest) first */
+        const r_ctx *x = c ? (const r_ctx *)UNCACHED(&ctx[1]) : &ctx[0];
+        int         nr = x->wl_nrec;        /* (the slave's still adding: those so far) */
+
+        for (k = 0; k < nr && n < DW_FACES; ++k)
+        {
+            int             fi = x->wl_rec[k];
+
+            dw_job[n] = ((u32)&lv.faces_cart[fi] & 0x07FFFFFF) >> 2;
+            dw_face[q][n] = (u16)fi;
+            dw_off[q][n] = (u16)off;
+            off += x->wl_ow[k];
+            ++n;
+        }
+    }
+    if (!n)
+        return false;
+    for (k = 0; k < nl; ++k)
+        dw_light(&dw_lt[k * 8], &r_dlights[k]);
+    dw_params(n, nl, dw_out[q]);
+    dw_n[q] = n;
+    dw_stat[0] += (u32)n;
+    ++dw_stat[1];
+    return true;
+}
+
+/* face fi's lit lights (np of them) as the DSP worked them out for this frame, or NULL; its
+   lines forgotten first (the DSP wrote them behind the cache) */
+static const u16    *dw_find(int fi, int np)
+{
+    int             p = (int)(dw_count & 1), k;
+
+    for (k = 0; k < dw_n[p]; ++k)
+        if (dw_face[p][k] == fi)
+        {
+            const u16   *o = (const u16 *)(dw_out[p] + dw_off[p][k]);
+            u32         a;
+
+            for (a = (u32)o & ~15u; a < (u32)(o + np); a += 16)
+                *(volatile u32 *)(0x40000000 | (a & 0x1FFFFFFF)) = 0;
+            return o;
+        }
+    return NULL;
+}
+#endif
+
+#ifdef WALLS_TEST
+u32                 wt_res[9];              /* (faces, points, faces different, points different, us, done; points
+                                               lit, points not dl_face's (in the world), most a colour's out) */
+
+/* (OPT=-DWALLS_TEST, at a level's start) three lights by where you start, the faces near them
+   the programs have room for: the programs' lit lights against dw_model's, and their time */
+static void         walls_test(void)
+{
+    static const s8 at[3][3] = { { 0, 0, 40 }, { 120, 0, 30 }, { 0, -120, 50 } };
+    static const u8 col[3][3] = { { 13, 11, 5 }, { 5, 13, 11 }, { 31, 20, 0 } };
+    const u16       *dout = (const u16 *)UNCACHED(dw_out[0]);
+    u16             ref[64];
+    int             fi, n = 0, k, i, wt_fi[DW_FACES];
+    u32             t0, t;
+
+    for (k = 0; k < 3; ++k)
+    {
+        q_dlight l;
+
+        for (i = 0; i < 3; ++i)
+            l.pos[i] = lv.start[i] + FIX(at[k][i]);
+        l.radius = FIX(160 + 60 * k);
+        l.r = col[k][0];
+        l.g = col[k][1];
+        l.b = col[k][2];
+        dw_light(&dw_lt[k * 8], &l);
+    }
+    for (fi = 0; fi < lv.nfaces && n < DW_FACES; ++fi)
+    {
+        const q_face *f = &lv.faces[fi];
+
+        if (!dw_fits(f) || iabs((f->origin[0] - lv.start[0]) >> 16) > 300 || iabs((f->origin[1] - lv.start[1]) >> 16) > 300
+            || iabs((f->origin[2] - lv.start[2]) >> 16) > 300)
+            continue;
+        wt_fi[n] = fi;
+        dw_job[n++] = ((u32)&lv.faces_cart[fi] & 0x07FFFFFF) >> 2;
+    }
+    if (!n)
+        return;
+    memset((void *)UNCACHED(dw_out[0]), 0xEE, DW_FACES * DW_OUT * 4);
+    dsp_wait();
+    dsp_init_models();
+    dw_params(n, 3, dw_out[0]);
+    t0 = frt_read();
+    dsp_walls_start();
+    for (t = 0; t < 4000000 && dsp_busy(); ++t)
+        ;
+    wt_res[4] = frt_to_us((frt_read() - t0) & 0xFFFF);
+    wt_res[5] = !dsp_busy();
+    if (dsp_busy())
+        dsp_init_models();                  /* (stuck: stopped) */
+    wt_res[0] = (u32)n;
+    for (k = 0; k < n; ++k)
+    {
+        const q_face *f = &lv.faces[wt_fi[k]];
+        int np = (f->nu + 1) * (f->nv + 1), bad = 0;
+
+        dw_model(wt_fi[k], dw_lt, 3, ref);
+        for (i = 0; i < np; ++i)
+            bad += dout[i] != ref[i];
+        {
+            /* (and against dl_face itself, in the world, as walls-ahead set it up: how near) */
+            dl_light    L[3];
+            u16         dlf[WHOLE_MAX];
+            const u16   *raw = &lv.lights[f->firstlight & 0xFFFFFF];
+            q_dlight    ql[3];
+            int         c;
+
+            for (i = 0; i < 3; ++i)
+            {
+                const s32 *o = &dw_lt[i * 8];
+
+                L[i].x = ql[i].pos[0] = -o[0];
+                L[i].y = ql[i].pos[1] = -o[1];
+                L[i].z = ql[i].pos[2] = -o[2];
+                L[i].r2 = o[3];
+                L[i].inv = (1 << 24) / o[3];
+                L[i].r = (u8)o[5];
+                L[i].g = (u8)o[6];
+                L[i].b = (u8)o[7];
+                ql[i].radius = FIX(160 + 60 * i);
+            }
+            if (wl_face_setup(&ctx[0], wt_fi[k], L, ql, 3))
+                dl_face(&ctx[0], dlf, raw, L);
+            else
+                for (i = 0; i < np; ++i)
+                    dlf[i] = (u16)(raw[i] | 0x8000);
+            for (i = 0; i < np; ++i)
+            {
+                wt_res[6] += ref[i] != (u16)(raw[i] | 0x8000);
+                wt_res[7] += ref[i] != dlf[i];
+                for (c = 0; c < 15; c += 5)
+                    wt_res[8] = (u32)imax((int)wt_res[8], iabs((ref[i] >> c & 31) - (dlf[i] >> c & 31)));
+            }
+        }
+        wt_res[1] += (u32)np;
+        wt_res[2] += bad != 0;
+        wt_res[3] += (u32)bad;
+        dout += ((np + 1) >> 1) * 2;
+    }
+}
+#endif
+#endif
+
 /* a new level (main.c, with the portals'): the buffers */
 void                r_wall_level(void)
 {
@@ -1499,6 +1804,25 @@ void                r_wall_level(void)
     int             k;
 
     wl_b[0] = wl_b[1] = NULL;
+#if defined(DSP_WALLS) || defined(WALLS_TEST)
+    /* the programs and their buffers on the cart, if there's room with the gun's kept drawing's */
+    dw_prog = NULL;
+    if (r_use_dsp && cart_free() >= 4096 + (DW_FACES * DW_BLOCK + 2 * DW_FACES * DW_OUT) * 4 + 2 * 2048 + 2 * 16384)
+    {
+        dw_prog = cart_load("WALLS.BIN");
+        dw_blocks = (u32 *)cart_alloc(DW_FACES * DW_BLOCK * 4);
+        dw_out[0] = (u32 *)cart_alloc(DW_FACES * DW_OUT * 4);
+        dw_out[1] = (u32 *)cart_alloc(DW_FACES * DW_OUT * 4);
+    }
+#ifdef DSP_WALLS
+    dw_n[0] = dw_n[1] = 0;
+#endif
+#ifdef WALLS_TEST
+    memset(wt_res, 0, sizeof(wt_res));
+    if (dw_prog)
+        walls_test();
+#endif
+#endif
 #ifdef WALLS_AHEAD
     level_free(&hw, &lw, &ca);
     lw = lw > 4096 ? (lw - 4096) / 2 : 0;   /* (some kept) */
@@ -2567,8 +2891,23 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
                     wl_record(x, (int)(f - lv.faces));      /* (for the next frame's) */
                     wl_hit = wl_find((int)(f - lv.faces));  /* (lit already, a frame behind: r_wall_ahead) */
                 }
-                if (!wl_hit)
+#elif defined(DSP_WALLS)
+                if (!x->wave && !model && a->light == &lv.lights[f->firstlight & 0xFFFFFF] && dw_fits(f))
+                {
+                    int nr = x->wl_nrec;
+
+                    if (nr < 32)
+                    {
+                        /* (for the DSP, this frame, for the next; the master may be reading: the count last) */
+                        x->wl_ow[nr] = (u8)((stride * (nv + 1) + 1) >> 1);
+                        x->wl_rec[nr] = (u16)(f - lv.faces);
+                        __asm__ volatile ("" : : : "memory");
+                        x->wl_nrec = nr + 1;
+                    }
+                    wl_hit = dw_find((int)(f - lv.faces), stride * (nv + 1));
+                }
 #endif
+                if (!wl_hit)
                     dl_face(x, lit, x->wave ? lit : light, dl);
 #endif
 #ifdef FS_STATS
@@ -4615,6 +4954,9 @@ static void         models_to_dsp(void)
 {
     u32             *st = dspm_stream;
     int             i, k, nm = 0, nb = 0;
+#ifdef DSP_WALLS
+    bool            walls;
+#endif
 #ifdef DSP_LIGHT
     int             nlj = 0;
 #endif
@@ -4630,6 +4972,9 @@ static void         models_to_dsp(void)
     if (!r_use_dsp)
         return;
     dsp_wait();                             /* (last frame's list, if a model it had wasn't drawn) */
+#ifdef DSP_WALLS
+    walls = dw_frame();                     /* (the walls' job: after the models', or alone) */
+#endif
 #ifdef DSP_NEAR
     /* (OPT=-DDSP_NEAR) nearest first: the slave draws from the front, so it wants
        those first */
@@ -4752,6 +5097,10 @@ static void         models_to_dsp(void)
         dsp_models(dspm_stream, dspm_out, nm, &dspm_count);
 #endif
     }
+#ifdef DSP_WALLS
+    else if (walls)
+        dsp_walls_start();                  /* (no models: the walls alone) */
+#endif
 }
 
 #ifdef MODEL_CHECK
@@ -5717,8 +6066,8 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
 #endif
     }
     /* this frame's lights, into view space; the sprites, into the leaves they're in */
-#ifdef WALLS_AHEAD
-    lsrc = lights_lagged(&ndl);             /* (the walls go by last frame's: r_wall_ahead's) */
+#if defined(WALLS_AHEAD) || defined(DSP_WALLS)
+    lsrc = lights_lagged(&ndl);             /* (the walls go by last frame's: r_wall_ahead's, the DSP's) */
     ndl = imin(ndl, MAX_DLIGHTS);
 #else
     lsrc = r_dlights;

@@ -35,6 +35,12 @@ done
 rm -f cd/SOUND.BIN
 [ -f cd/DEMO3.SND ] && [ -f obj/gen/sound_ids.h ] && [ cd/DEMO3.SND -nt tools/bake_sound.py ] \
     || python3 tools/bake_sound.py data/pak0.pak cd obj/gen/sound_ids.h
+# the walls' dynamic lights' two DSP programs (engine/walls1.dsp, walls2.dsp) and the models' (back
+# after them): one file, read into the cart each level, where the DSP loads them from itself
+python3 tools/dspasm.py engine/walls1.dsp obj/gen/walls1.h walls1_prog obj/walls1.bin >/dev/null
+python3 tools/dspasm.py engine/walls2.dsp obj/gen/walls2.h walls2_prog obj/walls2.bin >/dev/null
+python3 tools/dspasm.py engine/xformm.dsp obj/xformm_b.h xformm_prog obj/xformm.bin >/dev/null
+cat obj/walls1.bin obj/walls2.bin obj/xformm.bin > cd/WALLS.BIN
 # the models (tools/models.txt): whichever are out of date
 python3 tools/bake_models.py data/pak0.pak cd
 # built small (engine/build.inc.sh): start-up, menus, saving, the CD, trigger targets, the gunner (one level's),

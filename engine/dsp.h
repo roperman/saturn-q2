@@ -25,6 +25,23 @@ void                dsp_init_models(void);              /* ...or models' vertice
 void                dsp_models(const u32 *stream, s32 *out, int models, volatile u32 *count);
 void                dsp_models_lit(const u32 *stream, s32 *out, int models, volatile u32 *count, const u32 *ljobs,
                                    int nljobs, const s32 *normals, volatile u32 *lcount);  /* (then their lighting) */
+/* the walls' dynamic lights (engine/walls1.dsp, walls2.dsp): RAM0[40..56]; addresses >> 2 */
+typedef struct
+{
+    u32             faces;                  /* how many (0: none, the models' job just ends) */
+    u32             job;                    /* the list: each face's record on the cart */
+    u32             blocks;                 /* (walls1.dsp's for walls2.dsp) */
+    u32             out;                    /* the lit lights, one face after another */
+    u32             lights, light_words, lights1;   /* 8 words each: -x -y -z r2 -(inv << 8) r g b; how many - 1 */
+    u32             axes, raw;              /* the cart's copies of the level's axes, lights */
+    u32             n, rcp;                 /* N, 65536 / N */
+    u32             prog1, prog2;           /* walls1.dsp, walls2.dsp (256 words each) */
+    u32             faces2;                 /* (faces again: walls2.dsp's count) */
+    u32             c3, c6, c7fff;          /* 3, 6, 0x7FFF */
+    u32             prog0;                  /* the models' (xformm.dsp), back after them */
+} dsp_walls_p;
+void                dsp_walls_params(const dsp_walls_p *p);
+void                dsp_walls_start(void);  /* (the walls alone: no models) */
 void                dsp_init_faces(void);               /* (a test) faces' grids into view space (xformf.dsp) */
 void                dsp_faces(const u32 *jobs, int n, volatile u32 *count, const s32 *axes, const s32 *rows9,
                               const s32 *cam3);

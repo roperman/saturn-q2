@@ -23,6 +23,8 @@
 ;   RAM0[36]      the count
 ;   RAM3          the packed vertices (0..15 frame 0, 16..31 frame 1), then the results
 ;   RAM1, RAM2    frame 0's and frame 1's, unpacked (x y z a vertex)
+;   RAM0[40..63]  the walls' job's (engine/walls1.dsp), which this program
+;                 starts when it's done, if it has faces (RAM0[40])
 ;
 ; JMP and BTM have a delay slot. An ALU result exists only in the instruction
 ; that makes it (the manual's AD2 MOV ALU,A), so each op and its move share one.
@@ -34,6 +36,8 @@ P_OUT   = 33
 P_LEFT  = 34
 P_CADDR = 35
 P_COUNT = 36
+W_NJ    = 40                            ; (the walls' job: faces, and its first program >> 2)
+W_P1    = 51
 
 ; a row of the results: t + a . v0 + b . v1, six products a vertex
 .macro rowpass base
@@ -145,4 +149,21 @@ w_cnt:  jmp t0,w_cnt
         sub  mov all,mc0                ; a model fewer
         jmp nz,model
         nop
-        end
+
+        ; the walls' job next, if the host gave it faces: its first program
+        ; (engine/walls1.dsp) over this one, by the DSP's own DMA into program
+        ; RAM; which goes on at 255 (a NOP), then 0
+        mov W_NJ,ct0
+        mov m0,a  mov 0,pl
+        or
+        jmp z,mdone
+walls:  mov W_P1,ct0                    ; (the host starts here for the walls alone)
+        mov m0,ra0
+        jmp load
+        nop
+mdone:  end
+
+        .org 253
+load:   dma d0,prg,256                  ; (the next program: RA0)
+        mvi 0,pc                        ; (from 0; and on, when it's in, at 255)
+        end                             ; (at 255: walls2.dsp loads this program back when it's done, and stops here)

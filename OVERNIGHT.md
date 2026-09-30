@@ -1490,3 +1490,65 @@ yaw and fall speed, bit for bit, with and without; played (walking,
 turning, jumping, firing, pausing and resuming); `-DLEVEL_TEST` through
 the three levels' exits. The fight's result screen shows the fields each
 picture was up (`FIELDS UP`) and the early move's times (`EARLY MOVE`).
+
+## 33. The walls' dynamic lights on the DSP (built; off: OPT=-DDSP_WALLS)
+
+**Can the program RAM be swapped?** `OPT="-DFIGHT_BENCH -DMODEL_CHECK
+-DDSP_SWAP_TEST"`: every frame of the fight the models' program loaded again,
+and after its job another program run with a job of its own, checked: 1,025
+frames, 0 wrong, the models' vertices still 0 different from the C. A CPU
+loads a program at 6.9 cycles a word (`-DPPD_TEST`). And the DSP can load
+its own: a DMA into program RAM with `MVI x,PC` straight after writes it
+from x and goes on after the MVI, in what's just been loaded (Mednafen's
+notes say so of the hardware; it runs so here).
+
+**What it has to do.** The fight's lit whole faces (`-DFS_STATS`): 75% have
+16 points or fewer, none more than 64 or 12 a row, most one light; ~300
+points a frame. Worth the DSP only if it does the whole job (the CPUs no
+work a point): the face's grid from its record, its lights, the sums, the
+clamp, the packing. That's ~400 words, and the models' program leaves 131.
+
+**Two programs, chained by the DSP.** When the models' job is done and the
+host has listed faces, xformm.dsp loads `engine/walls1.dsp` over itself
+(a loader at 253-255 of each program). walls1 reads each face's record and
+its axes from the cart's copies, and writes a block: its sizes, where its
+lights start, its origin and dvt, its columns' offsets (a_i dut) and its
+rows' (b_j); then loads `engine/walls2.dsp`, which reads each block and the
+face's lights (the cart's copy), works out each grid point's position, each
+light's share as dl_face does (the floor of each way's distance, f, (c f) >>
+16 each colour, the clamp), packs the lit lights two to a word onto the
+cart, and loads the models' program back (it stops at its 255). The CPUs
+load no program; the three are one file (cd/WALLS.BIN) put on the cart each
+level. walls1 186 words, walls2 213. A point in the DSP's data RAM is
+juggled across its four banks (one address counter each, and a bank written
+by an instruction can't be read by it).
+
+**Exact.** `OPT=-DWALLS_TEST` at a level's start: three lights by where you
+start and the 24 faces near them: the DSP's lit lights against `dw_model`
+(the same arithmetic in C), 311 points, 0 different; and dw_model against
+dl_face itself (in the world, as walls-ahead sets a face up), 0 different
+(73 of the points lit). 5.6 ms of DSP time, three lights on every point.
+
+**In the frame** (`-DDSP_WALLS`): each CPU notes the whole faces it lit;
+the next frame the master lists them for the DSP with that frame's lights
+(0.05 ms), after the models' job; the frame after, a face lit then that the
+DSP lit is drawn with its lights (its lines forgotten, from the cart), the
+rest by dl_face; the walls go by last frame's lights, as the models do.
+
+| the fight, NTSC | the CPUs | DSP_WALLS |
+|---|---|---|
+| frame / CPU | 33.7 / 31.9 ms | 33.6 / 31.9 |
+| pictures up 3 fields | 7 | 5 |
+| the walls' dynamic lights, both CPUs | 1.9 ms | 1.3 |
+| lit faces the DSP had | | 10 of 20 |
+
+It works, and gains next to nothing: the DSP lights the faces it's told of
+a frame early, and it's told of those lit the frame before that, two frames
+before its lights are drawn; the fight's lights are blaster bolts, moving,
+so half the faces they light have changed. And the time it saves is mostly
+the slave's on the near faces, drawn while it's waiting on the walk anyway.
+Started after the walk instead (with the faces the slave had lit by then,
+for the next frame) was worse: 5 of 20. So off. What would make it pay: the
+DSP choosing the faces itself, every whole face the CPUs drew against the
+lights (it has the time: ~25 ms of a frame idle), for which the CPUs would
+note every whole face they draw (~300 a frame) somewhere it can read.

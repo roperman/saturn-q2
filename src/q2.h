@@ -117,7 +117,8 @@ typedef struct
     const q_leaf    *leafs;
     const u16       *marks;
     const q_face    *faces, *faces_cart;        /* (faces_cart: where they are on the cart, for the DSP) */
-    const s32       *axes;                      /* du, dv: 6 words an entry */
+    const u16       *lights_cart;               /* (the faces' lights' copy on the cart, for the DSP) */
+    const s32       *axes, *axes_cart;          /* du, dv: 6 words an entry (and the cart's copy) */
     int             naxes;
     int             quart0;                     /* tile t quartered (8 x 32: its quarters one under another) is texture quart0 + t */
     const q_lodface *lodfaces;                  /* a face's coarse grid, and its cells and lights (on the cart) */

@@ -19,6 +19,8 @@ instruction are just written side by side:
 
 Remember: JMP and BTM have one delay slot (the next instruction always runs).
 
+".org N": NOPs up to address N (a program's loader at the end of program RAM).
+
 Macros (our extension, not in Sega's assembler):
 
     .macro rowpass in, out, base
@@ -26,7 +28,7 @@ Macros (our extension, not in Sega's assembler):
     .endm
             rowpass mc1, mc2, 0
 
-usage: dspasm.py input.dsp output.h symbol_name
+usage: dspasm.py input.dsp output.h symbol_name [output.bin]
 """
 import re
 import sys
@@ -255,6 +257,10 @@ def assemble(src):
             continue
         if line.upper().startswith("ORG"):
             continue
+        m = re.match(r"^\.org\s+(.+)$", line, re.I)
+        if m:
+            lines.append((n, raw, None, ".org " + m.group(1)))
+            continue
         label = None
         m = re.match(r"^([A-Za-z_]\w*):\s*(.*)$", line)
         if m:
@@ -266,12 +272,23 @@ def assemble(src):
             if label in labels:
                 raise AsmError(f"line {n}: duplicate label {label}")
             labels[label] = pc
-        if line:
+        if line.startswith(".org "):
+            at = num(line[5:].strip(), labels)
+            if at < pc:
+                raise AsmError(f"line {n}: .org {at}, but the program's already at {pc}")
+            pc = at
+        elif line:
             pc += 1
     if pc > 256:
         raise AsmError(f"program is {pc} words; program RAM holds 256")
     out, listing = [], []
     for n, raw, label, line in lines:
+        if line.startswith(".org "):
+            at = num(line[5:].strip(), labels)
+            while len(out) < at:
+                out.append(0)                   # (NOPs up to there)
+            listing.append(f"             {raw}")
+            continue
         if not line:
             listing.append(f"             {raw}")
             continue
@@ -285,10 +302,11 @@ def assemble(src):
 
 
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) not in (4, 5):
         print(__doc__.split("usage:")[1].strip())
         sys.exit(2)
-    src_path, out_path, sym = sys.argv[1:]
+    src_path, out_path, sym = sys.argv[1:4]
+    bin_path = sys.argv[4] if len(sys.argv) == 5 else None
     try:
         words, labels, listing = assemble(open(src_path).read())
     except AsmError as e:
@@ -303,6 +321,10 @@ def main():
         for i in range(0, len(words), 4):
             f.write("    " + ", ".join(f"0x{w:08X}" for w in words[i:i + 4]) + ",\n")
         f.write("};\n")
+    if bin_path:
+        with open(bin_path, "wb") as f:     # (the program as big-endian words, for the DSP's own DMA)
+            for w in words:
+                f.write(w.to_bytes(4, "big"))
     with open(out_path.rsplit(".", 1)[0] + ".lst", "w") as f:
         f.write(listing + "\n")
     print(f"{src_path}: {len(words)} words")

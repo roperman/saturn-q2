@@ -209,5 +209,7 @@ static inline void  cache_purge(void)
     REG8(0xFFFFFE92) = 0x01;
 }
 bool                scu_dma0_busy(void);
+void                scu_dma0_table(const u32 *table);
+bool                scu_dma0_chain_done(void);
 
 #endif

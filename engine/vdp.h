@@ -146,6 +146,7 @@ void                vdp_color_offset_all(int r, int g, int b);   /* every layer:
 extern u32          vdp_us_dma, vdp_us_wait;            /* last submit: list DMA, waiting for VDP1 */
 extern int          vdp_peak[5];                        /* most commands sent: master's, slave's, overlay; Gouraud tables: master's, slave's */
 void                vdp_set_pipelined(bool on);         /* submit returns at once, the swap's by interrupt (vdp.c) */
+bool                vdp_dma_queue(u32 vram, const void *src, u32 bytes);    /* into VRAM with the lists (vdp_submit) */
 void                vdp_set_list_hook(void (*fn)(void));    /* in vdp_submit once VDP1's done with the frame before last (VRAM it used is free) */
 bool                vdp_get_pipelined(void);            /* the swap by interrupt (and the vblank interrupt with it) */
 u32                 vdp_frame_no(void);                 /* frames submitted so far: the one being built */

@@ -1245,12 +1245,13 @@ static __attribute__((noinline)) void dl_row(const r_ctx *x, u16 *out, const u16
     }
 }
 
-/* The dynamic lights at all of a whole face's grid points (dl_row's, a face at a time): each
-   light in turn over every point, its numbers held in registers, the point's sums (r g b, 10
-   bits each: 31 and 8 lights of 31 fit) packed in a word, clamped and made Gouraud colours at
-   the end. The same sums as dlight_add's, bit for bit: the same point (its steps added in
-   another order), each light's share truncated the same way, the clamp after them all. raw
-   and out may be the same */
+/* The dynamic lights at all of a whole face's grid points (dl_row's, a face at a time): a row
+   at a time, the lights in reach of it (its box) each over its points, its numbers held in
+   registers, the point's sums (r g b, 10 bits each: 31 and 8 lights of 31 fit) packed in a
+   word, clamped and made Gouraud colours at the end; a row none reaches copied. The same sums
+   as dlight_add's, bit for bit: the same point (its steps added in another order), each
+   light's share truncated the same way, the clamp after them all. raw and out may be the
+   same */
 /* how far (whole units squared) a light at l is from the box lo .. hi (16.16), each way a unit
    less than it is: the sums' points round their offsets down, so this is never more than any
    point's d2 in the box (a light it says is out of reach is out of reach of all of them) */
@@ -1286,139 +1287,75 @@ static void         dl_box(const v3 *p, int n, v3 *lo, v3 *hi)
 static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw)
 {
     const face_args *a = &x->fa;
-    const v3        *fs = (const v3 *)&x->gk[GK_F0];
-    int             nu = a->fnu, nv = a->fnv, np = (nu + 1) * (nv + 1), i, j, k, li;
-    u32             acc[2 * MAX_ROW];
+    const v3        *fs = (const v3 *)&x->gk[GK_F0], *e0 = &x->ga.e0, *d = &x->ga.d, *e1 = &x->ga.e1;
+    int             nu = a->fnu, nv = a->fnv, i, j, li;
     unsigned        mask = x->dmask;
-    v3              across, down, corner[4], flo, fhi;  /* a whole row, a whole column; the face's box */
+    u32             acc[MAX_ROW];
+    v3              across, b;              /* a whole row; the row's start (grid_step's, stepped) */
 
-    /* the face's corners (its grid's a parallelogram) and their box */
-    grid_step(&across, &x->ga.e0, &x->ga.d, &x->ga.e1, nu, nu);
-    grid_step(&down, &fs[0], &fs[1], &fs[2], nv, nv);
-    corner[0] = a->fo;
-    corner[1].x = a->fo.x + across.x; corner[1].y = a->fo.y + across.y; corner[1].z = a->fo.z + across.z;
-    corner[2].x = a->fo.x + down.x; corner[2].y = a->fo.y + down.y; corner[2].z = a->fo.z + down.z;
-    corner[3].x = corner[1].x + down.x; corner[3].y = corner[1].y + down.y; corner[3].z = corner[1].z + down.z;
-    dl_box(corner, 4, &flo, &fhi);
-
-    for (k = 0; k < np; ++k)
+    grid_step(&across, e0, d, e1, nu, nu);
+    b.x = b.y = b.z = 0;
+    for (j = 0; j <= nv; ++j, raw += nu + 1, out += nu + 1)
     {
-        u32 c = raw[k];
+        s32         r0x, r0y, r0z, r1x, r1y, r1z;
+        v3          lo, hi;
+        unsigned    rm = 0, m;
 
-        acc[k] = (c & 31) | (c >> 5 & 31) << 10 | (c >> 10 & 31) << 20;
-    }
-    for (li = 0; mask; ++li, mask >>= 1)
-    {
-        s32         r2, inv, lx, ly, lz;
-        u32         lr, lg, lb;
-
-        if (!(mask & 1))
-            continue;
-        r2 = dl[li].r2;
-        if (dl_boxd2(dl[li].x, dl[li].y, dl[li].z, &flo, &fhi) >= r2)
-            continue;                       /* out of reach of the whole face */
-        inv = dl[li].inv;
-        lr = dl[li].r;
-        lg = dl[li].g;
-        lb = dl[li].b;
-        lx = a->fo.x - dl[li].x;
-        ly = a->fo.y - dl[li].y;
-        lz = a->fo.z - dl[li].z;
-        for (j = 0, k = 0; j <= nv; ++j)
+        if (j == 1)
+            b = fs[0];
+        else if (j > 1)
         {
-            v3  b;
-#ifndef STEP_DL
-            s32 px, py, pz;
-#endif
+            const v3 *st = j < nv ? &fs[1] : &fs[2];
 
-            grid_step(&b, &fs[0], &fs[1], &fs[2], nv, j);
-            {
-                /* the row out of reach (its points are on the line between its ends)? */
-                v3  r[2], rlo, rhi;
+            b.x += st->x; b.y += st->y; b.z += st->z;
+        }
+        /* the lights in reach of the row (its points are on the line between its ends) */
+        r0x = a->fo.x + b.x; r0y = a->fo.y + b.y; r0z = a->fo.z + b.z;
+        r1x = r0x + across.x; r1y = r0y + across.y; r1z = r0z + across.z;
+        if (r1x < r0x) { lo.x = r1x; hi.x = r0x; } else { lo.x = r0x; hi.x = r1x; }
+        if (r1y < r0y) { lo.y = r1y; hi.y = r0y; } else { lo.y = r0y; hi.y = r1y; }
+        if (r1z < r0z) { lo.z = r1z; hi.z = r0z; } else { lo.z = r0z; hi.z = r1z; }
+        for (li = 0, m = mask; m; ++li, m >>= 1)
+            if (m & 1 && dl_boxd2(dl[li].x, dl[li].y, dl[li].z, &lo, &hi) < dl[li].r2)
+                rm |= 1u << li;
+        if (!rm)
+        {
+            for (i = 0; i <= nu; ++i)
+                out[i] = (u16)(raw[i] | 0x8000);        /* (as unpacked and packed again) */
+            continue;
+        }
+        for (i = 0; i <= nu; ++i)
+        {
+            u32 c = raw[i];
 
-                r[0].x = a->fo.x + b.x; r[0].y = a->fo.y + b.y; r[0].z = a->fo.z + b.z;
-                r[1].x = r[0].x + across.x; r[1].y = r[0].y + across.y; r[1].z = r[0].z + across.z;
-                dl_box(r, 2, &rlo, &rhi);
-                if (dl_boxd2(dl[li].x, dl[li].y, dl[li].z, &rlo, &rhi) >= r2)
-                {
-                    k += nu + 1;
-                    continue;
-                }
-            }
-#ifdef STEP_DL
-            {
-                /* (OPT=-DSTEP_DL, a test: slower.) The squared distance a point at a time, whole
-                   (32.32: each axis isn't rounded to whole units first, as dlight_add's is): the
-                   first two points and the last as they are, those between (whole columns, d
-                   apart) by its differences, a quadratic's: two additions a point, exactly. But
-                   a lit point's cost is its weight and three colours, not its distance, and the
-                   rows are short: -DDL_BENCH 200.9 -> 204.1 ms, and a shade out here and there */
-                const v3    *e0 = &x->ga.e0, *st = &x->ga.d, *e1 = &x->ga.e1;
-                s32         qx = lx + b.x, qy = ly + b.y, qz = lz + b.z;
-                s64         d2;
+            acc[i] = (c & 31) | (c >> 5 & 31) << 10 | (c >> 10 & 31) << 20;
+        }
+        for (li = 0; rm; ++li, rm >>= 1)
+        {
+            s32         r2, inv, px, py, pz;
+            u32         lr, lg, lb;
 
-#define DL_SQ(X, Y, Z)  ((s64)(X) * (X) + (s64)(Y) * (Y) + (s64)(Z) * (Z))
-#ifdef FIGHT_BENCH
-#define DL_COUNT(H)     (++x->st.n_dlpts, x->st.n_dlin += (H) < r2)
-#else
-#define DL_COUNT(H)     ((void)0)
-#endif
-#define DL_ADD(K, D2) \
-                do { \
-                    s32 h_ = (s32)((D2) >> 32); \
-                    DL_COUNT(h_); \
-                    if (h_ < r2) \
-                    { \
-                        u32 f_ = (u32)((r2 - h_) * inv) >> 8; \
-                        acc[K] += ((lr * f_) >> 16) | ((lg * f_) >> 16) << 10 | ((lb * f_) >> 16) << 20; \
-                    } \
-                } while (0)
-                DL_ADD(k, DL_SQ(qx, qy, qz));
-                if (nu >= 1)
-                {
-                    qx += e0->x; qy += e0->y; qz += e0->z;
-                    DL_ADD(k + 1, DL_SQ(qx, qy, qz));
-                }
-                if (nu >= 3)
-                {
-                    s64 dd = 2 * ((s64)qx * st->x + (s64)qy * st->y + (s64)qz * st->z) + DL_SQ(st->x, st->y, st->z);
-                    s64 dd2 = 2 * DL_SQ(st->x, st->y, st->z);
-
-                    d2 = DL_SQ(qx, qy, qz);
-                    for (i = 2; i < nu; ++i)
-                    {
-                        d2 += dd;
-                        dd += dd2;
-                        DL_ADD(k + i, d2);
-                    }
-                }
-                if (nu >= 2)
-                {
-                    s32 mx = qx + st->x * (nu - 2) + e1->x, my = qy + st->y * (nu - 2) + e1->y;
-                    s32 mz = qz + st->z * (nu - 2) + e1->z;
-
-                    DL_ADD(k + nu, DL_SQ(mx, my, mz));
-                }
-#undef DL_ADD
-#undef DL_COUNT
-#undef DL_SQ
-                k += nu + 1;
-            }
-#else
-            px = lx + b.x;
-            py = ly + b.y;
-            pz = lz + b.z;
-            for (i = 0; i <= nu; ++i, ++k)
+            if (!(rm & 1))
+                continue;
+            r2 = dl[li].r2;
+            inv = dl[li].inv;
+            lr = dl[li].r;
+            lg = dl[li].g;
+            lb = dl[li].b;
+            px = r0x - dl[li].x;
+            py = r0y - dl[li].y;
+            pz = r0z - dl[li].z;
+            for (i = 0; i <= nu; ++i)
             {
                 s32 dx, dy, dz, d2;
 
                 if (i == 1)
                 {
-                    px += x->ga.e0.x; py += x->ga.e0.y; pz += x->ga.e0.z;
+                    px += e0->x; py += e0->y; pz += e0->z;
                 }
                 else if (i > 1)
                 {
-                    const v3 *st = i < nu ? &x->ga.d : &x->ga.e1;
+                    const v3 *st = i < nu ? d : e1;
 
                     px += st->x; py += st->y; pz += st->z;
                 }
@@ -1434,18 +1371,17 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
                 {
                     u32 f = (u32)((r2 - d2) * inv) >> 8;
 
-                    acc[k] += ((lr * f) >> 16) | ((lg * f) >> 16) << 10 | ((lb * f) >> 16) << 20;
+                    acc[i] += ((lr * f) >> 16) | ((lg * f) >> 16) << 10 | ((lb * f) >> 16) << 20;
                 }
             }
-#endif
         }
-    }
-    for (k = 0; k < np; ++k)
-    {
-        u32 c = acc[k];
+        for (i = 0; i <= nu; ++i)
+        {
+            u32 c = acc[i];
 
-        out[k] = (u16)(0x8000 | imin((int)(c >> 20), 31) << 10 | imin((int)(c >> 10 & 1023), 31) << 5
-                       | imin((int)(c & 1023), 31));
+            out[i] = (u16)(0x8000 | imin((int)(c >> 20), 31) << 10 | imin((int)(c >> 10 & 1023), 31) << 5
+                           | imin((int)(c & 1023), 31));
+        }
     }
 }
 
@@ -2039,10 +1975,6 @@ static void         face_dlights(r_ctx *x, const q_face *f, int model)
         if (dist > -FIX(8) && dist < r_dlights[i].radius)
             m |= 1u << i;
     }
-#ifdef FIGHT_BENCH
-    x->st.n_dltest += ndl > 0;
-    x->st.n_dlplane += m != 0;
-#endif
 #ifndef NO_DL_REACH
     if (m)
     {
@@ -4848,6 +4780,10 @@ static void         upload_one(const void *src, u32 d)
 {
     u32             vram = (d & ~UP_LATE) >> 8, bytes = (d & 255) * 4;
 
+#ifndef UPLOAD_CHECK
+    if (vdp_dma_queue(vram, src, bytes))
+        return;                             /* (with the lists, not waited for: vdp_submit) */
+#endif
     scu_dma0((void *)(VDP1_VRAM + vram), src, bytes, true);
     while (scu_dma0_busy())
         ;
@@ -5326,8 +5262,6 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.n_dlfaces += s->n_dlfaces;
         rs.n_dlpts += s->n_dlpts;
         rs.n_dlin += s->n_dlin;
-        rs.n_dltest += s->n_dltest;
-        rs.n_dlplane += s->n_dlplane;
         rs.nfast += s->nfast;
         rs.nslow += s->nslow;
         rs.ns_dl += s->ns_dl;

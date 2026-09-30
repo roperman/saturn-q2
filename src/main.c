@@ -96,12 +96,12 @@ u32                 lt_hw[4][4], lt_nhw;
    running: frame, CPU and game time, and how long each picture stayed up) */
 #define FIGHT_SKIP      (10)                    /* frames before timing starts */
 static int          fight_frames = -1;          /* -1: not running */
-static u32          fight_us, fight_cpu, fight_game, fight_gmax, fight_n, fight_swaps[8], fight_ntr, fight_ttr;
+static u32          fight_ldma, fight_us, fight_cpu, fight_game, fight_gmax, fight_n, fight_swaps[8], fight_ntr, fight_ttr;
 static bool         fight_done;
 static g_trace_site fight_sites[16];            /* the traces' call sites, most time first */
 static u32          fight_tr[8];                /* trace.c's counts */
 static u32          fight_seg[6], fight_t[7];   /* the master's frame in parts (us): input, player, game, before, world, after */
-static u32          fight_dl[7];                /* (the world's dynamic lights: the faces' test, the sums, us; faces lit) */
+static u32          fight_dl[5];                /* (the world's dynamic lights: the faces' test, the sums, us; faces lit) */
 static u32          fight_pre[8], fight_pref[8], fight_pt;  /* (the master before the walk, us: movers, pmove, camera+gun,
                                                    sky+effects, entities+sprites, their light, the tint; render_world to
                                                    the slave's signal. fight_pref: this frame's, added in while timing) */
@@ -180,10 +180,94 @@ static void         pre_wait(void)
     pre_pending = false;
 }
 
+#ifdef SLAVE_PROF
+/* (OPT="-DFIGHT_BENCH -DSLAVE_PROF") where the CPUs' time goes: each one's watchdog timer
+   interrupts it every 16,384 cycles, and prof_isr counts the address it was at, in 8-byte
+   buckets over high work RAM's code (a u16 each, in low work RAM's top 64 KB: the slave's
+   32 KB, then the master's; nothing moves in high work RAM), during the fight.
+   tools/prof.py reads them from a Mednafen save state */
+#define PROF_VT         ((u32 *)0x002E7C00)                 /* the slave's vector table, copied */
+#define PROF_ON         (*(volatile u32 *)0x202E7FF4)       /* counting (uncached) */
+#define PROF_VEC        (0x7F)
+#define PROF_HANDLER(name, hist, other) \
+    "        .text\n" \
+    "        .align 2\n" \
+    "        .global " name "\n" \
+    name ":\n" \
+    "        mov.l   r0,@-r15\n" \
+    "        mov.l   r1,@-r15\n" \
+    "        mov.l   9f,r1\n" \
+    "        mov.l   @r1,r0\n" \
+    "        tst     r0,r0\n" \
+    "        bt      5f\n"                          /* (not counting) */ \
+    "        mov.l   @(8,r15),r0\n"                 /* the PC it was at */ \
+    "        mov.l   1f,r1\n" \
+    "        sub     r1,r0\n" \
+    "        mov.l   2f,r1\n" \
+    "        cmp/hs  r1,r0\n" \
+    "        bt      3f\n" \
+    "        shlr2   r0\n" \
+    "        shlr    r0\n" \
+    "        add     r0,r0\n" \
+    "        mov.l   4f,r1\n" \
+    "        add     r0,r1\n" \
+    "        mov.w   @r1,r0\n" \
+    "        add     #1,r0\n" \
+    "        bra     5f\n" \
+    "        mov.w   r0,@r1\n" \
+    "3:      mov.l   6f,r1\n"                       /* elsewhere (low work RAM's code, the BIOS's) */ \
+    "        mov.l   @r1,r0\n" \
+    "        add     #1,r0\n" \
+    "        mov.l   r0,@r1\n" \
+    "5:      mov.l   7f,r1\n"                       /* WTCSR: OVF read, then cleared */ \
+    "        mov.b   @r1,r0\n" \
+    "        mov.w   8f,r0\n" \
+    "        mov.w   r0,@r1\n" \
+    "        mov.l   @r15+,r1\n" \
+    "        mov.l   @r15+,r0\n" \
+    "        rte\n" \
+    "        nop\n" \
+    "        .align 2\n" \
+    "1:      .long   0x06004000\n" \
+    "2:      .long   0x00020000\n" \
+    "4:      .long   " hist "\n" \
+    "6:      .long   " other "\n" \
+    "7:      .long   0xFFFFFE80\n" \
+    "9:      .long   0x202E7FF4\n" \
+    "8:      .word   0xA521\n"                      /* interval timer, on, clock/64 */ \
+    "        .align 2\n"
+__asm__ (PROF_HANDLER("_prof_isr", "0x202F8000", "0x202E7FF8")
+         PROF_HANDLER("_prof_isr_m", "0x202F0000", "0x202E7FFC"));
+
+/* this CPU's watchdog on, into its vector table */
+static void         prof_start(u32 *vt, void (*isr)(void))
+{
+    vt[PROF_VEC] = (u32)isr;
+    *(volatile u16 *)0xFFFFFEE4 = (u16)(PROF_VEC << 8);         /* VCRWDT: its vector */
+    *(volatile u16 *)0xFFFFFEE2 = (u16)((*(volatile u16 *)0xFFFFFEE2 & ~0xF0) | 0xF0);   /* IPRA: level 15 */
+    *(volatile u16 *)0xFFFFFE80 = 0x5A00;                       /* WTCNT = 0 */
+    *(volatile u16 *)0xFFFFFE80 = 0xA521;                       /* WTCSR: interval timer, on, clock/64 */
+}
+#endif
+
 void                slave_main(void)
 {
     frt_init();
     FRT_FTCSR = 0;
+#ifdef SLAVE_PROF
+    {
+        extern void prof_isr(void);
+        u32         *old;
+        int         i;
+
+        __asm__ volatile ("stc vbr,%0" : "=r" (old));
+        for (i = 0; i < 128; ++i)
+            PROF_VT[i] = old[i];
+        __asm__ volatile ("ldc %0,vbr" : : "r" (PROF_VT));
+        prof_start(PROF_VT, prof_isr);
+        __asm__ volatile ("ldc %0,sr" : : "r" (0xE0));          /* level 15 through */
+    }
+#endif
     signal_master();                            /* hello */
     for (;;)
     {
@@ -693,8 +777,27 @@ void                main(void)
                 }
                 fight_frames = 0;
                 fight_done = false;
+#ifdef SLAVE_PROF
+                {
+                    static bool started;
+                    extern void prof_isr_m(void);
+                    u32         *vbr;
+
+                    if (!started)
+                    {
+                        /* (the master's table: the BIOS's) */
+                        __asm__ volatile ("stc vbr,%0" : "=r" (vbr));
+                        prof_start(vbr, prof_isr_m);
+                        started = true;
+                    }
+                    memset((void *)0x202F0000, 0, 0x10000);
+                    *(volatile u32 *)0x202E7FF8 = 0;
+                    *(volatile u32 *)0x202E7FFC = 0;
+                    PROF_ON = 1;
+                }
+#endif
                 counts_reset();
-                fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
+                fight_ldma = fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
                 memset(fight_r, 0, sizeof(fight_r));
                 memset(fight_seg, 0, sizeof(fight_seg));
                 memset(fight_pre, 0, sizeof(fight_pre));
@@ -1247,16 +1350,14 @@ void                main(void)
             vdp_printf(8, 169, RGB(160, 255, 160), "UPLOADS %d.%d, MODELS' %d.%d GUN %d.%d", fight_r[9] / 1000 * 10 / n / 10,
                        fight_r[9] / 1000 * 10 / n % 10, fight_r[9] % 1000 * 10 / n / 10, fight_r[9] % 1000 * 10 / n % 10,
                        fight_gun / n / 1000, fight_gun / n / 100 % 10);
-            vdp_printf(8, 196, RGB(255, 200, 160), "GUN US V%d S%d C%d K%d", fight_vph[0] / n, fight_vph[1] / n,
-                       fight_vph[2] / n, fight_vph[3] / n);
+            vdp_printf(8, 178, RGB(255, 200, 160), "LISTS' DMA %d US", fight_ldma / n);
             vdp_printf(8, 44, RGB(160, 220, 255), "PRE US M%d P%d V%d F%d", fight_pre[0] / n, fight_pre[1] / n,
                        fight_pre[2] / n, fight_pre[3] / n);
             vdp_printf(8, 53, RGB(160, 220, 255), "E%d L%d T%d R%d", fight_pre[4] / n, fight_pre[5] / n,
                        fight_pre[6] / n, fight_pre[7] / n);
             vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US TEST %d SUMS %d FACES %d", fight_dl[0] / n, fight_dl[1] / n,
                        fight_dl[2] / n);
-            vdp_printf(8, 80, RGB(160, 220, 255), "DL POINT-LIGHTS %d IN %d PLANE %d OF %d", fight_dl[3] / n,
-                       fight_dl[4] / n, fight_dl[6] / n, fight_dl[5] / n);
+            vdp_printf(8, 80, RGB(160, 220, 255), "DL POINT-LIGHTS %d IN %d", fight_dl[3] / n, fight_dl[4] / n);
 #ifdef DLF_CHECK
             {
                 extern u32 dlf_checks, dlf_diffs;
@@ -1510,6 +1611,7 @@ void                main(void)
             {
                 fight_us += us_frame;
                 fight_cpu += us_cpu;
+                fight_ldma += vdp_us_dma;           /* (the lists' DMA, vdp_submit's: after us_cpu) */
                 fight_game += us_game;
                 {
                     int k;
@@ -1564,8 +1666,6 @@ void                main(void)
                 fight_dl[2] += (u32)rs.n_dlfaces;
                 fight_dl[3] += (u32)rs.n_dlpts;
                 fight_dl[4] += (u32)rs.n_dlin;
-                fight_dl[5] += (u32)rs.n_dltest;
-                fight_dl[6] += (u32)rs.n_dlplane;
                 fight_gmax = imax((s32)fight_gmax, (s32)us_game);
                 ++fight_n;
                 if (fight_us >= 20000000)
@@ -1592,6 +1692,9 @@ void                main(void)
                     }
                     fight_frames = -1;
                     fight_done = true;
+#ifdef SLAVE_PROF
+                    PROF_ON = 0;
+#endif
                     counts_at_end();
                 }
             }

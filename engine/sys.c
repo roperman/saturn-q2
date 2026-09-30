@@ -281,8 +281,15 @@ u16                 pad_read(void)
 
 /* ---- SCU DMA level 0, CPU-triggered ---- */
 
+/* a chain of transfers started by scu_dma0_table (vdp_submit's lists) and not yet seen
+   finished: nothing else starts until it has */
+volatile bool       scu_dma0_chain;
+
 void                scu_dma0(void *dst, const void *src, u32 bytes, bool bbus_dst)
 {
+    while (SCU_DSTA & 0x10)
+        ;                                   /* (a chain under way: not cut short) */
+    scu_dma0_chain = false;
     SCU_D0EN = 0;
     SCU_D0R = (u32)src & 0x07FFFFFF;
     SCU_D0W = (u32)dst & 0x07FFFFFF;
@@ -295,6 +302,28 @@ void                scu_dma0(void *dst, const void *src, u32 bytes, bool bbus_ds
 bool                scu_dma0_busy(void)
 {
     return (SCU_DSTA & 0x10) != 0;
+}
+
+/* SCU DMA's indirect mode: the transfers in table (count, destination, source; the last
+   source's top bit set), all to the B-bus, one after another; not waited for */
+void                scu_dma0_table(const u32 *table)
+{
+    while (SCU_DSTA & 0x10)
+        ;
+    scu_dma0_chain = true;
+    SCU_D0EN = 0;
+    SCU_D0W = (u32)table & 0x07FFFFFF;      /* (the table's address, in indirect mode) */
+    SCU_D0AD = 0x101;                       /* the table read +4, writes +2 (B-bus) */
+    SCU_D0MD = 0x01000007;                  /* indirect mode, start by enable bit */
+    SCU_D0EN = 0x101;
+}
+
+/* the chain finished? (seen once, it's forgotten) */
+bool                scu_dma0_chain_done(void)
+{
+    if (scu_dma0_chain && !(SCU_DSTA & 0x10))
+        scu_dma0_chain = false;
+    return !scu_dma0_chain;
 }
 
 /* ---- slave SH-2 ---- */

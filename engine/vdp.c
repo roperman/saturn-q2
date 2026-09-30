@@ -121,7 +121,7 @@ ISR_WRAP(vblank_out_isr_w, vblank_out_isr);
 void                swap_isr(void)
 {
     ++fields;
-    if (queued >= 0 && (VDP1_EDSR & 2))
+    if (queued >= 0 && (VDP1_EDSR & 2) && scu_dma0_chain_done())
     {
         ++vdp_swap_fields[fields < 7 ? fields : 7];
         fields = 0;
@@ -358,6 +358,8 @@ void                vdp_begin(void)
     int             i, w;
     vdp1_cmd        *c;
 
+    while (!scu_dma0_chain_done())
+        ;                               /* (the last lists still going out: vdp_submit's) */
     for (w = 0; w < 2; ++w)
     {
         vdp_writer *wr = &writers[w];
@@ -628,6 +630,39 @@ int                 vdp_cmd_count(void)
     return 1 + writers[0].count + writers[1].count + overlay_count + 1;
 }
 
+/* (pipelined) the frame's transfers into VRAM, for SCU DMA's indirect mode (count, destination,
+   source): its textures (vdp_dma_queue), then its lists */
+#define DMA_TAB         (64)
+static u32          dma_tab[3 * DMA_TAB] __attribute__((aligned(16)));
+static int          dma_n;
+
+static void         dma_add(u32 dst, const void *src, u32 bytes)
+{
+    u32             *e = &dma_tab[3 * dma_n++];
+
+    e[0] = bytes;
+    e[1] = dst & 0x07FFFFFF;
+    e[2] = (u32)src & 0x07FFFFFF;
+}
+
+/* a transfer into VDP1's VRAM for the frame being built (from the cart or high work RAM, a
+   source that stays put): sent with its lists (vdp_submit), not waited for, before the swap to
+   that frame. false: no room (or not pipelined), send it now */
+bool                vdp_dma_queue(u32 vram, const void *src, u32 bytes)
+{
+    if (!pipelined || dma_n >= DMA_TAB - 5)
+        return false;                   /* (the lists' five kept room for) */
+    dma_add(VDP1_VRAM + vram, src, bytes);
+    return true;
+}
+
+static void         tab_range(int first, int n)
+{
+    if (n > 0)
+        dma_add(VDP1_VRAM + list_base(list) + (u32)first * sizeof(vdp1_cmd), &staging[first],
+                (u32)n * sizeof(vdp1_cmd));
+}
+
 static void         dma_range(int first, int n)
 {
     if (n <= 0)
@@ -685,6 +720,27 @@ int                 vdp_submit(void)
     t = frt_read();
     if (list_hook)
         list_hook();
+    if (pipelined)
+    {
+        /* the textures queued (list_hook's too), the lists and their Gouraud colours into VRAM
+           in one go, not waited for (0.9 ms of a fight's frame): the swap isn't made until it's
+           done, nor anything else sent by DMA, and vdp_begin waits for it before the lists (or
+           this table) are written again */
+        tab_range(0, 1 + writers[0].count);
+        tab_range(writers[1].first, writers[1].count);
+        tab_range(OVL_FIRST, overlay_count + 1);
+        for (w = 0; w < 2; ++w)
+            if (writers[w].gcount)
+                dma_add(VDP1_VRAM + writers[w].gbase, writers[w].gst, (u32)writers[w].gcount * 8);
+        dma_tab[3 * dma_n - 1] |= 0x80000000;
+        scu_dma0_table(dma_tab);
+        dma_n = 0;
+        vdp_us_dma = frt_to_us((frt_read() - t) & 0xFFFF);
+        queued_frame = frames_sent++;
+        queued = list;                  /* (last: the interrupt may take it from here) */
+        list ^= 1;
+        return waited;
+    }
     dma_range(0, 1 + writers[0].count);
     dma_range(writers[1].first, writers[1].count);
     dma_range(OVL_FIRST, overlay_count + 1);
@@ -696,13 +752,6 @@ int                 vdp_submit(void)
                 ;
         }
     vdp_us_dma = frt_to_us((frt_read() - t) & 0xFFFF);
-    if (pipelined)
-    {
-        queued_frame = frames_sent++;
-        queued = list;                  /* (last: the interrupt may take it from here) */
-        list ^= 1;
-        return waited;
-    }
     t = frt_read();
 
     /* wait for VDP1 to finish the frame in flight, then swap at the next vblank */

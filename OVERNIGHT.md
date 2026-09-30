@@ -1444,3 +1444,49 @@ same sums bit for bit (`-DDLF_CHECK`: 21,320 lit faces, 0 different);
 What's left of it is the work: the sums (dl_rows) and unpacking and packing
 each point (~40 cycles a point in all, and low work RAM's misses reading the
 faces' lights).
+
+## 32. Moving you early: the slave, at the end of the frame before
+
+Your question: the pad's only read (`pad_collect`, the SMPC's last answer:
+it reads the pad at the top of each field, a few ms to answer) when a frame
+starts, so why not read it when the move's made, wherever that is? Then
+moving you before the frame starts costs only as much as it's early, not a
+frame.
+
+So the slave, its drawing done, waits for the master's (the game's tick ran
+before the master drew its half, so everything the move reads is final),
+reads the pad then and makes the next frame's move: the camera turned, the
+doors and lifts, pmove (`premove` in main.c). Meanwhile the master finishes
+the frame (the HUD, the lists sent); at the next frame's start it waits for
+the move if it's not done, forgets its cache's copies (the move writes the
+player, the doors, the traces' brush marks, the dice), and uses the pad the
+slave read for everything else a frame start does with it (menus, START,
+the weapon). The master asks for it only in a frame the game runs in and
+the slave draws in; with a menu up or the benchmark's views showing the
+slave leaves it to the master, as before. dt is the frame's own (the next
+one's length isn't known yet). `OPT=-DNO_PREMOVE`: as before.
+
+The pad is read ~2 ms before the frame starts, not at its start: what you
+press reaches the screen that much later on average (the SMPC only reads a
+pad once a field, so mostly it's the same reading; now and then the field
+before's).
+
+| the fight | before | after |
+|---|---|---|
+| NTSC: frame / CPU | 34.1 / 32.6 ms | 33.7 / 31.9 |
+| NTSC: pictures up 3 fields (of ~590) | 24 | 7 |
+| PAL: CPU | 33.2 | 32.6 |
+
+The slave waits ~0.15 ms for the master's drawing and moves you in 0.92
+(standing: walking costs more traces); the master's wait for it at the next
+frame's start is ~0. The camera, gun and effects' times at the frame start
+went up (V 130 -> 236 us, F 128 -> 213): the lists' DMA, which halts both
+CPUs for 0.78 ms as a frame starts, used to fall in pmove and now falls
+there (not the cache: the same without the purge, tried).
+
+Checked: `OPT=-DMOVE_TEST` (the same scripted moves, a fixed dt: stand,
+walk, turn, jump, back, curve; where you end up) gives the same position,
+yaw and fall speed, bit for bit, with and without; played (walking,
+turning, jumping, firing, pausing and resuming); `-DLEVEL_TEST` through
+the three levels' exits. The fight's result screen shows the fields each
+picture was up (`FIELDS UP`) and the early move's times (`EARLY MOVE`).

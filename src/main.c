@@ -261,6 +261,147 @@ static void         prof_start(u32 *vt, void (*isr)(void))
 }
 #endif
 
+/* The next frame's move, early (OPT=-DNO_PREMOVE: at its start, as before). The slave, its
+   drawing done, waits for the master's (the game's tick ran before the master drew), reads the
+   pad then and moves you (the doors and lifts too), while the master finishes the frame: the
+   next one starts with it done, 0.9 ms or more sooner. What you press is only as much older as
+   that's early (the SMPC reads a pad once a field; now and then it's the field before's). The
+   master asks for it (PM_REQ) in a frame the game runs in and the slave draws in, and waits for
+   it at the next one's start; the slave doesn't move you if a menu's up or the benchmark's
+   views are showing (PM_DONE 1: the master does it), and gives it the pad it read (PM_PAD) for
+   everything else a frame start does with it. dt: this frame's (the next's isn't known yet) */
+#ifndef NO_PREMOVE
+static u32          pm_req, pm_drawn, pm_done, pm_pad;
+static s32          pm_dt;
+static bool         pm_asked;               /* (the master: this frame's asked for) */
+#define PM_REQ          (*(volatile u32 *)UNCACHED(&pm_req))
+#define PM_DRAWN        (*(volatile u32 *)UNCACHED(&pm_drawn))  /* (the master's drawing done) */
+#define PM_DONE         (*(volatile u32 *)UNCACHED(&pm_done))   /* 1: not moved; 2: moved */
+#define PM_PAD          (*(volatile u32 *)UNCACHED(&pm_pad))
+#define PM_DT           (*(volatile s32 *)UNCACHED(&pm_dt))
+#ifdef FIGHT_BENCH
+static u32          pm_t[3];                /* (slave: waiting for the master's drawing, moving; master: waiting, ticks) */
+#endif
+#endif
+#ifdef FIGHT_BENCH
+static u32          fight_pm[4];            /* (and frames it moved you in) */
+#endif
+
+/* The pad into a move: the camera turned, and the command pmove takes (the master at a frame's
+   start; or the slave at the last one's end, premove) */
+#ifdef MOVE_TEST
+/* (OPT=-DMOVE_TEST: the same moves every run, whoever makes them, a fixed dt: from your first
+   move in a game, stand, walk, turn, jump, back, curve, stand; where you end up shown, to
+   compare builds) */
+static int          mt_moves;
+static s32          mt_at[5];
+
+static u16          mt_pad(void)
+{
+    int             k = mt_moves++;
+
+    if (k == 280)
+    {
+        mt_at[0] = pl.origin[0];
+        mt_at[1] = pl.origin[1];
+        mt_at[2] = pl.origin[2];
+        mt_at[3] = cam.yaw;
+        mt_at[4] = pl.velocity[2];
+    }
+    return k < 30 ? 0 : k < 90 ? PAD_UP : k < 110 ? PAD_RIGHT : k < 150 ? (u16)(PAD_UP | (k >= 120 && k < 124 ? PAD_A : 0))
+         : k < 180 ? PAD_DOWN : k < 240 ? (u16)(PAD_UP | PAD_LEFT) : 0;
+}
+#endif
+
+static void         move_input(u16 pad, int turn, q_usercmd *cmd)
+{
+#ifdef MOVE_TEST
+    pad = mt_pad();
+#endif
+#ifdef FIGHT_BENCH
+    if (fight_frames >= 0)
+    {
+        cam.yaw = 0x4000;                       /* (the fight: standing still, looking into the room) */
+        cam.pitch = 0;
+        pad &= PAD_START;
+    }
+#endif
+    if (pad & PAD_LEFT)
+        cam.yaw += turn;
+    if (pad & PAD_RIGHT)
+        cam.yaw -= turn;
+    if (pad & PAD_X && !(pad & PAD_START))
+        cam.pitch = imax(cam.pitch - turn / 2, -0x3800);
+    if (pad & PAD_Z && !(pad & PAD_START))
+        cam.pitch = imin(cam.pitch + turn / 2, 0x3800);
+    if (pad & PAD_C && !(pad & PAD_START))
+        cam.pitch = 0;
+    cam.yaw &= 0xFFFF;
+    cmd->yaw = cam.yaw;
+    cmd->pitch = cam.pitch;
+    cmd->forward = pad & PAD_UP ? FIX(300) : pad & PAD_DOWN ? -FIX(300) : 0;
+    cmd->side = pad & PAD_R ? FIX(300) : pad & PAD_L ? -FIX(300) : 0;
+    cmd->up = pad & PAD_A && !(pad & PAD_START) ? FIX(300) : 0;
+#if defined(ENTLIGHT_CHECK) && !defined(FIGHT_BENCH)
+    cmd->forward = FIX(300);                /* (walking in wide circles: new clusters, new things in view) */
+    cam.yaw = (cam.yaw + 0x60) & 0xFFFF;
+    cmd->yaw = cam.yaw;
+#endif
+#ifdef VIEW_TEST
+    {
+        /* (walking in circles, turning at three speeds in turn, then standing still: the
+           gun's bob and lag, and none) */
+        static int vw;
+        static const int turns[4] = { 0, 0x60, 0x300, 0 };
+
+        ++vw;
+        cmd->forward = vw / 100 % 4 == 3 ? 0 : FIX(300);
+        cam.yaw = (cam.yaw + turns[vw / 100 % 4]) & 0xFFFF;
+        cmd->yaw = cam.yaw;
+    }
+#endif
+#ifdef LADDER_CHECK
+    cmd->forward = FIX(300);                /* (into the ladder, and up it) */
+    cmd->up = FIX(300);
+#endif
+}
+
+#ifndef NO_PREMOVE
+static void         premove(void)
+{
+    q_usercmd       cmd;
+    u16             pad;
+    s32             dt = PM_DT;
+#ifdef FIGHT_BENCH
+    u32             t = frt_read(), t1;
+#endif
+
+    while (!PM_DRAWN)
+        ;
+    cache_purge();                              /* (the game's tick, the master's) */
+#ifdef FIGHT_BENCH
+    t1 = frt_read();
+    pm_t[0] = (t1 - t) & 0xFFFF;
+#endif
+    if (menu_active() || bench_view >= 0)
+    {
+        PM_DONE = 1;
+        return;
+    }
+    pad = pad_collect();
+    PM_PAD = pad;
+    if (g_player->dead || level_complete)
+        pad &= PAD_START;
+    move_input(pad, (int)fmul(dt, 0x6000), &cmd);
+    movers_update(dt);
+    pmove(&cmd, dt);
+#ifdef FIGHT_BENCH
+    pm_t[1] = (frt_read() - t1) & 0xFFFF;
+#endif
+    PM_DONE = 2;
+}
+#endif
+
 #ifdef FIGHT_BENCH
 static u32          sl_t, sl_dyn, sl_end, sl_endt;    /* (the slave: its dynamic model light; last frame's end to its next job's) */
 u32                 fight_sl[3];
@@ -318,6 +459,10 @@ void                slave_main(void)
         sl_endt = frt_read();
 #endif
         signal_master();
+#ifndef NO_PREMOVE
+        if (PM_REQ)
+            premove();                          /* (the next frame's move, while the master finishes) */
+#endif
 #ifdef WALLS_AHEAD
         r_wall_ahead();                         /* (a test: the next frame's walls, while the master finishes) */
 #endif
@@ -664,7 +809,10 @@ void                main(void)
     {
         q_usercmd   cmd;
         bool        pre_slave;
-#ifdef FIGHT_BENCH
+#ifndef NO_PREMOVE
+        bool        premoved;
+#endif
+#if defined(FIGHT_BENCH) || defined(MOVE_TEST)
         /* (the benchmark: the game's step two fields always, not the frame's time: then the
            fight goes the same way each run and each build, however long its frames take; its
            FRAME is still the frames' time) */
@@ -690,8 +838,42 @@ void                main(void)
                 snd_sfx_at(SND_EXPLOSION, 127, 0);
         }
 #endif
+#ifndef NO_PREMOVE
+        premoved = false;
+        if (pm_asked)
+        {
+            /* (the slave moving you already: done, and its pad) */
+#ifdef FIGHT_BENCH
+            u32 tw = frt_read();
+#endif
+
+            while (!PM_DONE)
+                ;
+#ifdef FIGHT_BENCH
+            pm_t[2] = (frt_read() - tw) & 0xFFFF;
+#endif
+            cache_purge();
+            premoved = PM_DONE == 2;
+#ifdef FIGHT_BENCH
+            if (fight_frames > FIGHT_SKIP)
+            {
+                fight_pm[0] += frt_to_us(pm_t[0]);
+                fight_pm[1] += frt_to_us(pm_t[1]);
+                fight_pm[2] += frt_to_us(pm_t[2]);
+                fight_pm[3] += premoved;
+            }
+#endif
+            PM_REQ = 0;
+            PM_DONE = 0;
+            pm_asked = false;
+        }
+        PM_DRAWN = 0;
+        pad_prev = pad_now;
+        pad_now = premoved ? (u16)PM_PAD : pad_collect();
+#else
         pad_prev = pad_now;
         pad_now = pad_collect();
+#endif
         pad_request();
         t0 = frt_read();
         /* a menu up: it has the presses and the game stands still (START + R still starts a benchmark) */
@@ -841,6 +1023,7 @@ void                main(void)
                 memset(fight_dl, 0, sizeof(fight_dl));
                 memset(fight_po, 0, sizeof(fight_po));
                 memset(fight_sl, 0, sizeof(fight_sl));
+                memset(fight_pm, 0, sizeof(fight_pm));
                 fight_gun = 0;
                 {
                     extern u32 view_ph[4];
@@ -899,51 +1082,10 @@ void                main(void)
                 g_player->health = imax(g_player->health, 100);
             else if (pressed(PAD_B) && pad_now & PAD_START)
                 warp_next();
-            if (pad_now & PAD_LEFT)
-                cam.yaw += turn;
-            if (pad_now & PAD_RIGHT)
-                cam.yaw -= turn;
-            if (pad_now & PAD_X && !(pad_now & PAD_START))
-                cam.pitch = imax(cam.pitch - turn / 2, -0x3800);
-            if (pad_now & PAD_Z && !(pad_now & PAD_START))
-                cam.pitch = imin(cam.pitch + turn / 2, 0x3800);
-            if (pad_now & PAD_C && !(pad_now & PAD_START))
-                cam.pitch = 0;
-            cam.yaw &= 0xFFFF;
-            cmd.yaw = cam.yaw;
-            cmd.pitch = cam.pitch;
-            cmd.forward = pad_now & PAD_UP ? FIX(300) : pad_now & PAD_DOWN ? -FIX(300) : 0;
-            cmd.side = pad_now & PAD_R ? FIX(300) : pad_now & PAD_L ? -FIX(300) : 0;
-            cmd.up = pad_now & PAD_A && !(pad_now & PAD_START) ? FIX(300) : 0;
-#if defined(ENTLIGHT_CHECK) && !defined(FIGHT_BENCH)
-            if (!paused)
-            {
-                cmd.forward = FIX(300);         /* (walking in wide circles: new clusters, new things in view) */
-                cam.yaw = (cam.yaw + 0x60) & 0xFFFF;
-                cmd.yaw = cam.yaw;
-            }
+#ifndef NO_PREMOVE
+            if (!premoved)
 #endif
-#ifdef VIEW_TEST
-            if (!paused)
-            {
-                /* (walking in circles, turning at three speeds in turn, then standing still: the
-                   gun's bob and lag, and none) */
-                static int vw;
-                static const int turns[4] = { 0, 0x60, 0x300, 0 };
-
-                ++vw;
-                cmd.forward = vw / 100 % 4 == 3 ? 0 : FIX(300);
-                cam.yaw = (cam.yaw + turns[vw / 100 % 4]) & 0xFFFF;
-                cmd.yaw = cam.yaw;
-            }
-#endif
-#ifdef LADDER_CHECK
-            if (!paused)
-            {
-                cmd.forward = FIX(300);         /* (into the ladder, and up it) */
-                cmd.up = FIX(300);
-            }
-#endif
+                move_input(pad_now, turn, &cmd);  /* (premoved: the slave's done it, and moved you) */
         }
         if (bench_view >= 0)
         {
@@ -1130,9 +1272,14 @@ void                main(void)
 #ifdef FIGHT_BENCH
             fight_pt = frt_read();
 #endif
-            movers_update(dt);
-            PRE(0);
-            pmove(&cmd, dt);
+#ifndef NO_PREMOVE
+            if (!premoved)
+#endif
+            {
+                movers_update(dt);
+                PRE(0);
+                pmove(&cmd, dt);
+            }
             PRE(1);
             FT(2);
             game_dt = dt;
@@ -1254,8 +1401,19 @@ void                main(void)
 #endif
         if (game_during_draw && !paused)
             r_during = game_step;
+#ifndef NO_PREMOVE
+        if (pre_slave && r_two_cpus && !paused && bench_view < 0)
+        {
+            PM_DT = dt;
+            PM_REQ = 1;                         /* (the slave: the next frame's move, after its drawing) */
+            pm_asked = true;
+        }
+#endif
         render_world(vdp_get_writer(0), vdp_get_writer(1));
         r_during = NULL;
+#ifndef NO_PREMOVE
+        PM_DRAWN = 1;
+#endif
         FT(5);
         /* the status bar and messages; a menu over them */
         if (!(paused && menu_at_title()))
@@ -1370,6 +1528,9 @@ void                main(void)
 #endif
 
             vdp_printf(8, 96, RGB(255, 220, 120), "FIGHT: %d FRAMES", fight_n);
+            /* (how many pictures were up 1, 2, 3 and 4+ fields: 30 fps on NTSC is all of them 2) */
+            vdp_printf(8, 187, RGB(255, 220, 120), "FIELDS UP 1:%d 2:%d 3:%d 4+:%d", fight_swaps[1], fight_swaps[2],
+                       fight_swaps[3], fight_swaps[4] + fight_swaps[5] + fight_swaps[6] + fight_swaps[7]);
             vdp_printf(8, 106, RGB(255, 255, 255), "FRAME %d.%d CPU %d.%d MS", fight_us / n / 1000,
                        fight_us / n / 100 % 10, fight_cpu / n / 1000, fight_cpu / n / 100 % 10);
             vdp_printf(8, 115, RGB(255, 255, 255), "GAME %d.%d MS, MOST %d.%d", fight_game / n / 1000,
@@ -1394,7 +1555,7 @@ void                main(void)
             vdp_printf(8, 187, RGB(255, 200, 160), "CROP %d EXACT %d SMALL %d", fight_p[9] / n, fight_p[10] / n,
                        fight_p[12] / n);
 #endif
-            vdp_printf(8, 169, RGB(160, 255, 160), "UPLOADS %d.%d, MODELS' %d.%d GUN %d.%d", fight_r[9] / 1000 * 10 / n / 10,
+            vdp_printf(8, 169, RGB(160, 255, 160), "UPLOAD %d.%d MODELS %d.%d GUN %d.%d", fight_r[9] / 1000 * 10 / n / 10,
                        fight_r[9] / 1000 * 10 / n % 10, fight_r[9] % 1000 * 10 / n / 10, fight_r[9] % 1000 * 10 / n % 10,
                        fight_gun / n / 1000, fight_gun / n / 100 % 10);
             vdp_printf(8, 178, RGB(255, 200, 160), "LISTS' DMA %d US", fight_ldma / n);
@@ -1402,8 +1563,12 @@ void                main(void)
                        fight_pre[2] / n, fight_pre[3] / n);
             vdp_printf(8, 53, RGB(160, 220, 255), "E%d L%d T%d R%d", fight_pre[4] / n, fight_pre[5] / n,
                        fight_pre[6] / n, fight_pre[7] / n);
+#ifdef WALLS_AHEAD
             vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US SUMS %d FACES %d AHEAD %d", fight_dl[1] / n, fight_dl[2] / n,
                        fight_dl[5] / n);
+#else
+            vdp_printf(8, 71, RGB(160, 220, 255), "WALL DL US %d FACES %d", fight_dl[1] / n, fight_dl[2] / n);
+#endif
             vdp_printf(8, 62, RGB(160, 220, 255), "SLAVE US: FIRST %d DYN %d END %d", fight_sl[0] / n,
                        fight_sl[1] / n, fight_sl[2] / n);
 #ifdef WALLS_AHEAD
@@ -1413,6 +1578,9 @@ void                main(void)
                 vdp_printf(8, 80, RGB(160, 220, 255), "AHEAD STOPS: NEXT %d ROOM %d ALL %d", wl_stop[0], wl_stop[1],
                            wl_stop[2]);
             }
+#elif !defined(DLF_CHECK)
+            vdp_printf(8, 80, RGB(160, 220, 255), "EARLY MOVE W%d M%d MASTER %d %d%%", fight_pm[0] / n,
+                       fight_pm[1] / n, fight_pm[2] / n, fight_pm[3] * 100 / n);
 #endif
 
 #ifdef DLF_CHECK
@@ -1476,8 +1644,6 @@ void                main(void)
                                fight_sites[j].us / n / 100 % 10);
             }
 #endif
-            vdp_printf(8, 190, RGB(255, 255, 255), "UP 20:%d 40:%d 60:%d 80:%d 100+:%d", fight_swaps[1],
-                       fight_swaps[2], fight_swaps[3], fight_swaps[4], fight_swaps[5] + fight_swaps[6] + fight_swaps[7]);
         }
 #endif
 #ifdef LEVEL_TEST
@@ -1632,6 +1798,10 @@ void                main(void)
             }
 
         }
+#ifdef MOVE_TEST
+        vdp_printf(8, 30, RGB(255, 255, 120), "MOVES %d AT %X %X %X", mt_moves, mt_at[0], mt_at[1], mt_at[2]);
+        vdp_printf(8, 39, RGB(255, 255, 120), "YAW %X VZ %X", mt_at[3], mt_at[4]);
+#endif
         FT(6);
         us_cpu = frt_to_us((frt_read() - t0) & 0xFFFF);
         waited = vdp_submit();

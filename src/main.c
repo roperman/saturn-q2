@@ -165,12 +165,21 @@ static bool         god;
    (ents_light). The master meanwhile moves you and the camera, the gun and the effects, so the
    walk (and the slave's drawing) starts sooner. The flags are read uncached: the CPUs'
    caches are their own */
-static u32          pre_job, pre_cam, pre_done;
+static u32          pre_job, pre_cam, pre_done, lit_done = 1;
+#define LIT_DONE        (*(volatile u32 *)UNCACHED(&lit_done))  /* (the models' dynamic lights: after PRE_DONE) */
 #define PRE_JOB         (*(volatile u32 *)UNCACHED(&pre_job))
 #define PRE_CAM         (*(volatile u32 *)UNCACHED(&pre_cam))   /* 1 + ents_pvs(), when the camera's moved */
 #define PRE_DONE        (*(volatile u32 *)UNCACHED(&pre_done))
 
 static bool         pre_pending;            /* (the slave has a first job not yet waited for) */
+
+/* (draw_master, before its first model: the slave's lit them, a frame behind: model.c) */
+static void         lit_wait(void)
+{
+    while (!LIT_DONE)
+        ;
+    ent_lit_forget();
+}
 
 /* (render_world, before it puts the entities in their leaves: the slave's done with them) */
 static void         pre_wait(void)
@@ -251,6 +260,11 @@ static void         prof_start(u32 *vt, void (*isr)(void))
 }
 #endif
 
+#ifdef FIGHT_BENCH
+static u32          sl_t, sl_dyn, sl_end, sl_endt;    /* (the slave: its dynamic model light; last frame's end to its next job's) */
+u32                 fight_sl[3];
+#endif
+
 void                slave_main(void)
 {
     frt_init();
@@ -277,15 +291,31 @@ void                slave_main(void)
         if (PRE_JOB)
         {
             PRE_JOB = 0;
+#ifdef FIGHT_BENCH
+            sl_end = (frt_read() - sl_endt) & 0xFFFF;     /* (last frame's drawing done to this job) */
+#endif
             g_render_ents();
             while (!PRE_CAM)
                 ;
             cache_purge();                      /* (the camera, just moved) */
             ents_light_pvs(PRE_CAM > 1);
             PRE_DONE = 1;
+#ifdef FIGHT_BENCH
+            sl_t = frt_read();
+#endif
+#ifndef NO_LIGHT_AHEAD
+            ents_light_dyn(PRE_CAM > 1);        /* (the master's gone on; the walk's only starting) */
+#endif
+#ifdef FIGHT_BENCH
+            sl_dyn = (frt_read() - sl_t) & 0xFFFF;
+#endif
+            LIT_DONE = 1;
             continue;
         }
         render_slave();
+#ifdef FIGHT_BENCH
+        sl_endt = frt_read();
+#endif
         signal_master();
     }
 }
@@ -804,6 +834,7 @@ void                main(void)
                 memset(fight_pre, 0, sizeof(fight_pre));
                 memset(fight_dl, 0, sizeof(fight_dl));
                 memset(fight_po, 0, sizeof(fight_po));
+                memset(fight_sl, 0, sizeof(fight_sl));
                 fight_gun = 0;
                 {
                     extern u32 view_ph[4];
@@ -950,6 +981,7 @@ void                main(void)
             cam.pitch = (int)bv[4];
             cam_update();
             render_sky();
+            lights_lag();                   /* (last frame's lights, for the models') */
             fx_update(0);
             g_render_ents();
             fx_render();
@@ -1072,11 +1104,17 @@ void                main(void)
         {
             PRE_CAM = 1;                        /* (a frame that didn't draw: the last one's first job) */
             pre_wait();
+            while (!LIT_DONE)
+                ;
         }
+        lights_lag();                           /* (last frame's lights, for the models': model.c) */
         if (pre_slave)
         {
+            while (!LIT_DONE)
+                ;                               /* (the last job all done: its "done" not taken for this one's) */
             PRE_CAM = 0;
             PRE_DONE = 0;
+            LIT_DONE = 0;
             PRE_JOB = 1;
             pre_pending = true;
             signal_slave();                     /* (the entities' list, then their light) */
@@ -1200,6 +1238,7 @@ void                main(void)
             }
         }
         r_pre_wait = pre_slave ? pre_wait : NULL;
+        r_lit_wait = pre_slave ? lit_wait : NULL;
         PRE(6);
         FT(4);
         vdp_begin();
@@ -1358,8 +1397,8 @@ void                main(void)
             vdp_printf(8, 53, RGB(160, 220, 255), "E%d L%d T%d R%d", fight_pre[4] / n, fight_pre[5] / n,
                        fight_pre[6] / n, fight_pre[7] / n);
             vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US SUMS %d FACES %d", fight_dl[1] / n, fight_dl[2] / n);
-            vdp_printf(8, 62, RGB(160, 220, 255), "PORTALS US %d CL %d PR %d/%d OUT %d", fight_po[0] / n, fight_po[1] / n,
-                       fight_po[2] / n, fight_po[4] / n, fight_po[3] / n);
+            vdp_printf(8, 62, RGB(160, 220, 255), "SLAVE US: FIRST %d DYN %d END %d", fight_sl[0] / n, fight_sl[1] / n,
+                       fight_sl[2] / n);
             vdp_printf(8, 80, RGB(160, 220, 255), "DL POINT-LIGHTS %d IN %d", fight_dl[3] / n, fight_dl[4] / n);
 #ifdef DLF_CHECK
             {
@@ -1674,6 +1713,13 @@ void                main(void)
                 fight_po[2] += (u32)rs.n_proj;
                 fight_po[3] += (u32)rs.portal_out;
                 fight_po[4] += (u32)rs.n_ptest;
+                {
+                    extern u32 sl_first;
+
+                    fight_sl[0] += frt_to_us(*(volatile u32 *)UNCACHED(&sl_first));
+                    fight_sl[1] += frt_to_us(*(volatile u32 *)UNCACHED(&sl_dyn));
+                    fight_sl[2] += frt_to_us(*(volatile u32 *)UNCACHED(&sl_end));
+                }
                 fight_gmax = imax((s32)fight_gmax, (s32)us_game);
                 ++fight_n;
                 if (fight_us >= 20000000)

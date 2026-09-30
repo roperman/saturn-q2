@@ -1356,3 +1356,35 @@ other way (a finer facevis in the big rooms, say).
 the fight another way): a new baseline, a heavier fight (2.8 models on the
 screen, not 2.1): PAL CPU 34.0 ms, NTSC frame 34.8 ms, CPU 33.3. The
 profiler's build keeps the level out of its low work RAM.
+
+## 30. The models' dynamic lights, a frame behind
+
+Your idea: light things a frame early, when a CPU's free. Where the slave's
+free, measured (`SLAVE US: FIRST DYN END` in the fight): ~1.4 ms at a
+frame's start (between its first job and the walk's first face) and ~1.9 at
+its end (the master's HUD, text and submit; 0.8 of that the lists' DMA,
+which halts both CPUs anyway, and some the benchmark's own text).
+
+So the models' dynamic lights (draw_model's: 162 normals against each light
+near it, on whichever CPU drew it, ~0.7 ms a fight frame) are now worked out
+in the slave's first job, after it's told the master it's done with the rest
+(so the master never waits for them): last frame's lights (`lights_lag`, kept
+before this frame's effects make new ones), each model on the screen near
+one given a table of its own from a pool of six, its base with the lights
+added exactly as draw_model added them. The master, before it draws its first
+model, checks they're done (`LIT_DONE`: they always are by then) and forgets
+its cache's copies. A model off the screen, or when the pool's full, is lit
+by draw_model if it's drawn after all. `OPT=-DNO_LIGHT_AHEAD`: as before.
+
+The same pixels in the six views (their lights don't move, so last frame's
+are this frame's). In the fight (the new baseline of section 29): NTSC 34.8
+-> 34.5 ms, PAL CPU 34.0 -> 33.9: the slave's start was idler than its draw
+time was busy, but the job (1.26 ms, more models than are drawn) fills it.
+What you'd see: a light that's moving lights the models from where it was a
+frame (33-40 ms) before; a new flash lights them a frame late. HWRAM: the
+pool's 2 KB (demo3 has 1.6 KB left now).
+
+The walls' dynamic lights (~3 ms of work a fight frame) would be the bigger
+prize, but only ~1 ms of the slave's time is still free (the frame's end):
+at most ~0.5 ms off the frame, for world-space grids, a cache and keeping
+track of which faces were lit. Not done.

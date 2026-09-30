@@ -195,8 +195,111 @@ bool                ents_pvs(void)
 
 void                ents_light(void)
 {
-    ents_light_pvs(ents_pvs());
+    bool            pvs = ents_pvs();
+
+    ents_light_pvs(pvs);
+#ifndef NO_LIGHT_AHEAD
+    ents_light_dyn(pvs);
+#endif
 }
+
+/* The models' dynamic lights, a frame behind (OPT=-DNO_LIGHT_AHEAD: draw_model's, as it draws):
+   last frame's lights (kept by lights_lag before this frame's effects make new ones), added as
+   the frame starts, with the rest of the models' light: on the slave, whose first job this is,
+   while it'd be waiting for the walk anyway. Each model near one gets a table of its own from a
+   small pool, its base with them added as draw_model added them (the same arithmetic); a model
+   near none draws with its base, one the pool's too full for is lit by draw_model */
+static q_dlight     lag[MAX_DLIGHTS];
+static int          nlag;
+u16                 ent_lit[LIT_POOL][162];
+
+void                lights_lag(void)
+{
+    memcpy(lag, r_dlights, sizeof(lag));
+    nlag = r_ndlights;
+}
+
+/* (a CPU that didn't make them: its cache's copies of the pool forgotten, a line at a time) */
+void                ent_lit_forget(void)
+{
+    u32             a;
+
+    for (a = (u32)ent_lit & ~15u; a < (u32)ent_lit + sizeof(ent_lit); a += 16)
+        *(volatile u32 *)(0x40000000 | (a & 0x1FFFFFFF)) = 0;
+}
+
+#ifndef NO_LIGHT_AHEAD
+void                ents_light_dyn(bool pvs)
+{
+    int             i, k, n = 0, nn;
+
+    for (i = 0; i < nents; ++i)
+    {
+        q_entity    *e = &ents[i];
+        const q_mdl *m = e->mdl;
+        u16         *gt = NULL;
+        s32         c, sn;
+
+        e->g_lit = -1;
+        if (!e->live || !m || (pvs && !r_leaf_in_pvs(e->g_leaf)))
+            continue;
+        {
+            /* off the screen (a sphere of 64 units against the view's sides: the camera's final by
+               now)? Then only if it's drawn after all, by draw_model */
+            s32 d0 = e->origin[0] - cam.pos[0], d1 = e->origin[1] - cam.pos[1], d2 = e->origin[2] - cam.pos[2];
+            s32 vx = fmul(d0, cam.right[0]) + fmul(d1, cam.right[1]) + fmul(d2, cam.right[2]);
+            s32 vy = fmul(d0, cam.up[0]) + fmul(d1, cam.up[1]) + fmul(d2, cam.up[2]);
+            s32 vz = fmul(d0, cam.fwd[0]) + fmul(d1, cam.fwd[1]) + fmul(d2, cam.fwd[2]);
+
+            if (vz < -FIX(64) || iabs(vx) - vz > FIX(91) || iabs(vy) - fmul(vz, FIX(0.7)) > FIX(79))
+            {
+                e->g_lit = -2;
+                continue;
+            }
+        }
+        c = fcos(e->yaw);
+        sn = fsin(e->yaw);
+        for (k = 0; k < nlag; ++k)
+        {
+            const q_dlight  *l = &lag[k];
+            s32             dx = (l->pos[0] - e->origin[0]) >> 16, dy = (l->pos[1] - e->origin[1]) >> 16;
+            s32             dz = (l->pos[2] - e->origin[2]) >> 16, r = l->radius >> 16, d2 = dx * dx + dy * dy + dz * dz;
+            s32             f, len, mx, my, mz;
+            const s16       *nrm = m->normals;
+
+            if (d2 >= r * r)
+                continue;
+            if (!gt)
+            {
+                if (n == LIT_POOL)
+                {
+                    e->g_lit = -2;          /* (no room: draw_model's) */
+                    break;
+                }
+                gt = ent_lit[n];
+                e->g_lit = (s8)n++;
+                memcpy(gt, e->gbase, sizeof(e->gbase));
+            }
+            f = ((r * r - d2) * ((1 << 24) / imax(r * r, 1))) >> 8;     /* 0..65536 at the origin */
+            len = (s32)isqrt((u32)d2) + 1;
+            /* the direction to the light, in the model's space (turned back by its yaw), 2.14 */
+            mx = ((dx * c + dy * sn) >> 2) / len;
+            my = ((dy * c - dx * sn) >> 2) / len;
+            mz = (dz << 14) / len;
+            for (nn = 0; nn < 162; ++nn, nrm += 3)
+            {
+                s32 dot = (nrm[0] * mx + nrm[1] * my + nrm[2] * mz) >> 14;      /* 2.14 */
+                s32 w = (f * (5734 + (dot > 0 ? (dot * 10650) >> 14 : 0))) >> 14;   /* 0.35 + 0.65 dot */
+                u16 g0 = gt[nn];
+                int rr = (g0 & 31) + ((l->r * w) >> 16), gg = ((g0 >> 5) & 31) + ((l->g * w) >> 16);
+                int bb = ((g0 >> 10) & 31) + ((l->b * w) >> 16);
+
+                gt[nn] = (u16)(0x8000 | imin(bb, 31) << 10 | imin(gg, 31) << 5 | imin(rr, 31));
+            }
+        }
+    }
+}
+#endif
 
 /* (pvs: ents_pvs's answer, the slave's told it: render_world may be marking a new PVS by then) */
 void                ents_light_pvs(bool pvs)

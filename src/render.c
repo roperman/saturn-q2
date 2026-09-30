@@ -4540,7 +4540,18 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     /* its light by normal: the base (ents_light), plus any dynamic lights
        near it, stronger on the side facing them */
     gt = e->gbase;
+#ifndef NO_LIGHT_AHEAD
+    {
+        int gl = ((volatile q_entity *)UNCACHED(e))->g_lit;     /* (the slave's, after the master's read e) */
+
+        if (gl >= 0)
+            gt = ent_lit[gl];               /* (lit a frame behind, as the frame started: model.c) */
+        i = gl == -2 ? 0 : ndl;
+    }
+    for (; i < ndl; ++i)
+#else
     for (i = 0; i < ndl; ++i)
+#endif
     {
         const q_dlight  *l = &r_dlights[i];
         s32             dx = (l->pos[0] - e->origin[0]) >> 16, dy = (l->pos[1] - e->origin[1]) >> 16;
@@ -5164,11 +5175,18 @@ static void         part_begin(r_ctx *x)
     x->nup = 0;
 }
 
+#ifdef FIGHT_BENCH
+u32                 sl_first;               /* (the slave: ticks it waited for its first item) */
+#endif
+
 void                render_slave(void)
 {
     r_ctx           *x = &ctx[1];
     u32             t0 = frt_read();
     int             lo = 0;
+#ifdef FIGHT_BENCH
+    bool            first = true;
+#endif
 
     part_begin(x);
     cells_frame(x);
@@ -5179,6 +5197,13 @@ void                render_slave(void)
 
         if (lo < n && lo < hi)
         {
+#ifdef FIGHT_BENCH
+            if (first)
+            {
+                first = false;
+                sl_first = (frt_read() - t0) & 0xFFFF;
+            }
+#endif
             SHARE->lo = lo + 1;             /* claim it, then draw it */
             draw_item(x, lo++, true);
         }
@@ -5196,6 +5221,8 @@ static void         draw_master(void)
     u32             t0 = frt_read();
     int             i;
 
+    if (r_lit_wait)
+        r_lit_wait();                       /* (the models' lights: the slave's, a frame behind) */
     part_begin(x);
     {
         u32 tv = frt_read();
@@ -5376,6 +5403,7 @@ static void         occ_count(void)
 
 void                (*r_during)(void);
 void                (*r_pre_wait)(void);
+void                (*r_lit_wait)(void);
 
 void                render_world(vdp_writer *w0, vdp_writer *w1)
 {

@@ -239,6 +239,12 @@ typedef struct { s32 pos[3]; s32 size; u16 color, halo; } q_sprite;     /* a glo
 #define MAX_SPRITES     (64)
 extern q_dlight     r_dlights[MAX_DLIGHTS];
 extern int          r_ndlights;
+#define LIT_POOL        (6)                     /* models lit a frame behind at once (model.c ents_light_dyn) */
+extern u16          ent_lit[LIT_POOL][162];
+void                lights_lag(void);           /* (main.c, as a frame starts: last frame's lights kept) */
+void                ents_light_dyn(bool pvs);   /* (after ents_light_pvs: the slave's, once the master's gone on) */
+void                ent_lit_forget(void);
+extern void         (*r_lit_wait)(void);        /* (draw_master, before its first model: the slave's done them) */
 extern q_sprite     r_sprites[MAX_SPRITES];
 extern int          r_nsprites;
 
@@ -295,7 +301,9 @@ typedef struct
        shading, remade when it changes leaf or turns (ents_light) */
     u16             gbase[162];
     s16             g_litleaf;              /* the leaf gbase is for (with g_yaw): -1 none */
-    int             g_leaf, g_yaw;          /* (g_leaf: the leaf it's in, after ents_light) */
+    int             g_leaf;                 /* the leaf it's in, after ents_light */
+    s8              g_yaw;                  /* (0 .. 15) */
+    s8              g_lit;                  /* its dynamic lights, a frame behind: ent_lit's; -1 none, -2 draw_model's */
 }                   q_entity;
 _Static_assert(sizeof(q_entity) == 384, "q_entity: g_moved in the padding");
 

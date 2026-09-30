@@ -1206,8 +1206,10 @@ frames, three runs of each:
 (The models' times are both CPUs' summed. The lit-on-the-CPU build's fight
 comes out the same each run; the DSP_LIGHT builds' not quite, the game's
 tick 5.7 to 7.0 ms by how the fight goes, so the CPU's total is within that
-noise: the 0.3 ms saved is split over the two CPUs.) It costs 8 KB of
-HWRAM (the weights, jobs and normals), so it stays a switch.
+noise: the 0.3 ms saved is split over the two CPUs.) But it doesn't fit:
+the weights, jobs, normals and code take 9.7 KB of HWRAM, and demo1 had 10.5
+KB left (`-DLEVEL_TEST`: 2.3 KB left with it, and 1.6 KB of its monsters'
+frames on the cart, which section 25 took off it). So it stays a switch, off.
 
 Also `OPT=-DDSP_NEAR`: the models to the DSP nearest first (the slave draws
 from the front). No faster (the waits for the DSP were 0.2 ms a frame

@@ -1384,7 +1384,21 @@ What you'd see: a light that's moving lights the models from where it was a
 frame (33-40 ms) before; a new flash lights them a frame late. HWRAM: the
 pool's 2 KB (demo3 has 1.6 KB left now).
 
-The walls' dynamic lights (~3 ms of work a fight frame) would be the bigger
-prize, but only ~1 ms of the slave's time is still free (the frame's end):
-at most ~0.5 ms off the frame, for world-space grids, a cache and keeping
-track of which faces were lit. Not done.
+**The walls, tried** (`OPT=-DWALLS_AHEAD`, off): each CPU notes the whole
+faces it lit; when the slave's done drawing, while the master finishes the
+frame, it lights them again for the next frame with this frame's lights,
+from their grids in the world (face_setup's steps from the world's axes, and
+dl_face as it is, given the lights), into one of two buffers in low work RAM
+(the master may still be drawing from the other), a face at a time, stopping
+when the next frame's first job comes; the next frame, a face found there
+isn't lit again, the rest are lit as before (with last frame's lights, to
+agree). It works: the six views a shade out on a few cells (the world's
+rounding, not the view space's). But the slave's free time at a frame's end
+(~1.2 ms once the lists' DMA, which halts it anyway, is out) lights ~3 of a
+fight frame's 20 lit faces (it stops at the next frame's job 389 frames in
+578; never for room): 0.4 ms less while drawing, nothing off the frame
+(NTSC 34.6). So off: the walls go by this frame's lights, as before; the
+models keep theirs a frame behind. (The DSP could do all of them, a frame
+behind, from the cart's copies of the faces and their lights, which its DMA
+can reach, as low work RAM isn't: ~1.2 ms off the frame, for a program of
+its own swapped in beside the models'.)

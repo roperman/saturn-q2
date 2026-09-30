@@ -244,6 +244,10 @@ extern u16          ent_lit[LIT_POOL][162];
 void                lights_lag(void);           /* (main.c, as a frame starts: last frame's lights kept) */
 void                ents_light_dyn(bool pvs);   /* (after ents_light_pvs: the slave's, once the master's gone on) */
 void                ent_lit_forget(void);
+const q_dlight      *lights_lagged(int *n);
+void                r_wall_level(void);         /* (render.c: the walls' lights ahead, their buffers) */
+void                r_wall_ahead(void);         /* (the slave, its drawing done) */
+void                r_wall_forget(void);        /* (the master, before it draws) */
 extern void         (*r_lit_wait)(void);        /* (draw_master, before its first model: the slave's done them) */
 extern q_sprite     r_sprites[MAX_SPRITES];
 extern int          r_nsprites;
@@ -347,6 +351,7 @@ typedef struct
     u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys, t_mwait, t_masm, t_mnorm;
     u32             us_rwpre, t_dltest, t_dlsum;    /* (FIGHT_BENCH: render_world to the slave's signal; the world's dynamic lights) */
     int             n_dlfaces, n_dlpts, n_dlin;    /* (and dl_face's points x lights, those in reach) */
+    int             n_wlhit;                        /* (lit faces found lit already: r_wall_ahead) */
     int             portal_out, n_reach, n_proj, n_ptest;  /* faces not seen through the portals, clusters reached,
                                                        portals projected, looked at */
     u32             t_flow;                         /* (FIGHT_BENCH: the flow's us) */

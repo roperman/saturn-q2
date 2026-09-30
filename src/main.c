@@ -101,7 +101,7 @@ static bool         fight_done;
 static g_trace_site fight_sites[16];            /* the traces' call sites, most time first */
 static u32          fight_tr[8];                /* trace.c's counts */
 static u32          fight_seg[6], fight_t[7];   /* the master's frame in parts (us): input, player, game, before, world, after */
-static u32          fight_dl[5];
+static u32          fight_dl[6];
 static u32          fight_po[5];                /* (the portals: the flow's us, clusters reached, portals projected, faces culled) */                /* (the world's dynamic lights: the faces' test, the sums, us; faces lit) */
 static u32          fight_pre[8], fight_pref[8], fight_pt;  /* (the master before the walk, us: movers, pmove, camera+gun,
                                                    sky+effects, entities+sprites, their light, the tint; render_world to
@@ -179,6 +179,7 @@ static void         lit_wait(void)
     while (!LIT_DONE)
         ;
     ent_lit_forget();
+    r_wall_forget();
 }
 
 /* (render_world, before it puts the entities in their leaves: the slave's done with them) */
@@ -317,6 +318,9 @@ void                slave_main(void)
         sl_endt = frt_read();
 #endif
         signal_master();
+#ifdef WALLS_AHEAD
+        r_wall_ahead();                         /* (a test: the next frame's walls, while the master finishes) */
+#endif
     }
 }
 
@@ -487,6 +491,7 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
     models_hot();
     level_trace_hot();                      /* (after the models: what HWRAM's left) */
     r_portals_level();                      /* (and the portals' flow: what's left of that) */
+    r_wall_level();
     fx_reset();
     for (i = 0; i < MAX_ENTITIES; ++i)
     {
@@ -601,6 +606,7 @@ void                main(void)
     models_hot();
     level_trace_hot();                      /* (after the models: what HWRAM's left) */
     r_portals_level();                      /* (and the portals' flow: what's left of that) */
+    r_wall_level();
     view_level_init();
 #ifdef LEVEL_TEST
     {
@@ -1396,10 +1402,17 @@ void                main(void)
                        fight_pre[2] / n, fight_pre[3] / n);
             vdp_printf(8, 53, RGB(160, 220, 255), "E%d L%d T%d R%d", fight_pre[4] / n, fight_pre[5] / n,
                        fight_pre[6] / n, fight_pre[7] / n);
-            vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US SUMS %d FACES %d", fight_dl[1] / n, fight_dl[2] / n);
-            vdp_printf(8, 62, RGB(160, 220, 255), "SLAVE US: FIRST %d DYN %d END %d", fight_sl[0] / n, fight_sl[1] / n,
-                       fight_sl[2] / n);
-            vdp_printf(8, 80, RGB(160, 220, 255), "DL POINT-LIGHTS %d IN %d", fight_dl[3] / n, fight_dl[4] / n);
+            vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US SUMS %d FACES %d AHEAD %d", fight_dl[1] / n, fight_dl[2] / n,
+                       fight_dl[5] / n);
+            {
+                extern u32 wl_stop[3];
+
+                vdp_printf(8, 62, RGB(160, 220, 255), "SLAVE US: FIRST %d DYN %d END %d", fight_sl[0] / n,
+                           fight_sl[1] / n, fight_sl[2] / n);
+                vdp_printf(8, 80, RGB(160, 220, 255), "AHEAD STOPS: NEXT %d ROOM %d ALL %d", wl_stop[0], wl_stop[1],
+                           wl_stop[2]);
+            }
+
 #ifdef DLF_CHECK
             {
                 extern u32 dlf_checks, dlf_diffs;
@@ -1708,6 +1721,7 @@ void                main(void)
                 fight_dl[2] += (u32)rs.n_dlfaces;
                 fight_dl[3] += (u32)rs.n_dlpts;
                 fight_dl[4] += (u32)rs.n_dlin;
+                fight_dl[5] += (u32)rs.n_wlhit;
                 fight_po[0] += rs.t_flow;
                 fight_po[1] += (u32)rs.n_reach;
                 fight_po[2] += (u32)rs.n_proj;

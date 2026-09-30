@@ -274,6 +274,8 @@ typedef struct
     const void      *up_src[UPQ];           /* textures to copy into VRAM at the frame's end (tex_upload) */
     u32             up_dst[UPQ];            /* VRAM offset << 8 | longs (| UP_LATE) */
     int             nup;
+    u16             wl_rec[32];             /* the whole faces it lit this frame (the next frame's, lit ahead: r_wall_ahead) */
+    int             wl_nrec;
 }                   r_ctx;
 
 r_stats             rs;
@@ -305,7 +307,9 @@ int                 r_ndlights;
 q_sprite            r_sprites[MAX_SPRITES];
 int                 r_nsprites;
 /* this frame's lights in view space: position, radius squared (whole units) */
-static struct { s32 x, y, z, r2, inv; u8 r, g, b, pad; } dl[MAX_DLIGHTS];
+typedef struct { s32 x, y, z, r2, inv; u8 r, g, b, pad; } dl_light;
+static dl_light     dl[MAX_DLIGHTS];
+static const q_dlight *lsrc = r_dlights;    /* the lights the walls go by (OPT=-DWALLS_AHEAD: last frame's) */
 static int          ndl;
 static s16          *leaf_model, *model_next;   /* brush models, listed by the leaf their centre's in */
 static int          nvis;
@@ -1292,7 +1296,7 @@ static void         dl_box(const v3 *p, int n, v3 *lo, v3 *hi)
 typedef struct { s32 r2, inv; u32 lr, lg, lb; s32 p[3], e0[3], d[3], e1[3]; } dl_pts;
 u32                 dl_points(u32 *acc, int nu, const dl_pts *q);
 
-static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw)
+static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw, const dl_light *L)
 {
     const face_args *a = &x->fa;
     const v3        *fs = (const v3 *)&x->gk[GK_F0], *e0 = &x->ga.e0, *d = &x->ga.d, *e1 = &x->ga.e1;
@@ -1330,7 +1334,7 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
         if (r1y < r0y) { lo.y = r1y; hi.y = r0y; } else { lo.y = r0y; hi.y = r1y; }
         if (r1z < r0z) { lo.z = r1z; hi.z = r0z; } else { lo.z = r0z; hi.z = r1z; }
         for (li = 0, m = mask; m; ++li, m >>= 1)
-            if (m & 1 && dl_boxd2(dl[li].x, dl[li].y, dl[li].z, &lo, &hi) < dl[li].r2)
+            if (m & 1 && dl_boxd2(L[li].x, L[li].y, L[li].z, &lo, &hi) < L[li].r2)
                 rm |= 1u << li;
         if (!rm)
         {
@@ -1355,14 +1359,14 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
                 continue;
 #ifndef NO_DL_ASM
             /* (src/dlight.s: the same, a light at a time along the row) */
-            q.r2 = dl[li].r2;
-            q.inv = dl[li].inv;
-            q.lr = dl[li].r;
-            q.lg = dl[li].g;
-            q.lb = dl[li].b;
-            q.p[0] = r0x - dl[li].x;
-            q.p[1] = r0y - dl[li].y;
-            q.p[2] = r0z - dl[li].z;
+            q.r2 = L[li].r2;
+            q.inv = L[li].inv;
+            q.lr = L[li].r;
+            q.lg = L[li].g;
+            q.lb = L[li].b;
+            q.p[0] = r0x - L[li].x;
+            q.p[1] = r0y - L[li].y;
+            q.p[2] = r0z - L[li].z;
 #ifdef FIGHT_BENCH
             x->st.n_dlpts += nu + 1;
             x->st.n_dlin += (int)dl_points(acc, nu, &q);
@@ -1370,14 +1374,14 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
             dl_points(acc, nu, &q);
 #endif
 #else
-            r2 = dl[li].r2;
-            inv = dl[li].inv;
-            lr = dl[li].r;
-            lg = dl[li].g;
-            lb = dl[li].b;
-            px = r0x - dl[li].x;
-            py = r0y - dl[li].y;
-            pz = r0z - dl[li].z;
+            r2 = L[li].r2;
+            inv = L[li].inv;
+            lr = L[li].r;
+            lg = L[li].g;
+            lb = L[li].b;
+            px = r0x - L[li].x;
+            py = r0y - L[li].y;
+            pz = r0z - L[li].z;
             for (i = 0; i <= nu; ++i)
             {
                 s32 dx, dy, dz, d2;
@@ -1417,6 +1421,204 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
                            | imin((int)(c & 1023), 31));
         }
     }
+}
+
+
+/* ---- the walls' dynamic lights, a frame behind (a test, OPT=-DWALLS_AHEAD: off) ----
+
+   Each CPU notes the whole faces it lit as it drew them (wl_record). When the slave's done its
+   drawing, while the master finishes the frame, it lights them again for the next frame
+   (r_wall_ahead): with this frame's lights, which the next frame's walls go by (a frame behind:
+   render_world's dl, lsrc), from the faces' grids in the world (a light's reach is the same from
+   anywhere: only the rounding's not the view space's), into one of two buffers (the master may
+   still be drawing from the other), a face at a time, until the next frame's first job comes.
+   The next frame a face found there (wl_find) isn't lit again; the rest are lit as they're
+   drawn, as before. It works (a shade out here and there, the world's rounding), but the slave's
+   free time at a frame's end (~1.2 ms, the lists' DMA aside) lights ~3 of a fight frame's 20:
+   0.4 ms less while drawing, nothing off the frame (OVERNIGHT.md section 30) */
+#define WL_N            (24)                /* faces a buffer */
+#define WL_WORDS        (4096)              /* their lights (u16s), at most: what low work RAM has room for */
+typedef struct { u16 n, frame; u16 face[WL_N]; u16 *lit[WL_N]; u16 buf[WL_WORDS]; } wl_buf;
+static wl_buf       *wl_b[2];               /* (in low work RAM, if there's room) */
+static u32          wl_words;               /* ...the room for lights each has */
+#ifdef FIGHT_BENCH
+u32                 wl_stop[3];             /* (why the slave stopped: the next frame, no room, all done) */
+#endif
+
+/* a new level (main.c, with the portals'): the buffers */
+void                r_wall_level(void)
+{
+    u32             hw, lw, ca;
+    int             k;
+
+    wl_b[0] = wl_b[1] = NULL;
+#ifdef WALLS_AHEAD
+    level_free(&hw, &lw, &ca);
+    lw = lw > 4096 ? (lw - 4096) / 2 : 0;   /* (some kept) */
+    if (lw < sizeof(wl_buf) - 2 * WL_WORDS + 2 * 256)
+        return;                             /* (not room for a few faces) */
+    wl_words = imin(WL_WORDS, (int)(lw - (sizeof(wl_buf) - 2 * WL_WORDS)) / 2);
+    for (k = 0; k < 2; ++k)
+    {
+        wl_b[k] = level_alloc_low(sizeof(wl_buf) - 2 * (WL_WORDS - wl_words));
+        wl_b[k]->n = 0;
+        wl_b[k]->frame = 0;
+    }
+#else
+    (void)hw; (void)lw; (void)ca; (void)k;
+#endif
+}
+
+static inline __attribute__((unused)) void wl_record(r_ctx *x, int fi)
+{
+    if (x->wl_nrec < (int)(sizeof(x->wl_rec) / 2))
+        x->wl_rec[x->wl_nrec++] = (u16)fi;
+}
+
+static __attribute__((unused)) const u16 *wl_find(int fi)
+{
+    const wl_buf    *w = wl_b[frame & 1];
+    int             k;
+
+    if (!w || w->frame != frame)
+        return NULL;
+    for (k = 0; k < w->n; ++k)
+        if (w->face[k] == fi)
+            return w->lit[k];
+    return NULL;
+}
+
+/* (the master, before it draws: its cache's copies of this frame's buffer forgotten) */
+void                r_wall_forget(void)
+{
+    const wl_buf    *w = wl_b[frame & 1];
+    u32             a;
+
+    if (w)
+        for (a = (u32)w & ~15u; a < (u32)w + sizeof(wl_buf); a += 16)
+            *(volatile u32 *)(0x40000000 | (a & 0x1FFFFFFF)) = 0;
+}
+
+/* face fi's grid in the world (face_setup's, from the world's axes), into x's fa, ga and gk, and
+   the lights of L (nl, from ls) in reach of it (face_dlights') into x->dmask; its points, 0 if
+   none's in reach */
+static int          wl_face_setup(r_ctx *x, int fi, const dl_light *L, const q_dlight *ls, int nl)
+{
+    const q_face    *f = &lv.faces[fi];
+    const q_plane   *pl = &lv.planes[f->plane];
+    const s32       *ax = &lv.axes[f->axes * 6];
+    face_args       *a = &x->fa;
+    s32             *gk = x->gk;
+    int             nu = f->nu, nv = f->nv, N = lv.N, k, li;
+    unsigned        m = 0;
+    v3              du, dv, dut, dvt, e0, e1, f0, f1, across, down, corner[4], lo, hi;
+
+    for (li = 0; li < nl; ++li)
+    {
+        s32 dist = fmul(ls[li].pos[0], pl->n[0]) + fmul(ls[li].pos[1], pl->n[1]) + fmul(ls[li].pos[2], pl->n[2]) - pl->dist;
+
+        if (f->flags & FF_BACK)
+            dist = -dist;
+        if (dist > -FIX(8) && dist < ls[li].radius)
+            m |= 1u << li;
+    }
+    if (!m)
+        return 0;
+    du.x = ax[0]; du.y = ax[1]; du.z = ax[2];
+    dv.x = ax[3]; dv.y = ax[4]; dv.z = ax[5];
+    dut.x = fmul(du.x, rcp_n); dut.y = fmul(du.y, rcp_n); dut.z = fmul(du.z, rcp_n);
+    dvt.x = fmul(dv.x, rcp_n); dvt.y = fmul(dv.y, rcp_n); dvt.z = fmul(dv.z, rcp_n);
+    k = (nu == 1 ? f->eu1 : N) - f->eu0;
+    e0.x = dut.x * k; e0.y = dut.y * k; e0.z = dut.z * k;
+    e1.x = dut.x * f->eu1; e1.y = dut.y * f->eu1; e1.z = dut.z * f->eu1;
+    k = (nv == 1 ? f->ev1 : N) - f->ev0;
+    f0.x = dvt.x * k; f0.y = dvt.y * k; f0.z = dvt.z * k;
+    f1.x = dvt.x * f->ev1; f1.y = dvt.y * f->ev1; f1.z = dvt.z * f->ev1;
+    x->ga.e0 = e0; x->ga.d = du; x->ga.e1 = e1;
+    gk[GK_F0] = f0.x; gk[GK_F0 + 1] = f0.y; gk[GK_F0 + 2] = f0.z;
+    gk[GK_F0 + 3] = dv.x; gk[GK_F0 + 4] = dv.y; gk[GK_F0 + 5] = dv.z;
+    gk[GK_F0 + 6] = f1.x; gk[GK_F0 + 7] = f1.y; gk[GK_F0 + 8] = f1.z;
+    a->fo.x = f->origin[0]; a->fo.y = f->origin[1]; a->fo.z = f->origin[2];
+    a->fnu = nu;
+    a->fnv = nv;
+    /* the box of its corners: lights out of reach of all of it dropped */
+    grid_step(&across, &e0, &du, &e1, nu, nu);
+    grid_step(&down, &f0, &dv, &f1, nv, nv);
+    corner[0] = a->fo;
+    corner[1].x = a->fo.x + across.x; corner[1].y = a->fo.y + across.y; corner[1].z = a->fo.z + across.z;
+    corner[2].x = a->fo.x + down.x; corner[2].y = a->fo.y + down.y; corner[2].z = a->fo.z + down.z;
+    corner[3].x = corner[1].x + down.x; corner[3].y = corner[1].y + down.y; corner[3].z = corner[1].z + down.z;
+    dl_box(corner, 4, &lo, &hi);
+    for (li = 0; li < nl; ++li)
+        if (m & 1u << li && dl_boxd2(L[li].x, L[li].y, L[li].z, &lo, &hi) >= L[li].r2)
+            m &= ~(1u << li);
+    x->dmask = (u8)m;
+    return m ? (nu + 1) * (nv + 1) : 0;
+}
+
+/* (the slave, its drawing done) the next frame's buffer: the faces lit this frame (its own first:
+   the nearest), with this frame's lights, until the next frame's first job comes */
+void                r_wall_ahead(void)
+{
+    int             b = (frame + 1) & 1, nl = imin(r_ndlights, MAX_DLIGHTS), own, nm, i, n = 0;
+    wl_buf          *w = wl_b[b];
+    r_ctx           *x = &ctx[1];
+    const r_ctx     *mc = (const r_ctx *)UNCACHED(&ctx[0]);
+    dl_light        L[MAX_DLIGHTS];
+    u16             *out;
+
+    if (!w)
+        return;
+    w->n = 0;
+    w->frame = (u16)(frame + 1);
+    if (!nl)
+        return;
+    for (i = 0; i < nl; ++i)
+    {
+        const q_dlight  *l = &r_dlights[i];
+        s32             rad = l->radius >> 16;
+
+        L[i].x = l->pos[0];
+        L[i].y = l->pos[1];
+        L[i].z = l->pos[2];
+        L[i].r2 = rad * rad;
+        L[i].inv = (1 << 24) / imax(L[i].r2, 1);
+        L[i].r = l->r;
+        L[i].g = l->g;
+        L[i].b = l->b;
+    }
+    own = x->wl_nrec;
+    nm = mc->wl_nrec;
+    out = w->buf;
+    for (i = 0; i < own + nm && n < WL_N; ++i)
+    {
+        int fi = i < own ? x->wl_rec[i] : mc->wl_rec[i - own], np;
+
+        if (FRT_FTCSR & 0x80)
+        {
+#ifdef FIGHT_BENCH
+            ++wl_stop[0];
+#endif
+            break;                          /* (the next frame's first job: its signal's left for it) */
+        }
+        if (!(np = wl_face_setup(x, fi, L, r_dlights, nl)))
+            continue;
+        if (out + np > w->buf + wl_words)
+        {
+#ifdef FIGHT_BENCH
+            ++wl_stop[1];
+#endif
+            break;
+        }
+        dl_face(x, out, &lv.lights[lv.faces[fi].firstlight & 0xFFFFFF], L);
+        w->face[n] = (u16)fi;
+        w->lit[n] = out;
+        w->n = (u16)++n;                    /* (last: it's there) */
+        out += (np + 1) & ~1;
+    }
+#ifdef FIGHT_BENCH
+    wl_stop[2] += i == own + nm;
+#endif
 }
 
 #ifdef DLF_CHECK
@@ -2000,13 +2202,13 @@ static void         face_dlights(r_ctx *x, const q_face *f, int model)
     for (i = 0; i < ndl; ++i)
     {
         const q_plane   *pl = &lv.planes[f->plane];
-        const s32       *lp = r_dlights[i].pos, *o = mover_ofs[model];
+        const s32       *lp = lsrc[i].pos, *o = mover_ofs[model];
         s32             dist = fmul(lp[0] - o[0], pl->n[0]) + fmul(lp[1] - o[1], pl->n[1])
                              + fmul(lp[2] - o[2], pl->n[2]) - pl->dist;
 
         if (f->flags & FF_BACK)
             dist = -dist;
-        if (dist > -FIX(8) && dist < r_dlights[i].radius)
+        if (dist > -FIX(8) && dist < lsrc[i].radius)
             m |= 1u << i;
     }
 #ifndef NO_DL_REACH
@@ -2275,6 +2477,8 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
     x->lit = (x->dmask && r_dl_verts) || x->wave;
     if (x->lit)
     {
+        const u16   *wl_hit = NULL;
+
         x->raw_light = light;
         if (whole)
         {
@@ -2295,7 +2499,7 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
 
                     for (j = 0; j <= nv; ++j)
                         dl_row(x, ref + j * stride, (x->wave ? lit : light) + j * stride, j);
-                    dl_face(x, lit, x->wave ? lit : light);
+                    dl_face(x, lit, x->wave ? lit : light, dl);
                     ++dlf_checks;
                     for (k = 0; k < np; ++k)
                         if (ref[k] != lit[k])
@@ -2310,17 +2514,26 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
 #elif defined(NO_DL_SUMS)
                 memcpy(lit, x->wave ? lit : light, (u32)(stride * (nv + 1)) * 2);     /* (test: the sums' cost) */
 #else
-                dl_face(x, lit, x->wave ? lit : light);
+#ifdef WALLS_AHEAD
+                if (!x->wave && !model && a->light == &lv.lights[f->firstlight & 0xFFFFFF])
+                {
+                    wl_record(x, (int)(f - lv.faces));      /* (for the next frame's) */
+                    wl_hit = wl_find((int)(f - lv.faces));  /* (lit already, a frame behind: r_wall_ahead) */
+                }
+                if (!wl_hit)
+#endif
+                    dl_face(x, lit, x->wave ? lit : light, dl);
 #endif
 #ifdef FIGHT_BENCH
                 x->st.t_dlsum += (frt_read() - tdl) & 0xFFFF;
+                x->st.n_wlhit += wl_hit != NULL;
 #endif
             }
 #ifdef DL_CHECK
             for (j = 0; j < nv; ++j)
                 dl_check(x, lit + j * stride, light + j * stride, stride, j);
 #endif
-            light = lit;
+            light = wl_hit ? wl_hit : lit;
         }
         else
             dl_row(x, lit, light, 0);       /* (row 0; each row's next as it comes) */
@@ -4502,6 +4715,8 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     model_xform     xf;
     s32             (*A0)[3] = xf.A0, (*A1)[3] = xf.A1, *C0 = xf.C0, *C1 = xf.C1;
     const u16       *gt;
+    const q_dlight  *msrc = r_dlights;      /* (the lights it goes by) */
+    int             nml = ndl;
     int             i, b, nv = imin(m->nverts, MAX_MVERTS), np = imin(m->npolys, MAX_MPOLYS);
 #if defined(COMPARE_MODELS) || defined(MODEL_CHECK)
     int             bi;                     /* (the C command passes) */
@@ -4541,6 +4756,8 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
        near it, stronger on the side facing them */
     gt = e->gbase;
 #ifndef NO_LIGHT_AHEAD
+    msrc = lights_lagged(&nml);             /* (the models go by last frame's lights: model.c) */
+    nml = imin(nml, MAX_DLIGHTS);
     {
         int gl = ((volatile q_entity *)UNCACHED(e))->g_lit;     /* (the slave's, after the master's read e) */
 
@@ -4548,12 +4765,12 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             gt = ent_lit[gl];               /* (lit a frame behind, as the frame started: model.c) */
         i = gl == -2 ? 0 : ndl;
     }
-    for (; i < ndl; ++i)
+    for (; i < nml; ++i)
 #else
-    for (i = 0; i < ndl; ++i)
+    for (i = 0; i < nml; ++i)
 #endif
     {
-        const q_dlight  *l = &r_dlights[i];
+        const q_dlight  *l = &msrc[i];
         s32             dx = (l->pos[0] - e->origin[0]) >> 16, dy = (l->pos[1] - e->origin[1]) >> 16;
         s32             dz = (l->pos[2] - e->origin[2]) >> 16, r = l->radius >> 16, d2 = dx * dx + dy * dy + dz * dz;
         s32             f, len, mx, my, mz;
@@ -4605,7 +4822,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             continue;
         }
 #endif
-        f = ((r * r - d2) * dl[i].inv) >> 8;            /* 0..65536 at the origin */
+        f = ((r * r - d2) * ((1 << 24) / imax(r * r, 1))) >> 8;     /* 0..65536 at the origin */
         len = (s32)isqrt((u32)d2) + 1;
         /* the direction to the light, in the model's space (turned back by its yaw), 2.14 */
         mx = ((dx * c + dy * sn) >> 2) / len;
@@ -5170,6 +5387,7 @@ static void         r_late_uploads(void)
 static void         part_begin(r_ctx *x)
 {
     memset(&x->st, 0, sizeof(x->st));
+    x->wl_nrec = 0;
     x->full = false;
     x->tight = false;
     x->nup = 0;
@@ -5441,10 +5659,16 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
 #endif
     }
     /* this frame's lights, into view space; the sprites, into the leaves they're in */
+#ifdef WALLS_AHEAD
+    lsrc = lights_lagged(&ndl);             /* (the walls go by last frame's: r_wall_ahead's) */
+    ndl = imin(ndl, MAX_DLIGHTS);
+#else
+    lsrc = r_dlights;
     ndl = imin(r_ndlights, MAX_DLIGHTS);
+#endif
     for (i = 0; i < ndl; ++i)
     {
-        const q_dlight  *l = &r_dlights[i];
+        const q_dlight  *l = &lsrc[i];
         s32             d[3], rad = l->radius >> 16;
         v3              v;
 
@@ -5646,6 +5870,7 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.n_dlfaces += s->n_dlfaces;
         rs.n_dlpts += s->n_dlpts;
         rs.n_dlin += s->n_dlin;
+        rs.n_wlhit += s->n_wlhit;
         rs.portal_out += s->portal_out;
         rs.nfast += s->nfast;
         rs.nslow += s->nslow;

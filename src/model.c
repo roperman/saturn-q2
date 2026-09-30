@@ -213,6 +213,12 @@ static q_dlight     lag[MAX_DLIGHTS];
 static int          nlag;
 u16                 ent_lit[LIT_POOL][162];
 
+const q_dlight      *lights_lagged(int *n)
+{
+    *n = nlag;
+    return lag;
+}
+
 void                lights_lag(void)
 {
     memcpy(lag, r_dlights, sizeof(lag));

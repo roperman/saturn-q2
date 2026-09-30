@@ -25,20 +25,27 @@ void                dsp_init_models(void);              /* ...or models' vertice
 void                dsp_models(const u32 *stream, s32 *out, int models, volatile u32 *count);
 void                dsp_models_lit(const u32 *stream, s32 *out, int models, volatile u32 *count, const u32 *ljobs,
                                    int nljobs, const s32 *normals, volatile u32 *lcount);  /* (then their lighting) */
-/* the walls' dynamic lights (engine/walls1.dsp, walls2.dsp): RAM0[40..56]; addresses >> 2 */
+/* the walls' dynamic lights (engine/walls0.dsp, walls1.dsp, walls2.dsp): RAM0[40..63]; addresses >> 2 */
 typedef struct
 {
-    u32             faces;                  /* how many (0: none, the models' job just ends) */
-    u32             job;                    /* the list: each face's record on the cart */
+    u32             faces;                  /* the list's entries (0: none, the models' job just ends) */
+    u32             job;                    /* (walls1.dsp's: its list's next) */
     u32             blocks;                 /* (walls1.dsp's for walls2.dsp) */
     u32             out;                    /* the lit lights, one face after another */
-    u32             lights, light_words, lights1;   /* 8 words each: -x -y -z r2 -(inv << 8) r g b; how many - 1 */
+    u32             lights, light_words, lights1;   /* walls2.dsp's, 8 words each: -x -y -z r2 -(inv << 8) r g b;
+                                                       their words; how many - 1 */
     u32             axes, raw;              /* the cart's copies of the level's axes, lights */
     u32             n, rcp;                 /* N, 65536 / N */
-    u32             prog1, prog2;           /* walls1.dsp, walls2.dsp (256 words each) */
-    u32             faces2;                 /* (faces again: walls2.dsp's count) */
-    u32             c3, c6, c7fff;          /* 3, 6, 0x7FFF */
+    u32             progf, prog2;           /* walls0.dsp, walls2.dsp (256 words each) */
+    u32             faces2;                 /* (walls2.dsp's count) */
+    u32             planes;                 /* the cart's copy of the level's planes */
+    u32             prog1, c7fff;           /* walls1.dsp; 0x7FFF */
     u32             prog0;                  /* the models' (xformm.dsp), back after them */
+    u32             list, list_n;           /* the whole faces drawn: their records' addresses; how many */
+    u32             faces_cart;             /* the cart's copy of the level's faces */
+    u32             unused;
+    u32             acc;                    /* the faces walls0.dsp picks (after a word for how many) */
+    u32             lights0;                /* walls0.dsp's lights, 10 words each, then its constants */
 } dsp_walls_p;
 void                dsp_walls_params(const dsp_walls_p *p);
 void                dsp_walls_start(void);  /* (the walls alone: no models) */

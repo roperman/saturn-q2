@@ -1552,3 +1552,88 @@ for the next frame) was worse: 5 of 20. So off. What would make it pay: the
 DSP choosing the faces itself, every whole face the CPUs drew against the
 lights (it has the time: ~25 ms of a frame idle), for which the CPUs would
 note every whole face they draw (~300 a frame) somewhere it can read.
+
+## 34. The walls' dynamic lights on the DSP, the DSP choosing the faces (built; off: OPT=-DDSP_WALLS)
+
+**A third program, before the other two.** `engine/walls0.dsp` (229 words)
+now runs first after the models' job. The CPUs note every whole face they
+draw, lit or not (its record's address on the cart: the master's up from the
+middle of a buffer, the slave's down, so the two are one list; ~160 a fight
+frame). The next frame walls0 takes each face of that list, with that frame's
+lights, and does face_dlights' two tests on it:
+- its plane (the cart's copy): -8 < the light's distance from it < the
+  radius, on the face's side, as the CPU works it out;
+- its box (from its grid's axes, nu du by nv dv, a little bigger than the
+  grid): each light's centre within the box stretched by the radius + 2
+  units each way.
+
+The faces some light may light are listed, each with those lights (a bit
+each), up to 60. walls1 sets them out as before, while there's room in the
+host's buffers (and cuts the list's count if not). Then it writes over the
+list, for the host, each face's index << 16 | where its lit lights go.
+walls2 lights each face with just the lights its bits say (a table: the
+lights sit 0 1 2 0, so any two are next to each other).
+
+A lighter filter would light faces the CPU wouldn't, which costs only DSP
+time: a light that reaches none of a face's points adds nothing. One that
+misses a light the CPU uses would be wrong. It never does: of the CPU's lit
+faces the DSP didn't have, 0 were ones walls0 turned down.
+
+**Exact.** `OPT=-DWALLS_TEST`, at a level's start: 512 faces near where you
+start, three lights. walls0's picks match `dw_filter` (the same tests in C),
+and the lit lights match `dw_model` and dl_face itself, on all three levels:
+- demo1: 57 faces, 753 points;
+- demo2: 60 faces, 1,121 points;
+- demo3: 60 faces, 576 points.
+
+In the fight (`-DDW_CHECK`: each face the DSP lit also lit by dl_face, as
+drawn), 150,520 points, 0 different.
+
+One bug turned up, in walls2, and it was in section 33's version too. A face
+with an odd number of points packs its last point with whatever word is in
+data RAM after it, and a big one (the models' job leaves them) spoiled the
+last point: 1 point in 753. A 0 is written there now. It was found with a
+Python copy of the DSP (Mednafen's semantics, the programs' own binaries,
+the levels' own data), which gives Mednafen's results exactly.
+
+**The host's part.** Before the slave is signalled, the master:
+- puts the last job's faces in a table in low work RAM (stamped with the
+  frame, so it's never cleared; the DSP's list read through the cache, its
+  lines forgotten first);
+- writes this frame's lights to the cart, and the seven numbers that change
+  (the rest set at a level's start);
+- starts the chain after the models' job.
+
+That's 0.13 ms (0.30 as first written: clearing the table, reading each
+face's record, the list read a word at a time uncached). Noting the faces
+costs the CPUs ~0.1 ms. The DSP was never still busy at the next frame's
+start.
+
+| the fight, NTSC | the CPUs | DSP_WALLS |
+|---|---|---|
+| frame / CPU | 33.9 / 32.2 ms | 33.5-33.6 / 31.6-31.9 |
+| pictures up 3 fields, of ~595 | 14 | 0-5 |
+| the walls' dynamic lights, both CPUs | 1.97 ms | 0.52-0.55 |
+| lit faces the DSP had | | 17 of 20 |
+
+On PAL (50 Hz), every picture is up 2 fields either way (39.8 ms), and CPU
+goes 32.9 -> 32.5 ms. The builds' layouts alone move CPU by ~0.3 ms (the
+same code, one function moved to low work RAM: 31.6 -> 31.9). Section 33's
+33.7 / 31.9 and 7 for the CPUs was measured on an earlier layout.
+
+The 3 of 20 lit faces the DSP didn't have are all a light's first frame,
+when there was no job (no lights the frame before, so no faces noted).
+Noting faces in every frame, lights or not, would cover them for ~0.1 ms of
+the CPUs in every frame.
+
+**What it costs.**
+- The look: the walls go by last frame's lights, a frame behind, as the
+  models' already do (every wall, the CPU's faces too, so they agree).
+- High work RAM: 1.8 KB (the code; on demo1 that sends 1.9 KB more of the
+  models' frames to slower RAM).
+- Cart: 24 KB. A level gets it if there's room after it for as many gun
+  slots as the level would have anyway. demo3 has room for only one, with
+  or without these, and 2 KB is left there after everything.
+- Low work RAM: 512 bytes.
+
+It stays off until the frame-behind walls are decided.

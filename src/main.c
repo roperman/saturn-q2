@@ -102,6 +102,10 @@ static g_trace_site fight_sites[16];            /* the traces' call sites, most 
 static u32          fight_tr[8];                /* trace.c's counts */
 static u32          fight_seg[6], fight_t[7];   /* the master's frame in parts (us): input, player, game, before, world, after */
 static u32          fight_dl[6];
+#ifdef DSP_WALLS
+static u32          fight_dw[6];                /* (render.c's dw_stat, as at the fight's last frame) */
+static u32          fight_why[4];               /* (lit faces the DSP's weren't: rs.dw_why) */
+#endif
 #ifdef FS_STATS
 u32                 fs_sum[11];
 #endif
@@ -1069,8 +1073,9 @@ void                main(void)
                 memset(fight_sl, 0, sizeof(fight_sl));
                 memset(fight_pm, 0, sizeof(fight_pm));
 #ifdef DSP_WALLS
+                memset(fight_why, 0, sizeof(fight_why));
                 {
-                    extern u32 dw_stat[4];
+                    extern u32 dw_stat[6];
 
                     memset(dw_stat, 0, sizeof(dw_stat));
                 }
@@ -1616,11 +1621,21 @@ void                main(void)
             vdp_printf(8, 169, RGB(160, 255, 160), "UPLOAD %d.%d MODELS %d.%d GUN %d.%d", fight_r[9] / 1000 * 10 / n / 10,
                        fight_r[9] / 1000 * 10 / n % 10, fight_r[9] % 1000 * 10 / n / 10, fight_r[9] % 1000 * 10 / n % 10,
                        fight_gun / n / 1000, fight_gun / n / 100 % 10);
+#ifdef DW_CHECK
+            vdp_printf(8, 178, RGB(255, 200, 160), "DSP'S PTS %d DIFF %d MOST %d", fight_why[0], fight_why[1],
+                       fight_why[2]);
+#elif defined(DSP_WALLS)
+            vdp_printf(8, 178, RGB(255, 200, 160), "NOT DSP'S: ROWS %d - %d NOJOB %d OUT %d", fight_why[0] * 10 / n,
+                       fight_why[1] * 10 / n, fight_why[2] * 10 / n, fight_why[3] * 10 / n);
+#else
             vdp_printf(8, 178, RGB(255, 200, 160), "LISTS' DMA %d US", fight_ldma / n);
+#endif
+#ifndef DSP_WALLS                           /* (the overlay's room: the DSP's line instead) */
             vdp_printf(8, 44, RGB(160, 220, 255), "PRE US M%d P%d V%d F%d", fight_pre[0] / n, fight_pre[1] / n,
                        fight_pre[2] / n, fight_pre[3] / n);
             vdp_printf(8, 53, RGB(160, 220, 255), "E%d L%d T%d R%d", fight_pre[4] / n, fight_pre[5] / n,
                        fight_pre[6] / n, fight_pre[7] / n);
+#endif
 #ifdef WALLS_AHEAD
             vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US SUMS %d FACES %d AHEAD %d", fight_dl[1] / n, fight_dl[2] / n,
                        fight_dl[5] / n);
@@ -1650,10 +1665,8 @@ void                main(void)
 #elif defined(DSP_SWAP_TEST)
 #elif defined(DSP_WALLS)
             {
-                extern u32 dw_stat[4];
-
-                vdp_printf(8, 80, RGB(160, 220, 255), "DSP WALLS %d A FRAME RAN %d%% LIGHTS %d", dw_stat[0] / n,
-                           dw_stat[1] * 100 / n, dw_stat[3]);
+                vdp_printf(8, 80, RGB(160, 220, 255), "DSP %d/%d RAN%d F%dUS BUSY%d %dUS", fight_dw[0] / n, fight_dw[2] / n,
+                           fight_dw[1] * 100 / n, fight_dw[3] / n, fight_dw[4], fight_dw[5] / n);
             }
 #elif !defined(DLF_CHECK)
             vdp_printf(8, 80, RGB(160, 220, 255), "EARLY MOVE W%d M%d MASTER %d %d%%", fight_pm[0] / n,
@@ -1775,11 +1788,14 @@ void                main(void)
                            r_use_dsp ? " ON" : "", level_heap());
 #ifdef WALLS_TEST
                 {
-                    extern u32 wt_res[9];
+                    extern u32 wt_res[18];
 
                     vdp_printf(8, 126, c, "WALLS F%d P%d BAD F%d P%d US%d %s", wt_res[0], wt_res[1], wt_res[2], wt_res[3],
                                wt_res[4], wt_res[5] ? "DONE" : "STUCK");
-                    vdp_printf(8, 135, c, "LIT %d NOT DL_FACE'S %d BY %d", wt_res[6], wt_res[7], wt_res[8]);
+                    vdp_printf(8, 135, c, "LIT %d NOT DL_FACE'S %d BY %d PICKS %d", wt_res[6], wt_res[7], wt_res[8],
+                               wt_res[9]);
+                    vdp_printf(8, 144, c, "BAD %d %x N%d F%dUS CA%dK LW%dK", wt_res[10], wt_res[12], wt_res[14],
+                               wt_res[15], wt_res[16], wt_res[17]);
                 }
 #endif
 #ifdef PPD_TEST
@@ -1985,6 +2001,21 @@ void                main(void)
                 fight_dl[1] += rs.t_dlsum;
                 fight_dl[2] += (u32)rs.n_dlfaces;
                 fight_dl[3] += (u32)rs.n_dlpts;
+#ifdef DSP_WALLS
+                {
+                    extern u32 dw_stat[6];
+
+                    memcpy(fight_dw, dw_stat, sizeof(fight_dw));    /* (as at the fight's last frame) */
+                    fight_why[0] += (u32)rs.dw_why[0];
+                    fight_why[1] += (u32)rs.dw_why[1];
+#ifdef DW_CHECK
+                    fight_why[2] = (u32)imax((int)fight_why[2], rs.dw_why[2]);
+#else
+                    fight_why[2] += (u32)rs.dw_why[2];
+#endif
+                    fight_why[3] += (u32)rs.dw_why[3];
+                }
+#endif
 #ifdef FS_STATS
                 {
                     extern u32 fs_sum[11];

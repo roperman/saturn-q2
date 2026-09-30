@@ -1,25 +1,30 @@
-; SCU DSP: the walls' dynamic lights, 1 of 2 (src/render.c dsp_walls): each
+; SCU DSP: the walls' dynamic lights, 2 of 3 (src/render.c dsp_walls): each
 ; face's numbers set out for engine/walls2.dsp, which lights it.
 ;
-; The models' program (xformm.dsp) loads this one over itself when it's done,
-; by the DSP's own DMA into program RAM; it starts at 255 (a NOP), then 0.
-; For each face in the host's list (its record's address on the cart), it
-; reads the record and its grid's axes (the cart's copies) and writes a block
-; (from the host's W_BLK, one after another):
+; walls0.dsp loads this one over itself, by the DSP's own DMA into program
+; RAM; it starts at 255 (a NOP), then 0. For each face walls0.dsp listed (its
+; record's address on the cart, the lights that may light it), it reads the
+; record and its grid's axes (the cart's copies) and writes a block (from the
+; host's W_BLK, one after another):
 ;
 ;   nu nv ow k0 rw raw aw bw        points a row - 1, rows - 1, words out; where
 ;                                   the lights start in their first word (0, 1),
 ;                                   words in, their first (>> 2); the offsets' words
+;   mask                            the lights that may light it (a bit each)
 ;   origin (3), dvt (3)             (16.16, the world)
 ;   a_i dut (aw = 3 (nu + 1))       each column's offset (16.16)
 ;   b_j (bw = nv + 1)               each row's, in texels
 ;
 ; with a_0 = 0, a_i = i N - eu0, a_nu = (nu - 1) N - eu0 + eu1 (the grid's
 ; outer lines are on the face's edges), dut = du (65536 / N) >> 16 (dl_face's
-; steps: grid_step's); b the same. Then it loads walls2.dsp the same way.
+; steps: grid_step's); b the same; while there's room (MAXOW, MAXBW: the
+; host's for the blocks and the lit lights). Then, over walls0.dsp's list,
+; how many it set out and for each its index << 16 | where its lit lights go
+; (words on from W_OUT), for the host; and it loads walls2.dsp the same way.
 ;
 ; Data RAM: RAM0 the record (F), the axes then steps (AX), the block's first
-; 8 (H), the rest's; the host's from 40 (W_). RAM1 the a_i (AL), the b_j (BL).
+; 9 (H), the rest's; the host's from 40 (W_). RAM1 the a_i (AL), the b_j (BL).
+; RAM3 the words for the host.
 ; RAM2 the a_i dut.
 
 F       = 0                             ; the record: origin x y z, axes|plane, flags nu nv eu0,
@@ -29,13 +34,18 @@ F_W5    = 5
 F_W7    = 7
 AX      = 8                             ; du dv, then dut dvt
 E_EU0   = 14                            ; (eu0, then nu nv straight into H)
-H       = 15                            ; nu nv ow k0 rw raw aw bw
-I_EU1   = 23
-I_EV0   = 24
-I_EV1   = 25
-I_SP    = 26                            ; (the last offset)
-I_FA    = 27                            ; (the record's address)
-W_NJ    = 40                            ; (the host's) faces
+H       = 15                            ; nu nv ow k0 rw raw aw bw mask
+I_EU1   = 24
+I_EV0   = 25
+I_EV1   = 26
+I_SP    = 27                            ; (the last offset)
+I_C3    = 28                            ; 3, 6
+I_C6    = 29
+I_OWS   = 30                            ; the lit lights' words so far (walls2.dsp's),
+I_BWS   = 31                            ; the blocks',
+I_DONE  = 32                            ; the faces set out
+I_C8K   = 33                            ; 8192
+W_NJ    = 40                            ; faces (walls0.dsp's)
 W_JOB   = 41                            ; the list's next >> 2
 W_BLK   = 42                            ; the blocks >> 2
 W_AX    = 47                            ; the cart's axes >> 2
@@ -43,8 +53,11 @@ W_RAW   = 48                            ; the cart's lights >> 2
 W_N     = 49                            ; N
 W_RCP   = 50                            ; 65536 / N
 W_P2    = 52                            ; walls2.dsp >> 2
-W_C3    = 54                            ; 3
-W_C6    = 55                            ; 6
+W_NJ2   = 53                            ; (walls2.dsp's faces: set here)
+MAXOW   = 640                           ; (the host's room: lit lights' words, blocks')
+MAXBW   = 2400
+W_FB    = 60                            ; the cart's faces >> 2
+W_ACC   = 62                            ; walls0.dsp's list >> 2 (after a word for how many)
 AL      = 0                             ; RAM1
 BL      = 16
 
@@ -83,24 +96,46 @@ BL      = 16
         mov m0,mc1                      ; (and the last, over n N - e0)
 .endm
 
-walls1: mov W_BLK,ct0
+walls1: mov W_ACC,ct0
+        mov m0,a  mov W_JOB,ct0
+        mov 1,pl
+        add  mov all,mc0                ; (the list)
+        mov I_C3,ct0
+        mov 3,mc0
+        mov 6,mc0
+        mov 0,mc0                       ; (nothing set out yet)
+        mov 0,mc0
+        mov 0,mc0
+        mvi 8192,mc0
+        mov 0,ct3
+        mov W_BLK,ct0
         mov m0,wa0                      ; (the blocks, one after another)
 
 job:    mov W_JOB,ct0
         mov m0,ra0
-        mov I_FA,ct0
-        dma d0,mc0,1                    ; the face's record's address
+        mov H+7,ct0
+        dma d0,mc0,2                    ; the entry: the record's address (in bw's place, for now), the mask
 w1:     jmp t0,w1
         nop
-        mov I_FA,ct0
+        mov H+7,ct0
         mov m0,ra0
         mov F,ct0
         dma d0,mc0,8                    ; its record
 w2:     jmp t0,w2
         nop
         mov W_JOB,ct0
-        mov m0,a  mov 1,pl
+        mov m0,a  mov 2,pl
         add  mov all,mc0                ; (the list's next)
+        ; (for the host: its index << 16 | where its lit lights go)
+        mov H+7,ct0
+        mov m0,a  mov W_FB,ct0
+        mov m0,p
+        sub  mov all,rx
+        mov I_C8K,ct0
+        mov m0,y
+        mov mul,p  mov I_OWS,ct0
+        mov m0,a
+        add  mov all,mc3
 
         ; eu0 nu nv, eu1 ev0 ev1 out of their bytes (8 bits round at a time)
         mvi 255,pl
@@ -133,7 +168,7 @@ w2:     jmp t0,w2
         add  mov all,mc0                ; raw
 
         ; aw = 3 (nu + 1), bw = nv + 1; words out (np + 1) / 2, in (np + 1 + k0) / 2
-        mov W_C3,ct0
+        mov I_C3,ct0
         mov m0,y
         mov H,ct0
         mov m0,a  mov 1,pl
@@ -154,11 +189,30 @@ w2:     jmp t0,w2
         add  mov alu,a
         sr   mov all,mc0                ; rw
 
+        ; room for it? (its lit lights' words, its block's)
+        mov H+2,ct0
+        mov m0,p  mov I_OWS,ct0
+        mov m0,a
+        add  mov alu,a  mov all,mc0
+        mvi MAXOW+1,pl
+        sub
+        jmp ns,full
+        mov H+6,ct0
+        mov mc0,a  mov 15,pl
+        add  mov alu,a  mov m0,p
+        add  mov alu,a  mov I_BWS,ct0
+        mov m0,p
+        add  mov alu,a  mov all,mc0
+        mvi MAXBW+1,pl
+        sub
+        jmp ns,full
+        nop
+
         ; its axes (6 words an entry), then dut dvt = (du dv) (65536 / N) >> 16, in place
         mov F_W3,ct0
         mov m0,a  mov 0,pl
         ad2  mov alh,rx
-        mov W_C6,ct0
+        mov I_C6,ct0
         mov m0,y
         mov W_AX,ct0
         mov mul,p  mov m0,a
@@ -196,7 +250,7 @@ lpa:    mov AX,ct0
 
         ; the block out
         mov H,ct0
-        dma mc0,d0,8
+        dma mc0,d0,9
 w4:     jmp t0,w4
         nop
         mov F,ct0
@@ -218,11 +272,30 @@ w7:     jmp t0,w7
 w8:     jmp t0,w8
         nop
 
-        mov W_NJ,ct0
+        mov I_DONE,ct0
         mov m0,a  mov 1,pl
-        sub  mov all,mc0                ; a face fewer
+        add  mov all,mc0                ; a face more set out,
+        mov W_NJ,ct0
+        mov m0,a
+        sub  mov all,mc0                ; a face fewer to
         jmp nz,job
         nop
+full:                                   ; (no room for the rest)
+fin:    mov W_ACC,ct0
+        mov m0,wa0
+        mov I_DONE,ct0
+        dma mc0,d0,1                    ; for the host: how many,
+w9:     jmp t0,w9
+        nop
+        mov 0,ct3
+        mov I_DONE,ct0
+        dma mc3,d0,m0                   ; ...and each's word
+w10:    jmp t0,w10
+        nop
+        mov I_DONE,ct0
+        mov m0,a  mov W_NJ2,ct0
+        mov 0,pl
+        add  mov all,mc0                ; (walls2.dsp's faces)
         mov W_P2,ct0
         mov m0,ra0
         jmp load                        ; all set out: walls2.dsp, over this one

@@ -1,12 +1,12 @@
-; SCU DSP: the walls' dynamic lights, 2 of 2 (src/render.c dsp_walls): each
+; SCU DSP: the walls' dynamic lights, 3 of 3 (src/render.c dsp_walls): each
 ; face's lights with the dynamic lights added, from walls1.dsp's blocks.
 ;
 ; walls1.dsp loads this one over itself; it starts at 255 (a NOP), then 0;
 ; at the end it loads the models' program back the same way (which stops at
 ; its 255), so the CPUs never do.
 ; For each block: the face's lights (the cart's copy, a word holds two), each
-; grid point's position (origin + b_j dvt + a_i dut), and at it each light's
-; share added, as dl_face does:
+; grid point's position (origin + b_j dvt + a_i dut), and at it the share of
+; each light that may light it (its block's mask) added, as dl_face does:
 ;
 ;   d = floor(point - light) (whole units, each way), d2 = d.d
 ;   in reach (d2 < r2): f = ((r2 - d2) inv) >> 8, and (c f) >> 16 added to
@@ -14,32 +14,34 @@
 ;
 ; The lit lights out one face after another from the host's W_OUT, two to a
 ; word (an odd face's last word has one). The host's lights, 8 words each (at
-; most 3): -x -y -z (16.16), r2, -(inv << 8), r g b.
+; most 3, and the first again after them: a face's lights are next to each
+; other, whichever it has): -x -y -z (16.16), r2, -(inv << 8), r g b.
 ;
-; Data RAM: RAM0 the block's first 14 (H), a point's position and sums (PS),
-; the rest's; the host's from 40 (W_). RAM1 the lights (LT), the row's start
+; Data RAM: RAM0 the block's first 15 (H), a point's position and sums (PS),
+; the rest's, where a face's lights start and how many - 1 for each mask (the
+; lights' table, TL); the host's from 40 (W_). RAM1 the lights (LT), the row's start
 ; (R), the b_j (BL), scratch (S1). RAM2 the face's lights as read, then the
 ; a_i dut; the origin (O2); constants (C2); scratch (SC); at the end the lit
 ; lights, two to a word. RAM3 the face's lights, one a point.
 
-H       = 0                             ; nu nv ow k0 rw raw aw bw, origin (3), dvt (3)
-PS      = 14                            ; x y z (16.16), r g b sums
-I_BP    = 20                            ; the block's address
-I_BJ    = 21                            ; this row's b_j's place
-I_J     = 22                            ; rows after this one
-I_AI    = 23                            ; this point's a_i dut's place
-I_PL    = 24                            ; points after this one
+H       = 0                             ; nu nv ow k0 rw raw aw bw mask, origin (3), dvt (3)
+PS      = 15                            ; x y z (16.16), r g b sums
+I_BP    = 21                            ; the block's address
+I_BJ    = 22                            ; this row's b_j's place
+I_J     = 23                            ; rows after this one
+I_AI    = 24                            ; this point's a_i dut's place
+I_PL    = 25                            ; points after this one
+TL      = 24                            ; (TL + 2 mask: its lights' place in RAM1, how many - 1)
 W_NJ2   = 53                            ; (the host's) faces
 W_BLK   = 42                            ; the blocks >> 2
 W_OUT   = 43                            ; the lit lights >> 2
 W_LT    = 44                            ; the lights >> 2
 W_LTW   = 45                            ; their words
-W_NL1   = 46                            ; lights - 1
 W_C7FFF = 56                            ; 0x7FFF
 W_P0    = 57                            ; the models' program (xformm.dsp) >> 2
 LT      = 0                             ; RAM1
-R       = 24
-BL      = 28
+R       = 32
+BL      = 36
 S1      = 60
 O2      = 36                            ; RAM2
 C2      = 48                            ; 31 0x3E0 0x7C00 2048 64 32 1024 0x8000 65536
@@ -61,6 +63,21 @@ w0:     jmp t0,w0
         mvi 1024,mc2
         mvi $8000,mc2
         mvi 65536,mc2
+        mov TL+2,ct0
+        mov 0,mc0                       ; 1: the first
+        mov 0,mc0
+        mov 8,mc0                       ; 2: the second
+        mov 0,mc0
+        mov 0,mc0                       ; 3: the first two
+        mov 1,mc0
+        mov 16,mc0                      ; 4: the third
+        mov 0,mc0
+        mov 16,mc0                      ; 5: the third, then the first again
+        mov 1,mc0
+        mov 8,mc0                       ; 6: the second and third
+        mov 1,mc0
+        mov 0,mc0                       ; 7: all three
+        mov 2,mc0
         mov W_BLK,ct0
         mov m0,a  mov 0,pl
         mov I_BP,ct0
@@ -71,7 +88,7 @@ w0:     jmp t0,w0
 job:    mov I_BP,ct0
         mov m0,ra0
         mov H,ct0
-        dma d0,mc0,14                   ; the block's first 14
+        dma d0,mc0,15                   ; the block's first 15
 w1:     jmp t0,w1
         nop
         ; the face's lights: rw words, then a point a word into RAM3 (the low 15 bits)
@@ -99,7 +116,7 @@ lpw:    rl8  mov alu,a
         and  mov all,mc3  mov mc2,a
         ; the offsets: a_i dut into RAM2, b_j into RAM1
         mov I_BP,ct0
-        mov m0,a  mov 14,pl
+        mov m0,a  mov 15,pl
         add  mov all,ra0
         mov 0,ct2
         mov H+6,ct0
@@ -111,16 +128,16 @@ w3:     jmp t0,w3
         dma d0,mc1,m0
 w4:     jmp t0,w4
         nop
-        ; the next block: 14 + aw + bw on
+        ; the next block: 15 + aw + bw on
         mov I_BP,ct0
-        mov m0,a  mov 14,pl
+        mov m0,a  mov 15,pl
         add  mov alu,a  mov H+6,ct0
         mov mc0,p
         add  mov alu,a
         mov m0,p  mov I_BP,ct0
         add  mov all,mc0
         ; the origin into RAM2 (the rows' starts come from it and dvt)
-        mov H+8,ct0
+        mov H+9,ct0
         mov O2,ct2
         mov mc0,mc2
         mov mc0,mc2
@@ -134,6 +151,12 @@ w4:     jmp t0,w4
         mov BL,mc0
         mov H+3,ct0
         mov m0,ct3                      ; the first point's light in RAM3
+        ; its lights: their place in the table
+        mov H+8,ct0
+        mov m0,a
+        sl  mov alu,a  mov TL,pl
+        add  mov all,mc0
+        mov lgt,top
 
 row:    ; its start: origin + b_j dvt (RAM1 R)
         mov I_BJ,ct0
@@ -141,7 +164,7 @@ row:    ; its start: origin + b_j dvt (RAM1 R)
         mov mc1,x
         mov m0,a  mov 1,pl
         add  mov all,mc0                ; (the next row's b_j)
-        mov H+11,ct0
+        mov H+12,ct0
         mov O2,ct2
         mov R,ct1
         mov mc0,y
@@ -183,11 +206,11 @@ pt:     ; the point: the row's start + a_i dut (PS)
         mov mul,p
         ad2  mov alh,mc0                ; b
 
-        ; each light's share (RAM1: -x -y -z r2 -inv<<8 r g b)
-        mov W_NL1,ct0
+        ; the share of each light that may (RAM1: -x -y -z r2 -inv<<8 r g b)
+        mov H+8,ct0
+        mov m0,ct0
+        mov mc0,ct1
         mov m0,lop
-        mov LT,ct1
-        mov lgt,top
 lgt:    mov PS,ct0
         mov mc0,a  mov mc1,p  mov SC,ct2
         ad2  mov alh,mc2  mov mc0,a  mov mc1,p   ; d x (whole units)
@@ -250,6 +273,7 @@ in:     mov mul,p  mov PS+3,ct0
         sub  mov all,mc0
         jmp ns,row
         nop
+        mov 0,mc3                       ; (after the last point: an odd face's last word's other half)
 
         ; out, two to a word
         mov H+3,ct0

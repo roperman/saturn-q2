@@ -81,9 +81,9 @@ void                dsp_models(const u32 *stream, s32 *out, int models, volatile
 }
 
 #ifndef DSP_LIGHT
-/* The walls' dynamic lights (engine/walls1.dsp, walls2.dsp: src/render.c), after the models'
-   job (or alone: dsp_walls_start): their numbers into RAM0[40..56], which the models' job
-   leaves alone. faces 0: none (the models' job just ends) */
+/* The walls' dynamic lights (engine/walls0.dsp, walls1.dsp, walls2.dsp: src/render.c), after
+   the models' job (or alone: dsp_walls_start): their numbers into RAM0[40..63], which the models'
+   job leaves alone. faces 0: none (the models' job just ends) */
 void                dsp_walls_params(const dsp_walls_p *p)
 {
     const u32       *w = (const u32 *)p;

@@ -112,7 +112,7 @@ typedef struct { s16 lo[3], hi[3]; } q_portal;
 
 typedef struct
 {
-    const q_plane   *planes;
+    const q_plane   *planes, *planes_cart;      /* (planes_cart: the cart's copy, for the DSP) */
     const q_node    *nodes;
     const q_leaf    *leafs;
     const u16       *marks;
@@ -356,6 +356,10 @@ typedef struct
     int             fs[10];                         /* (lit whole faces: points <=16 <=32 <=48 <=64 more; rows over 12, 16 points; lights 1, 2, 3+) */
 #endif
     int             n_wlhit;                        /* (lit faces found lit already: r_wall_ahead) */
+#ifdef DSP_WALLS
+    int             dw_why[4];                      /* (lit faces the DSP's weren't: not whole; a model's, water or
+                                                       coarse; too big for it; not found) */
+#endif
     int             portal_out, n_reach, n_proj, n_ptest;  /* faces not seen through the portals, clusters reached,
                                                        portals projected, looked at */
     u32             t_flow;                         /* (FIGHT_BENCH: the flow's us) */

@@ -262,6 +262,7 @@ bool                level_load(const char *name)
     hw_next = (u8 *)(((u32)_bss_end + 15) & ~15u);
     lw_next = (u8 *)(((u32)_lwtext_end + 15) & ~15u);   /* (after the code that lives there) */
     lv.nodes = hot(lv.nodes, (u32)lv.nnodes * sizeof(q_node), true);
+    lv.planes_cart = lv.planes;
     lv.planes = hot(lv.planes, (u32)lv.nplanes * sizeof(q_plane), true);
     lv.leafs = hot(lv.leafs, (u32)lv.nleafs * sizeof(q_leaf), true);
     lv.marks = hot(lv.marks, h[7] * 2, true);

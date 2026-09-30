@@ -165,7 +165,11 @@ At run time (`src/render.c`, and SH-2 assembly in `src/*.s`):
   DSP blends and transforms the vertices while the CPUs do other things;
   the polygons are sorted and drawn in assembly (`mdraw.s`).
 - **Lights**: dynamic lights add to the Gouraud colours at the grid points
-  they reach, with Quake's falloff. The sky is a panorama on VDP2.
+  they reach, with Quake's falloff. On the walls the DSP does most of it,
+  after the models: it picks the faces the CPUs drew that the lights reach
+  and lights them for the next frame (`engine/walls0.dsp` to `walls2.dsp`,
+  loading each other in turn), so the walls, like the models, go by last
+  frame's lights. The sky is a panorama on VDP2.
 
 Level data sits on the 4 MB cart, and what's read every frame is copied
 into work RAM: the BSP into the fast high 1 MB, faces, cells and lights into
@@ -187,6 +191,8 @@ Build switches (`OPT=-D... ./build.sh`) and scripts in `tools/`:
 | `OPT=-DONE_CPU` | everything on the master (fixed drawing order, for comparing builds) |
 | `OPT=-DFACE_CHECK`, `-DLINE_CHECK`, `-DBOUNDS_CHECK`, `-DMODEL_CHECK` | assembly and C side by side, results compared |
 | `OPT=-DLEVEL_TEST` | each level in turn, and the memory each leaves |
+| `OPT=-DWALLS_TEST`, `tools/walls_sim.py` | the walls' DSP programs against the C, on the Saturn at a level's start, or in `tools/dspsim.py` (a copy of Mednafen's DSP) |
+| `OPT=-DNO_DSP_WALLS` | the walls' dynamic lights all on the CPUs, this frame's |
 
 `tools/emu.sh` drives Mednafen for these. It uses the real display and
 keyboard, so leave the machine alone while it runs.

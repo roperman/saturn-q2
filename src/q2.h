@@ -11,6 +11,13 @@
 #include "sat.h"
 #include "vdp.h"
 
+/* the walls' dynamic lights on the DSP (src/render.c, engine/walls0.dsp, walls1.dsp, walls2.dsp): on
+   unless OPT=-DNO_DSP_WALLS, or with what they can't go with (the walls ahead, the DSP's model
+   lighting, no DSP) */
+#if !defined(NO_DSP_WALLS) && !defined(WALLS_AHEAD) && !defined(DSP_LIGHT) && !defined(NO_DSP)
+#define DSP_WALLS
+#endif
+
 #define FIX(x)          ((s32)((x) * 65536))
 
 static inline s32   imin(s32 a, s32 b) { return a < b ? a : b; }

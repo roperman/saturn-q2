@@ -313,7 +313,7 @@ int                 r_nsprites;
 /* this frame's lights in view space: position, radius squared (whole units) */
 typedef struct { s32 x, y, z, r2, inv; u8 r, g, b, pad; } dl_light;
 static dl_light     dl[MAX_DLIGHTS];
-static const q_dlight *lsrc = r_dlights;    /* the lights the walls go by (OPT=-DWALLS_AHEAD: last frame's) */
+static const q_dlight *lsrc = r_dlights;    /* the lights the walls go by (the DSP's, or OPT=-DWALLS_AHEAD: last frame's) */
 static int          ndl;
 static s16          *leaf_model, *model_next;   /* brush models, listed by the leaf their centre's in */
 static int          nvis;
@@ -1496,7 +1496,8 @@ static u32          wl_words;               /* ...the room for lights each has *
 u32                 wl_stop[3];             /* (why the slave stopped: the next frame, no room, all done) */
 #endif
 
-/* ---- the walls' dynamic lights on the DSP (engine/walls0.dsp, walls1.dsp, walls2.dsp) ----
+/* ---- the walls' dynamic lights on the DSP (engine/walls0.dsp, walls1.dsp, walls2.dsp: on unless
+   OPT=-DNO_DSP_WALLS, src/q2.h) ----
 
    Three programs, one after another after the models' job: walls0.dsp picks, of the whole faces
    the CPUs drew last frame, those this frame's lights may light (face_dlights' tests, from the
@@ -1698,7 +1699,7 @@ static void         dw_params(const u32 *list, int n, int nl, const u32 *out, co
 }
 
 #ifdef DSP_WALLS
-/* (OPT=-DDSP_WALLS) the walls' dynamic lights on the DSP, a frame behind: each CPU notes the
+/* the walls' dynamic lights on the DSP, a frame behind: each CPU notes the
    whole faces it draws (the record's address, in dw_rec: the master's up from its middle, the
    slave's down, so they're one list); the next frame, after the models' job, the DSP picks
    those that frame's lights may light and lights them (dw_frame: the master, as it starts the
@@ -6298,12 +6299,19 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
 #endif
     }
     /* this frame's lights, into view space; the sprites, into the leaves they're in */
-#if defined(WALLS_AHEAD) || defined(DSP_WALLS)
-    lsrc = lights_lagged(&ndl);             /* (the walls go by last frame's: r_wall_ahead's, the DSP's) */
+#ifdef WALLS_AHEAD
+    lsrc = lights_lagged(&ndl);             /* (the walls go by last frame's: r_wall_ahead's) */
     ndl = imin(ndl, MAX_DLIGHTS);
 #else
     lsrc = r_dlights;
     ndl = imin(r_ndlights, MAX_DLIGHTS);
+#ifdef DSP_WALLS
+    if (dw_prog)
+    {
+        lsrc = lights_lagged(&ndl);         /* (a level the DSP lights the walls on: last frame's, the DSP's) */
+        ndl = imin(ndl, MAX_DLIGHTS);
+    }
+#endif
 #endif
     for (i = 0; i < ndl; ++i)
     {

@@ -1553,7 +1553,7 @@ DSP choosing the faces itself, every whole face the CPUs drew against the
 lights (it has the time: ~25 ms of a frame idle), for which the CPUs would
 note every whole face they draw (~300 a frame) somewhere it can read.
 
-## 34. The walls' dynamic lights on the DSP, the DSP choosing the faces (built; off: OPT=-DDSP_WALLS)
+## 34. The walls' dynamic lights on the DSP, the DSP choosing the faces (on; OPT=-DNO_DSP_WALLS: off)
 
 **A third program, before the other two.** `engine/walls0.dsp` (229 words)
 now runs first after the models' job. The CPUs note every whole face they
@@ -1593,8 +1593,9 @@ One bug turned up, in walls2, and it was in section 33's version too. A face
 with an odd number of points packs its last point with whatever word is in
 data RAM after it, and a big one (the models' job leaves them) spoiled the
 last point: 1 point in 753. A 0 is written there now. It was found with a
-Python copy of the DSP (Mednafen's semantics, the programs' own binaries,
-the levels' own data), which gives Mednafen's results exactly.
+Python copy of the DSP (`tools/dspsim.py`: Mednafen's semantics; run on the
+programs' own binaries and the levels' own data by `tools/walls_sim.py`),
+which gives Mednafen's results exactly.
 
 **The host's part.** Before the slave is signalled, the master:
 - puts the last job's faces in a table in low work RAM (stamped with the
@@ -1636,4 +1637,6 @@ the CPUs in every frame.
   or without these, and 2 KB is left there after everything.
 - Low work RAM: 512 bytes.
 
-It stays off until the frame-behind walls are decided.
+On by default (the walls a frame behind decided on). A level whose cart has
+no room for it keeps the walls on the CPUs, going by this frame's lights.
+The default build's fight: 33.6 / 31.8 ms, 3 pictures up 3 fields.

@@ -10,7 +10,7 @@ import glob, gzip, os, subprocess, sys
 MASTER = os.environ.get("CPU") == "master"
 HIST, OTHER = (0x0F0000, 0x0E7FFC) if MASTER else (0x0F8000, 0x0E7FF8)
 CODE, BUCKET = 0x06004000, 8
-FRAMES, CYCLES, HZ = 502, 16384, 26.8e6
+FRAMES, CYCLES, HZ = int(os.environ.get("FRAMES", 502)), 16384, 26.8e6
 
 state = sys.argv[1] if len(sys.argv) > 1 else max(
     glob.glob(os.path.expanduser("~/.mednafen/mcs/*.mc0")), key=os.path.getmtime)

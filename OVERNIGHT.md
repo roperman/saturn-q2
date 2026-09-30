@@ -1221,3 +1221,86 @@ distance along a row stepped as a quadratic. Slower (-DDL_BENCH 200.9 ->
 204.1 ms): a lit point's cost is its weight and three colours, not its
 distance, and the rows are short. And it rounds differently: up to one
 5-bit shade on some cells.
+
+## 28. After the slave, for 30 fps on NTSC
+
+**Measuring it.** The fight now plays the same fight every run: the dice
+reseeded as it starts, and the game's step in whole fields rather than the
+frame's time as measured (a few microseconds different each frame and each
+build, which sent every build's fight its own way). And it runs as an NTSC
+Saturn too (`REGION=na tools/fight.sh`: Mednafen as a US machine), which is
+the number that matters here: its FRAME is 33.4 ms when every frame makes 30.
+
+**Where the time goes.** `OPT="-DFIGHT_BENCH -DSLAVE_PROF"`: each CPU's
+watchdog timer interrupts it every 16,384 cycles and counts where it was, in
+8-byte buckets over the code, kept in low work RAM's top 64 KB (nothing moves
+in high work RAM, so the timing's the game's); `tools/prof.py` reads them out
+of a Mednafen save state (F5) and names the functions. The fight, a frame:
+
+| slave | ms | master | ms |
+|---|---|---|---|
+| cells_asm | 5.5 | cells_asm | 5.5 |
+| face_asm | 4.7 | the walk (walk_asm 5.3, cull 3.5) | 8.8 |
+| grid_face_asm | 4.2 | grid_face_asm | 3.9 |
+| the dynamic lights | 4.2 | face_asm | 3.4 |
+| face_cells (the C between) | 2.7 | traces (leaf_brushes 2.2, box_leafs_r 1.4, ...) | ~5 |
+| the models | 7.0 | face_cells | 2.1 |
+| idle | 3.3-8 | vdp_submit, render_world's start, the game | ... |
+
+The two CPUs share the drawing (they meet in the list), so a millisecond off
+either's drawing is about half a millisecond off the frame. But the slave has
+nothing to draw for the frame's first ~2 ms, while the master reads the pad,
+moves you and sets the frame up: a millisecond off that is a whole one.
+
+**Found on the way: SCU DMA stops both CPUs.** Mednafen halts both SH-2s for
+the whole of any SCU DMA that reads or writes work RAM (the SCU takes their
+bus); only A-bus to B-bus transfers (the cart to VRAM: the textures) run
+alongside. So the lists' DMA into VRAM (0.76-0.78 ms a fight frame, after the
+CPU's time: shown now as LISTS' DMA) costs that however it's sent, and the
+gun's fetches from the cart cost both CPUs while they run. vdp_submit now
+sends the frame's DMA as one SCU indirect-mode chain, not waited for (SCU
+user's manual ST-097: the table's address in D0W, each entry count,
+destination, source, the last source's top bit set): the queued textures
+first (upload_one and the late ones: truly alongside, ~0.1 ms), then the
+lists. The swap waits for the chain, and so does anything else sending DMA.
+
+**The changes**, the fight, a frame (PAL's CPU; NTSC's frame and CPU):
+
+| | PAL CPU | NTSC frame | NTSC CPU |
+|---|---|---|---|
+| before (with the fight made repeatable) | 34.1 | 35.2 | 33.7 |
+| dynamic lights: a face's box against each light first | 34.1 | | |
+| dl_face a row at a time (a row none reaches copied) | 33.9 | | |
+| its points' loop in assembly (src/dlight.s) | 34.0 | 35.1 | 33.6 |
+| pmove's second look at the ground skipped when nothing's changed; the benchmark's per-face timer gone | 33.1 | 34.3 | 32.7 |
+| the gun's kept drawing in HWRAM where there's room | 33.0 | 34.2 | 32.6 |
+
+- *Dynamic lights*: face_dlights marked a face for a light near its plane
+  (a floor under a light a little above it, all of it); now the box of the
+  face's grid corners must be in reach too: 31 faces a frame marked, 21 lit.
+  dl_face tests each row's reach inline (its start stepped, not grid_step's
+  multiplies), copies a row no light reaches (`raw | 0x8000`, which is what
+  unpacking and packing gave) and lights the rest a row at a time; the points'
+  loop is `dl_points` in assembly (the whole units by swap.w and exts.w, the
+  squares by muls.w). The same sums bit for bit (`-DDLF_CHECK`: 16,423 lit
+  faces, 0 different); `-DNO_DL_ASM`, `-DNO_DL_REACH`: the C, the old marking.
+  The slave's share 4.2 -> 2.7 ms: what's left is mostly reading the faces'
+  lights (low work RAM) and packing them. (STEP_DL's test path is gone.)
+- *pmove* looked at the ground (a box trace 0.25 units down, and the water)
+  before and after the move; standing still, nothing it reads has changed
+  in between, so the second is left out then: the pad-to-camera time 1.48 ->
+  0.91 ms, before the slave has anything to draw. (Moving, it's as before;
+  and moving costs more traces, which this benchmark doesn't show.)
+- *The gun's kept drawing* (section 15) is in what HWRAM a level has left,
+  when it has 8 KB: demo2 and demo3, not demo1 (the fight's: still the cart
+  and a DMA).
+
+Same pixels throughout (the six views, three lights, one CPU); all three
+levels load, none of their monsters' records on the cart (HWRAM left: demo1
+8.1 KB, demo2 37.7, demo3 5.4).
+
+Still ~5% of the NTSC fight's frames take a third field: about a millisecond
+more to find. The one big thing left is section 13's portals: in this very
+room they'd leave 32-48% of the cells drawn. After that: the walk (8.8 ms of
+the master's, memory-bound), the traces (the player's are before the slave
+can start), and face_cells' C.

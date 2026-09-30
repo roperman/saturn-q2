@@ -573,6 +573,10 @@ static void         footsteps(void)
     }
 }
 
+static s32          cat_origin[3], cat_vz;  /* (pmove: the first categorize's) */
+static bool         cat_ground;
+static int          cat_ent, cat_water;
+
 void                pmove(const q_usercmd *cmd, s32 dt)
 {
     s32             fwd[3], right[3], wishvel[3], wishdir[3], wishspeed;
@@ -594,6 +598,17 @@ void                pmove(const q_usercmd *cmd, s32 dt)
         return;
     }
     categorize();
+    {
+        /* what it found, and from where: again below only if any of it's changed */
+        int k;
+
+        for (k = 0; k < 3; ++k)
+            cat_origin[k] = pl.origin[k];
+        cat_vz = pl.velocity[2];
+        cat_ground = pl.on_ground;
+        cat_ent = pl.ground_ent;
+        cat_water = pl.waterlevel;
+    }
     check_ladder(cmd->yaw);
     check_jump(cmd->up > 0);
     friction();
@@ -663,7 +678,12 @@ void                pmove(const q_usercmd *cmd, s32 dt)
             step_slide_move();
         }
     }
-    categorize();
+    /* where you are now, if you've moved (standing, the same as it found above: the world
+       doesn't move during this, and it reads nothing else) */
+    if (pl.origin[0] != cat_origin[0] || pl.origin[1] != cat_origin[1] || pl.origin[2] != cat_origin[2]
+        || pl.velocity[2] != cat_vz || pl.on_ground != cat_ground || pl.ground_ent != cat_ent
+        || pl.waterlevel != cat_water)
+        categorize();
     footsteps();
 }
 

@@ -1355,8 +1355,7 @@ void                main(void)
                        fight_pre[2] / n, fight_pre[3] / n);
             vdp_printf(8, 53, RGB(160, 220, 255), "E%d L%d T%d R%d", fight_pre[4] / n, fight_pre[5] / n,
                        fight_pre[6] / n, fight_pre[7] / n);
-            vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US TEST %d SUMS %d FACES %d", fight_dl[0] / n, fight_dl[1] / n,
-                       fight_dl[2] / n);
+            vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US SUMS %d FACES %d", fight_dl[1] / n, fight_dl[2] / n);
             vdp_printf(8, 80, RGB(160, 220, 255), "DL POINT-LIGHTS %d IN %d", fight_dl[3] / n, fight_dl[4] / n);
 #ifdef DLF_CHECK
             {

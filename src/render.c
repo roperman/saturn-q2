@@ -334,7 +334,8 @@ static s32          rcp[64];                /* 65536 / n */
    vertices' places before the bob, then their normals */
 typedef struct { u16 tex, size; u16 v[4]; } view_kept;      /* 12 bytes */
 #define VIEW_KEEP_BYTES (MAX_MPOLYS * sizeof(view_kept) + MAX_MVERTS * 2 * 5)
-static u8           *view_keep;             /* (on the cart, r_view_level) */
+static u8           *view_keep;             /* (r_view_level: in HWRAM if there's room, else on the cart) */
+static bool         view_keep_hot;
 static int          view_nkeep, view_nkv, view_gen = 1;
 static u32          view_kver;              /* (one more each time it's kept anew) */
 /* ...and last frame's going out, if it was that: its commands and colour tables are still in
@@ -1284,6 +1285,10 @@ static void         dl_box(const v3 *p, int n, v3 *lo, v3 *hi)
     }
 }
 
+/* a light and a row's first point for src/dlight.s (dl_points): offsets as it has them */
+typedef struct { s32 r2, inv; u32 lr, lg, lb; s32 p[3], e0[3], d[3], e1[3]; } dl_pts;
+u32                 dl_points(u32 *acc, int nu, const dl_pts *q);
+
 static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw)
 {
     const face_args *a = &x->fa;
@@ -1292,7 +1297,13 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
     unsigned        mask = x->dmask;
     u32             acc[MAX_ROW];
     v3              across, b;              /* a whole row; the row's start (grid_step's, stepped) */
+#ifndef NO_DL_ASM
+    dl_pts          q;
 
+    q.e0[0] = e0->x; q.e0[1] = e0->y; q.e0[2] = e0->z;
+    q.d[0] = d->x; q.d[1] = d->y; q.d[2] = d->z;
+    q.e1[0] = e1->x; q.e1[1] = e1->y; q.e1[2] = e1->z;
+#endif
     grid_step(&across, e0, d, e1, nu, nu);
     b.x = b.y = b.z = 0;
     for (j = 0; j <= nv; ++j, raw += nu + 1, out += nu + 1)
@@ -1332,11 +1343,30 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
         }
         for (li = 0; rm; ++li, rm >>= 1)
         {
+#ifdef NO_DL_ASM
             s32         r2, inv, px, py, pz;
             u32         lr, lg, lb;
+#endif
 
             if (!(rm & 1))
                 continue;
+#ifndef NO_DL_ASM
+            /* (src/dlight.s: the same, a light at a time along the row) */
+            q.r2 = dl[li].r2;
+            q.inv = dl[li].inv;
+            q.lr = dl[li].r;
+            q.lg = dl[li].g;
+            q.lb = dl[li].b;
+            q.p[0] = r0x - dl[li].x;
+            q.p[1] = r0y - dl[li].y;
+            q.p[2] = r0z - dl[li].z;
+#ifdef FIGHT_BENCH
+            x->st.n_dlpts += nu + 1;
+            x->st.n_dlin += (int)dl_points(acc, nu, &q);
+#else
+            dl_points(acc, nu, &q);
+#endif
+#else
             r2 = dl[li].r2;
             inv = dl[li].inv;
             lr = dl[li].r;
@@ -1374,6 +1404,7 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
                     acc[i] += ((lr * f) >> 16) | ((lg * f) >> 16) << 10 | ((lb * f) >> 16) << 20;
                 }
             }
+#endif
         }
         for (i = 0; i <= nu; ++i)
         {
@@ -2223,16 +2254,9 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
     }
     /* dynamic lights: added to the lights at each grid point, then drawn as any other face;
        water near enough moves, and its lights ripple */
-#ifdef FIGHT_BENCH
-    {
-        u32 tdl = frt_read();
-
-        face_dlights(x, f, model);
-        x->st.t_dltest += (frt_read() - tdl) & 0xFFFF;
-        x->st.n_dlfaces += x->dmask != 0;
-    }
-#else
     face_dlights(x, f, model);
+#ifdef FIGHT_BENCH
+    x->st.n_dlfaces += x->dmask != 0;       /* (not timed: two timer reads a face cost more than the test) */
 #endif
     x->wave = whole && f->flags & FF_WARP && r_water && face_zmin(x) < WAVE_FAR;
     x->lit = (x->dmask && r_dl_verts) || x->wave;
@@ -2896,7 +2920,7 @@ static void         view_fetch_start(vdp_writer *w0)
     {
         /* it'll go out as kept: that's what's read */
         vf.rbytes = ((u32)view_nkeep * sizeof(view_kept) + (u32)view_nkv * 5 + 3) & ~3u;
-        if (view_nkeep && (vf.base = view_scratch(w0, vf.rbytes)))
+        if (!view_keep_hot && view_nkeep && (vf.base = view_scratch(w0, vf.rbytes)))
         {
             scu_dma0(vf.base, view_keep, vf.rbytes, false);
             vf.stage = 3;
@@ -2993,10 +3017,16 @@ static void         cache_forget(const void *p, u32 bytes)
         *(volatile u32 *)(0x40000000 | (a & 0x1FFFFFFF)) = 0;
 }
 
-/* a new level (view.c): room for the gun's last drawing, on the cart (DMA reads it from there) */
+/* a new level (view.c): room for the gun's last drawing: in HWRAM if the level's left room
+   (read straight from there), else on the cart (read into the list by SCU DMA, which halts
+   both CPUs while it writes their RAM: 0.34 ms of a fight's frame, before the slave can start) */
 void                r_view_level(void)
 {
-    view_keep = cart_alloc(VIEW_KEEP_BYTES);
+    u32             hw, lw, ca;
+
+    level_free(&hw, &lw, &ca);
+    view_keep_hot = hw >= VIEW_KEEP_BYTES;  /* (nothing takes HWRAM after this) */
+    view_keep = view_keep_hot ? level_alloc(VIEW_KEEP_BYTES) : cart_alloc(VIEW_KEEP_BYTES);
     view_key.m = NULL;
     vf.stage = 0;
 #ifdef VIEW_CHECK

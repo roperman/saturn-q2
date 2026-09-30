@@ -161,9 +161,12 @@ typedef struct
     gv              *grid;
     grid_args       *ga;
     s32             *gk;
+    s32             prx0, prx1, pry0, pry1; /* the face's cluster's rectangle, as seen through the portals: */
+    s32             prect;                  /* its sides' slopes, if it's not the whole screen */
 }                   face_args;
 _Static_assert(__builtin_offsetof(face_args, light) == 64 && __builtin_offsetof(face_args, rt) == 68
                && __builtin_offsetof(face_args, frame) == 128 && __builtin_offsetof(face_args, gk) == 180
+               && __builtin_offsetof(face_args, prect) == 200
                && sizeof(q_face) == 32 && sizeof(q_lodface) == 16 && __builtin_offsetof(q_face, firstcell) == 24
                && __builtin_offsetof(grid_args, e1) == 36, "src/face.s: face_args");
 int                 face_asm(face_args *a, int fi, int model);   /* (OPT=-DNO_FACE_ASM: face_setup, the C) */
@@ -2033,6 +2036,13 @@ static void         face_dlights(r_ctx *x, const q_face *f, int model)
 }
 
 #if defined(NO_FACE_ASM) || defined(FACE_CHECK)
+/* which of the sides of the face's cluster's rectangle (portal_face's slopes) a point's outside */
+static inline u8    rect_oc(const face_args *a, s32 x, s32 y, s32 z)
+{
+    return (u8)((x < fmul(z, a->prx0)) | (x > fmul(z, a->prx1)) << 1 | (y > fmul(z, a->pry1)) << 2
+                | (y < fmul(z, a->pry0)) << 3);
+}
+
 /* 0: nothing to draw (the sky, say); 1: out of view; 2: its steps and the whole grid
    done; 3: its steps done, the grid too big to do at once (or the assembly grid's off) */
 static __attribute__((noinline)) int face_setup(r_ctx *x, const q_face *f, int model)
@@ -2078,6 +2088,9 @@ static __attribute__((noinline)) int face_setup(r_ctx *x, const q_face *f, int m
         if (view_oc(o.x, o.y, o.z) & view_oc(o.x + ux, o.y + uy, o.z + uz) & view_oc(o.x + vx, o.y + vy, o.z + vz)
             & view_oc(o.x + ux + vx, o.y + uy + vy, o.z + uz + vz))
             return 1;
+        if (a->prect && (rect_oc(a, o.x, o.y, o.z) & rect_oc(a, o.x + ux, o.y + uy, o.z + uz)
+                         & rect_oc(a, o.x + ux + vx, o.y + uy + vy, o.z + uz + vz) & rect_oc(a, o.x + vx, o.y + vy, o.z + vz)))
+            return 1;                       /* (outside its cluster's rectangle: the portals') */
         zmin = imin(imin(o.z, o.z + uz), imin(o.z + vz, o.z + uz + vz));
         PROF(x->st.cells_all += nu * nv);
     }
@@ -2443,12 +2456,309 @@ static int          face_check(r_ctx *x, const q_face *f, int fi, int model)
 }
 #endif
 
+
+#ifndef PORTALS
+void                r_portals_level(void)
+{
+}
+#else
+/* ---- portals ----
+
+   The level's clusters and the openings between them (tools/bake_map.py cluster_portals: a box
+   round each pair's portals). Each frame the view flows out from the camera's cluster through
+   them, a screen rectangle a cluster reached (what of it could be seen through the openings on
+   the way: each portal's box's rectangle, conservative, cut down by where it's seen from, and
+   what reaches a cluster by more than one way added together). A face whose cluster wasn't
+   reached isn't drawn; one whose was is tested against its cluster's rectangle as it's set up
+   (face_asm: the four corners of its grid against the rectangle's sides, as against the
+   screen's). A face in more than one cluster, or none (a brush model's), isn't tested. The
+   walk, the models and the AI's sight still go by the PVS. (OPT=-DPORTALS with PORTALS=1 ./build.sh:
+   a test, off: section 29 of OVERNIGHT.md. The flow costs far more than the drawing it saves) */
+#define PORTAL_SLOTS    (255)               /* clusters a frame can reach (more: no culling that frame) */
+#define RECT_FULL       ((u32)((SCREEN_W / 2) << 8 | SCREEN_H))  /* x0/2 y0 x1/2 y1, a byte each */
+
+static bool         r_portals;              /* the level has them, and room for the rest */
+static bool         portals_on;             /* this frame's flow's in */
+static u16          *face_clu;              /* each face's cluster (0xFFFF: none, or more than one) */
+static u8           *clu_slot;              /* each cluster's slot this frame (0: not reached) */
+static u32          *slot_rect;             /* each slot's rectangle, [1 .. PORTAL_SLOTS] */
+static u16          *slot_clu;              /* ... its cluster */
+static u16          *slot_work;             /* the flow's slots to go on from (a ring: first in, first out) */
+static u8           portal_pvs[256];        /* the camera's cluster's PVS (the flow goes only where it could see) */
+static int          portal_pvs_of = -1;
+static u8           *slot_queued;
+static int          nslots;
+
+/* room: high work RAM if it has it, else low, else the cart (NULL: none) */
+static void         *portal_alloc(u32 bytes, bool high)
+{
+    u32             hw, lw, ca;
+
+    level_free(&hw, &lw, &ca);
+    if (high && hw >= bytes + 16)
+        return level_alloc(bytes);
+    if (lw >= bytes + 16)
+        return level_alloc_low(bytes);
+    return ca >= bytes + 2048 ? cart_alloc(bytes) : NULL;
+}
+
+/* a new level (main.c, once the models and the traces have had their HWRAM): the faces'
+   clusters (from the leaves' lists of them), the flow's state */
+void                r_portals_level(void)
+{
+    u32             slots = PORTAL_SLOTS + 1;
+    u8              *st;
+    int             i, k;
+
+    r_portals = false;
+    nslots = 0;
+    portal_pvs_of = -1;
+    if (!lv.nportals || lv.nclusters <= 0)
+        return;
+    st = portal_alloc((u32)lv.nclusters + slots * (4 + 2 + 2 + 1) + 16, true);
+    face_clu = portal_alloc((u32)lv.nfaces * 2, false);
+    if (!st || !face_clu)
+        return;
+    slot_rect = (u32 *)(((u32)st + 3) & ~3u);
+    slot_clu = (u16 *)(slot_rect + slots);
+    slot_work = slot_clu + slots;
+    slot_queued = (u8 *)(slot_work + slots);
+    clu_slot = slot_queued + slots;
+    memset(clu_slot, 0, (u32)lv.nclusters);
+    memset(slot_queued, 0, slots);
+    for (i = 0; i < lv.nfaces; ++i)
+        face_clu[i] = 0xFFFE;
+    for (i = 0; i < lv.nleafs; ++i)
+    {
+        const q_leaf *l = &lv.leafs[i];
+
+        if (l->cluster < 0)
+            continue;
+        for (k = 0; k < l->nummark; ++k)
+        {
+            int f = lv.marks[l->firstmark + k];
+
+            if (f >= lv.models[0].numfaces)
+                continue;                   /* (a brush model's: in its own tree's leaves, cluster 0 or not) */
+            face_clu[f] = face_clu[f] == 0xFFFE || face_clu[f] == (u16)l->cluster ? (u16)l->cluster : 0xFFFF;
+        }
+    }
+    for (i = 0; i < lv.nfaces; ++i)
+        if (face_clu[i] == 0xFFFE)
+            face_clu[i] = 0xFFFF;
+    r_portals = true;
+}
+
+/* screen x of view-space x at depth z (z > 0), rounded down (up) */
+static int          portal_sx(s32 x, s32 z, bool up)
+{
+    s32             r = iclamp(fdiv(x, z), -FIX(2), FIX(2)) * FOCAL;
+
+    return CX + (up ? -((-r) >> 16) : r >> 16);
+}
+
+/* the sides of rectangle r (x0/2 y0 x1/2 y1) as slopes (16.16: x / z at the left and right, y / z
+   at the top and bottom; 65536 / 160 = 2048 / 5) */
+typedef struct { s32 l, r, t, b; } rect_slopes;
+
+static void         rect_slopes_of(u32 r, rect_slopes *k)
+{
+    k->l = (((s32)(r >> 24) * 2 - CX) << 11) / 5;
+    k->r = (((s32)(r >> 8 & 255) * 2 - CX) << 11) / 5;
+    k->t = ((CY - (s32)(r >> 16 & 255)) << 11) / 5;
+    k->b = ((CY - (s32)(r & 255)) << 11) / 5;
+}
+
+/* a portal's box on the screen, within rectangle r (its sides k): a rectangle round it (its
+   view-space extents, each way from the depths that make it widest), 0 if none of it can be seen
+   there, RECT_FULL if it's across the near plane. A box wholly off one of r's sides (each a
+   plane through the eye) is found with no divides */
+static u32          portal_rect(const q_portal *p, const rect_slopes *rk)
+{
+    s32             c[3], e[3], vx, vy, vz, ex, ey, ez, z0, z1, x0, x1, y0, y1;
+    int             k, sx0, sx1, sy0, sy1;
+
+    for (k = 0; k < 3; ++k)
+    {
+        c[k] = ((s32)(p->lo[k] + p->hi[k]) << 15) - cam.pos[k];
+        e[k] = (s32)(p->hi[k] - p->lo[k]) << 15;
+    }
+    vz = fmul(c[0], cam.fwd[0]) + fmul(c[1], cam.fwd[1]) + fmul(c[2], cam.fwd[2]);
+    ez = fmul(e[0], iabs(cam.fwd[0])) + fmul(e[1], iabs(cam.fwd[1])) + fmul(e[2], iabs(cam.fwd[2])) + 3;
+    z1 = vz + ez;
+    if (z1 <= 0)
+        return 0;                           /* behind the camera */
+    z0 = vz - ez;
+    if (z0 < NEAR_Z)
+        return RECT_FULL;                   /* across the near plane (or you're in it) */
+    vx = fmul(c[0], cam.right[0]) + fmul(c[1], cam.right[1]) + fmul(c[2], cam.right[2]);
+    ex = fmul(e[0], iabs(cam.right[0])) + fmul(e[1], iabs(cam.right[1])) + fmul(e[2], iabs(cam.right[2])) + 3;
+    vy = fmul(c[0], cam.up[0]) + fmul(c[1], cam.up[1]) + fmul(c[2], cam.up[2]);
+    ey = fmul(e[0], iabs(cam.up[0])) + fmul(e[1], iabs(cam.up[1])) + fmul(e[2], iabs(cam.up[2])) + 3;
+    x0 = vx - ex;
+    x1 = vx + ex;
+    y0 = vy - ey;
+    y1 = vy + ey;
+    sx0 = imax(portal_sx(x0, x0 < 0 ? z0 : z1, false) - 1, 0);
+    sx1 = imin(portal_sx(x1, x1 < 0 ? z1 : z0, true) + 1, SCREEN_W);
+    sy0 = imax(CX + CY - portal_sx(y1, y1 < 0 ? z1 : z0, true) - 1, 0);    /* (CY - F y / z) */
+    sy1 = imin(CX + CY - portal_sx(y0, y0 < 0 ? z0 : z1, false) + 1, SCREEN_H);
+    if (sx0 >= sx1 || sy0 >= sy1)
+        return 0;
+    return (u32)(sx0 >> 1) << 24 | (u32)sy0 << 16 | (u32)((sx1 + 1) >> 1) << 8 | (u32)sy1;
+}
+
+static inline u32   umin(u32 a, u32 b)
+{
+    return a < b ? a : b;
+}
+
+static inline u32   umax(u32 a, u32 b)
+{
+    return a > b ? a : b;
+}
+
+static inline u32   rect_and(u32 a, u32 b)
+{
+    u32             x0 = umax(a >> 24, b >> 24), y0 = umax(a >> 16 & 255, b >> 16 & 255);
+    u32             x1 = umin(a >> 8 & 255, b >> 8 & 255), y1 = umin(a & 255, b & 255);
+
+    return x0 < x1 && y0 < y1 ? x0 << 24 | y0 << 16 | x1 << 8 | y1 : 0;
+}
+
+static inline u32   rect_or(u32 a, u32 b)
+{
+    return umin(a >> 24, b >> 24) << 24 | umin(a >> 16 & 255, b >> 16 & 255) << 16
+           | umax(a >> 8 & 255, b >> 8 & 255) << 8 | umax(a & 255, b & 255);
+}
+
+static inline bool  rect_in(u32 a, u32 b)  /* a within b */
+{
+    return a >> 24 >= b >> 24 && (a >> 16 & 255) >= (b >> 16 & 255) && (a >> 8 & 255) <= (b >> 8 & 255)
+           && (a & 255) <= (b & 255);
+}
+
+/* the flow from the camera's cluster: false if it reached more than there are slots. First in,
+   first out (breadth first: a cluster's rectangle tends to be whole before it's gone on from:
+   half the going round again of last in, first out); only into clusters in the camera's PVS
+   (anything seen is on a line of sight, and every cluster that crosses is in it) */
+static bool         portals_flow(int cluster)
+{
+    const u16       *first = lv.cportals, *list = lv.cportals + lv.nclusters + 1;
+    int             i, head = 0, tail = 0;
+    bool            prune = lv.nclusters <= (int)sizeof(portal_pvs) * 8;
+
+    if (prune && portal_pvs_of != cluster)
+    {
+        memcpy(portal_pvs, level_pvs(cluster), (u32)(lv.nclusters + 7) >> 3);
+        portal_pvs_of = cluster;
+    }
+    for (i = 1; i <= nslots; ++i)
+        clu_slot[slot_clu[i]] = 0;          /* (last frame's) */
+    nslots = 1;
+    slot_clu[1] = (u16)cluster;
+    slot_rect[1] = RECT_FULL;
+    clu_slot[cluster] = 1;
+    slot_work[tail++] = 1;
+    slot_queued[1] = 1;
+    while (head != tail)
+    {
+        int         s = slot_work[head], u = slot_clu[s], k;
+        u32         r = slot_rect[s];
+        rect_slopes rk;
+
+        head = head == PORTAL_SLOTS ? 0 : head + 1;
+        rect_slopes_of(r, &rk);
+
+        slot_queued[s] = 0;
+        for (k = first[u]; k < first[u + 1]; ++k)
+        {
+            int             o = list[2 * k], os = clu_slot[o];
+            u32             pr;
+
+#ifdef FIGHT_BENCH
+            ++rs.n_ptest;
+#endif
+            if (prune && !(portal_pvs[(u32)o >> 3] & bitm[o & 7]))
+                continue;                   /* (it can't see there) */
+            if (os && rect_in(r, slot_rect[os]))
+                continue;                   /* (it's seen at least that much already) */
+#ifdef FIGHT_BENCH
+            ++rs.n_proj;
+#endif
+            if (!(pr = portal_rect(&lv.portals[list[2 * k + 1]], &rk)) || !(pr = rect_and(pr, r)))
+                continue;
+            if (!os)
+            {
+                if (nslots == PORTAL_SLOTS)
+                    return false;
+                os = ++nslots;
+                slot_clu[os] = (u16)o;
+                slot_rect[os] = pr;
+                clu_slot[o] = (u8)os;
+            }
+            else
+            {
+                u32 nr = rect_or(slot_rect[os], pr);
+
+                if (nr == slot_rect[os])
+                    continue;
+                slot_rect[os] = nr;
+            }
+            if (!slot_queued[os])
+            {
+                slot_queued[os] = 1;
+                slot_work[tail] = (u16)os;
+                tail = tail == PORTAL_SLOTS ? 0 : tail + 1;
+            }
+        }
+    }
+    return true;
+}
+
+/* a face of the world's: false if its cluster wasn't reached; else its cluster's rectangle
+   for face_asm (prect 0: the whole screen, or not known) */
+static inline bool  portal_face(face_args *fa, int fi)
+{
+    u32             c = face_clu[fi], r;
+    int             s;
+
+    fa->prect = 0;
+    if (c == 0xFFFF)
+        return true;
+    if (!(s = clu_slot[c]))
+        return false;
+    if ((r = slot_rect[s]) == RECT_FULL)
+        return true;
+    {
+        rect_slopes k;
+
+        rect_slopes_of(r, &k);
+        fa->prx0 = k.l;
+        fa->prx1 = k.r;
+        fa->pry1 = k.t;
+        fa->pry0 = k.b;
+    }
+    fa->prect = 1;
+    return true;
+}
+#endif
+
 static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
 {
     const q_face    *f = &lv.faces[fi];
     int             r;
 #ifdef R_PROFILE
     u32             pxf = frt_read();
+#endif
+
+    x->fa.prect = 0;
+#ifdef PORTALS
+    if (portals_on && !model && !portal_face(&x->fa, fi))
+    {
+        ++x->st.portal_out;
+        return;                             /* (not through the portals) */
+    }
 #endif
 
 #if defined(FACE_CHECK)
@@ -5086,6 +5396,22 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         view_cluster = cluster;
         mark_leaves(cluster);
     }
+    {
+        /* what can be seen through the portals */
+#ifdef FIGHT_BENCH
+        u32 tp = frt_read();
+#endif
+
+#ifdef PORTALS
+        portals_on = r_portals && cluster >= 0 && portals_flow(cluster);
+#endif
+#ifdef FIGHT_BENCH
+        rs.t_flow = frt_to_us((frt_read() - tp) & 0xFFFF);
+#ifdef PORTALS
+        rs.n_reach = portals_on ? nslots : 0;
+#endif
+#endif
+    }
     /* this frame's lights, into view space; the sprites, into the leaves they're in */
     ndl = imin(r_ndlights, MAX_DLIGHTS);
     for (i = 0; i < ndl; ++i)
@@ -5292,6 +5618,7 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.n_dlfaces += s->n_dlfaces;
         rs.n_dlpts += s->n_dlpts;
         rs.n_dlin += s->n_dlin;
+        rs.portal_out += s->portal_out;
         rs.nfast += s->nfast;
         rs.nslow += s->nslow;
         rs.ns_dl += s->ns_dl;

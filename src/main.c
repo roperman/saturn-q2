@@ -101,7 +101,8 @@ static bool         fight_done;
 static g_trace_site fight_sites[16];            /* the traces' call sites, most time first */
 static u32          fight_tr[8];                /* trace.c's counts */
 static u32          fight_seg[6], fight_t[7];   /* the master's frame in parts (us): input, player, game, before, world, after */
-static u32          fight_dl[5];                /* (the world's dynamic lights: the faces' test, the sums, us; faces lit) */
+static u32          fight_dl[5];
+static u32          fight_po[5];                /* (the portals: the flow's us, clusters reached, portals projected, faces culled) */                /* (the world's dynamic lights: the faces' test, the sums, us; faces lit) */
 static u32          fight_pre[8], fight_pref[8], fight_pt;  /* (the master before the walk, us: movers, pmove, camera+gun,
                                                    sky+effects, entities+sprites, their light, the tint; render_world to
                                                    the slave's signal. fight_pref: this frame's, added in while timing) */
@@ -455,6 +456,7 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
     render_sky_init();
     models_hot();
     level_trace_hot();                      /* (after the models: what HWRAM's left) */
+    r_portals_level();                      /* (and the portals' flow: what's left of that) */
     fx_reset();
     for (i = 0; i < MAX_ENTITIES; ++i)
     {
@@ -568,6 +570,7 @@ void                main(void)
     render_sky_init();
     models_hot();
     level_trace_hot();                      /* (after the models: what HWRAM's left) */
+    r_portals_level();                      /* (and the portals' flow: what's left of that) */
     view_level_init();
 #ifdef LEVEL_TEST
     {
@@ -626,12 +629,10 @@ void                main(void)
         q_usercmd   cmd;
         bool        pre_slave;
 #ifdef FIGHT_BENCH
-        /* (the benchmark: the game's step in whole fields, not the frame's time as measured, a
-           few us different each frame and build: then the fight goes the same way each run,
-           for builds whose frames take the same fields) */
-        s32         fu = VDP2_TVSTAT & 1 ? 20000 : 16683;
-        s32         dt = (s32)(((u64)imax(imin(imax(((s32)us_frame + fu / 2) / fu, 1) * fu, 100000), 10000) << 16)
-                           / 1000000);
+        /* (the benchmark: the game's step two fields always, not the frame's time: then the
+           fight goes the same way each run and each build, however long its frames take; its
+           FRAME is still the frames' time) */
+        s32         dt = (s32)(((u64)(VDP2_TVSTAT & 1 ? 40000 : 33367) << 16) / 1000000);
 #else
         s32         dt = (s32)(((u64)imax(imin((s32)us_frame, 100000), 10000) << 16) / 1000000);
 #endif
@@ -802,6 +803,7 @@ void                main(void)
                 memset(fight_seg, 0, sizeof(fight_seg));
                 memset(fight_pre, 0, sizeof(fight_pre));
                 memset(fight_dl, 0, sizeof(fight_dl));
+                memset(fight_po, 0, sizeof(fight_po));
                 fight_gun = 0;
                 {
                     extern u32 view_ph[4];
@@ -1356,6 +1358,8 @@ void                main(void)
             vdp_printf(8, 53, RGB(160, 220, 255), "E%d L%d T%d R%d", fight_pre[4] / n, fight_pre[5] / n,
                        fight_pre[6] / n, fight_pre[7] / n);
             vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US SUMS %d FACES %d", fight_dl[1] / n, fight_dl[2] / n);
+            vdp_printf(8, 62, RGB(160, 220, 255), "PORTALS US %d CL %d PR %d/%d OUT %d", fight_po[0] / n, fight_po[1] / n,
+                       fight_po[2] / n, fight_po[4] / n, fight_po[3] / n);
             vdp_printf(8, 80, RGB(160, 220, 255), "DL POINT-LIGHTS %d IN %d", fight_dl[3] / n, fight_dl[4] / n);
 #ifdef DLF_CHECK
             {
@@ -1665,6 +1669,11 @@ void                main(void)
                 fight_dl[2] += (u32)rs.n_dlfaces;
                 fight_dl[3] += (u32)rs.n_dlpts;
                 fight_dl[4] += (u32)rs.n_dlin;
+                fight_po[0] += rs.t_flow;
+                fight_po[1] += (u32)rs.n_reach;
+                fight_po[2] += (u32)rs.n_proj;
+                fight_po[3] += (u32)rs.portal_out;
+                fight_po[4] += (u32)rs.n_ptest;
                 fight_gmax = imax((s32)fight_gmax, (s32)us_game);
                 ++fight_n;
                 if (fight_us >= 20000000)

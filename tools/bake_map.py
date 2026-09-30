@@ -566,9 +566,26 @@ class Baker:
                                                 b.texinfo[bs["texinfo"]]["flags"] & 0xFFFF if bs["texinfo"] >= 0 else 0)
                                     for bs in b.brushsides))
         lump("leafbrushes", struct.pack(">%dH" % len(b.leafbrushes), *b.leafbrushes))
+
+        # the portals between clusters (a box each), and each cluster's list of them (a first index a
+        # cluster, one more at the end, then the other cluster and the portal's number, each of them)
+        portals = self.cluster_portals() if self.portals else []
+        lump("portals", b"".join(struct.pack(">6h", *lo, *hi) for ka, kc, lo, hi in portals))
+        per = [[] for _ in range(b.numclusters)]
+        for i, (ka, kc, _, _) in enumerate(portals):
+            per[ka].append((kc, i))
+            per[kc].append((ka, i))
+        first, lst = [], []
+        for c in range(b.numclusters):
+            first.append(len(lst) // 2)
+            for o, i in per[c]:
+                lst += [o, i]
+        first.append(len(lst) // 2)
+        lump("cportals", struct.pack(">%dH" % len(first), *first) + struct.pack(">%dH" % len(lst), *lst)
+             if portals else b"")
         order = ["planes", "nodes", "leafs", "marks", "faces", "cells", "lights", "textures", "texdata", "luts",
                  "vis", "models", "start", "brushes", "brushsides", "leafbrushes", "movers", "facevis", "sky", "spawns",
-                 "leaflight", "entities2", "strings", "axes", "quarts", "lodfaces", "lodcells", "lodlights", "starts"]
+                 "leaflight", "entities2", "strings", "axes", "quarts", "lodfaces", "lodcells", "lodlights", "starts", "portals", "cportals"]
         counts = {"planes": len(b.planes), "nodes": len(b.nodes), "leafs": len(b.leafs), "marks": len(b.leaffaces),
                   "faces": len(faces), "cells": ncells, "lights": nlights, "textures": len(self.textures),
                   "texdata": len(tex_blob), "luts": len(self.tile_data), "vis": b.numclusters,
@@ -577,7 +594,7 @@ class Baker:
                   "facevis": len(rows), "sky": 1, "spawns": len(spawns), "leaflight": len(b.leafs),
                   "entities2": len(erecs), "strings": len(estrings), "axes": len(axes),
                   "quarts": len(self.tile_data), "lodfaces": len(lods), "lodcells": nlc, "lodlights": nll,
-                  "starts": len(starts)}
+                  "starts": len(starts), "portals": len(portals), "cportals": len(portals) and len(first)}
         hsize = (12 + 8 * len(order) + 31) & ~31
         final = bytearray(b"Q2SL" + struct.pack(">IHH", 1, T, self.N))
         for n in order:
@@ -713,6 +730,48 @@ class Baker:
         below = avg(band.crop((0, h - 4, 1024, h)))
         zenith = avg(face("up"))
         return struct.pack(">2H16H3H", 1024, h, *cols, above, below, zenith) + pix
+
+    def cluster_portals(self):
+        """The openings between clusters: qbsp's portals made again (tools/portal_estimate.py), a
+        box each (whole units, a unit out all round), merged per pair of clusters; for the
+        renderer's flow (src/render.c portals_flow). Cached in obj/ by the map's hash."""
+        import hashlib
+        b = self.bsp
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        h = hashlib.sha1()
+        for name in ("planes", "nodes", "leafs"):
+            h.update(b.raw[name])
+        h.update(repr((b.models[0]["headnode"], b.models[0]["mins"], b.models[0]["maxs"])).encode())
+        cache = os.path.join(root, "obj", "portals_%s.bin" % h.hexdigest()[:16])
+        if not os.path.exists(cache):
+            import portal_estimate as pe
+            print("  portals: making the BSP's again (a minute or two)...")
+            leaves = pe.make_portals(b)
+            cp, seen = {}, set()
+            for l in leaves:
+                for pt in l.portals:
+                    if id(pt) in seen:
+                        continue
+                    seen.add(id(pt))
+                    a, c = pt.nodes
+                    if a.leaf is None or c.leaf is None or a.leaf < 0 or c.leaf < 0 or (a.contents | c.contents) & 1:
+                        continue
+                    ka, kc = b.leafs[a.leaf]["cluster"], b.leafs[c.leaf]["cluster"]
+                    if ka == kc or ka < 0 or kc < 0:
+                        continue
+                    k = (min(ka, kc), max(ka, kc))
+                    lo = [int(math.floor(min(q[i] for q in pt.w))) - 1 for i in range(3)]
+                    hi = [int(math.ceil(max(q[i] for q in pt.w))) + 1 for i in range(3)]
+                    if k in cp:
+                        o = cp[k]
+                        cp[k] = ([min(o[0][i], lo[i]) for i in range(3)], [max(o[1][i], hi[i]) for i in range(3)])
+                    else:
+                        cp[k] = (lo, hi)
+            with open(cache, "wb") as fo:
+                for (ka, kc), (lo, hi) in sorted(cp.items()):
+                    fo.write(struct.pack("<2H6h", ka, kc, *lo, *hi))
+        data = open(cache, "rb").read()
+        return [(r[0], r[1], r[2:5], r[5:8]) for r in struct.iter_unpack("<2H6h", data)]
 
     def facevis(self, samples=24, res=128):
         """per cluster, a bit per face: can it be seen from anywhere in the cluster
@@ -935,6 +994,7 @@ def main():
     bsp = Bsp(pak.read(args[1]))
     baker = Baker(pak, bsp, int(opts.get("res", 2)), float(opts.get("bright", 1.0)))
     baker.lod_min = int(opts.get("lodmin", LOD_MIN))     # (a bigger level, fewer coarse grids: the cart's 4 MB)
+    baker.portals = int(opts.get("portals", 0))          # (--portals=1: the renderer's test, OPT=-DPORTALS)
     baker.bake(args[2], opts.get("preview"))
 
 

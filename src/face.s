@@ -55,6 +55,11 @@ A_N       = 168
 A_GRID    = 172
 A_GA      = 176
 A_GK      = 180
+A_PRX0    = 184                         ! the face's cluster's rectangle (portal_face): its
+A_PRX1    = 188                         ! sides' slopes, if not the whole screen
+A_PRY0    = 192
+A_PRY1    = 196
+A_PRECT   = 200
 
 F_AXES    = 12                          ! (q_face) u16
 F_FLAGS   = 16                          ! then nu nv eu0 eu1 ev0 ev1 lodhi (u8)
@@ -122,6 +127,39 @@ FF_LOD    = 128
         rotcl   \out
         neg     r3,r3
         cmp/gt  \y,r3                   ! y < -ty: bottom
+        rotcl   \out
+.endm
+
+! which of the sides of the face's cluster's rectangle (A_PRX0 ..) the point \x \y \z is
+! outside, into \out (the C's rect_oc). Uses r0 r2 r3
+.macro  RC x, y, z, out
+        mov.l   @(A_PRX0,gbr),r0
+        dmuls.l r0,\z
+        mov.l   @(A_PRX1,gbr),r0
+        sts     mach,r2
+        sts     macl,r3
+        dmuls.l r0,\z
+        xtrct   r2,r3                   ! fmul(z, prx0)
+        cmp/gt  \x,r3                   ! x < it: left
+        movt    \out
+        sts     mach,r2
+        sts     macl,r3
+        mov.l   @(A_PRY1,gbr),r0
+        dmuls.l r0,\z
+        xtrct   r2,r3                   ! fmul(z, prx1)
+        cmp/gt  r3,\x                   ! x > it: right
+        rotcl   \out
+        sts     mach,r2
+        sts     macl,r3
+        mov.l   @(A_PRY0,gbr),r0
+        dmuls.l r0,\z
+        xtrct   r2,r3                   ! fmul(z, pry1)
+        cmp/gt  r3,\y                   ! y > it: top
+        rotcl   \out
+        sts     mach,r2
+        sts     macl,r3
+        xtrct   r2,r3                   ! fmul(z, pry0)
+        cmp/gt  \y,r3                   ! y < it: bottom
         rotcl   \out
 .endm
 
@@ -332,6 +370,47 @@ _face_asm:
         mov     #1,r0
 
 .Lseen:
+        ! through the portals: the same for the face's cluster's rectangle, if it has one
+        mov.l   @(A_PRECT,gbr),r0
+        tst     r0,r0
+        bf      2f
+        bra     .Lrin                   ! (too far for BT)
+        nop
+2:
+        mov.l   @(A_FO,r14),r4
+        mov.l   @(A_FO+4,r14),r5
+        mov.l   @(A_FO+8,r14),r6
+        RC      r4,r5,r6,r1             ! o
+        tst     r1,r1
+        bf      1f
+        bra     .Lrin                   ! (too far for BT)
+        nop
+1:
+        add     r7,r4
+        add     r8,r5
+        add     r9,r6
+        RC      r4,r5,r6,r13            ! o + u
+        and     r13,r1
+        tst     r1,r1
+        bt      .Lrin
+        add     r10,r4
+        add     r11,r5
+        add     r12,r6
+        RC      r4,r5,r6,r13            ! o + u + v
+        and     r13,r1
+        tst     r1,r1
+        bt      .Lrin
+        sub     r7,r4
+        sub     r8,r5
+        sub     r9,r6
+        RC      r4,r5,r6,r13            ! o + v
+        and     r13,r1
+        tst     r1,r1
+        bt      .Lrin
+        mov.l   @r15+,r13
+        bra     .Lret                   ! not seen through them
+        mov     #1,r0
+.Lrin:
         mov.l   @r15+,r13
         ! the nearest corner's z: o's, plus u's and v's where they come nearer
         mov.l   @(A_FO+8,r14),r4

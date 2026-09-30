@@ -1304,3 +1304,55 @@ more to find. The one big thing left is section 13's portals: in this very
 room they'd leave 32-48% of the cells drawn. After that: the walk (8.8 ms of
 the master's, memory-bound), the traces (the player's are before the slave
 can start), and face_cells' C.
+
+## 29. Portals: built, measured, off
+
+Section 13 measured what portals could cull; this time I built them.
+
+**What's there** (`PORTALS=1 ./build.sh` rebakes the levels with the data,
+`OPT=-DPORTALS` uses it; both off by default):
+- *The baker* makes qbsp's portals again (tools/portal_estimate.py), keeps
+  those between clusters, a box round each pair's (cached in obj/), and each
+  cluster's list of them with the cluster on the other side: 83 KB on demo1.
+- *The flow*, each frame: from the camera's cluster through the portals,
+  breadth first, only into clusters in its PVS, a screen rectangle a cluster
+  (each portal's box's rectangle from its view-space extents, cut down by
+  the rectangle it's seen through; a box off one of that rectangle's sides
+  found with no divides).
+- *The faces*: one whose cluster wasn't reached isn't drawn; the rest are
+  tested in face_asm against their cluster's rectangle (its four grid
+  corners against the rectangle's sides, as they're tested against the
+  screen's; the C's `face_setup` the same: `-DFACE_CHECK` 103,777 faces, 0
+  different). A face in more than one cluster isn't tested; nor a brush
+  model's (their leaves, in their own trees, say cluster 0: that was the
+  first real bug, doors and lifts vanishing).
+- *Checked*: a replay of the flow in Python against a z-buffer render of
+  each benchmark view (demo1 and demo2: nothing seen is culled), and the six
+  views' pixels on the Saturn with two CPUs: the same, but for a few seam
+  pixels. (With one CPU the old build differed: its one list of 1,100
+  commands ran out in view 6 and dropped the far faces, the sky showing
+  where the portal build, with fewer to draw, drew them.)
+
+**The trap.** Its first fight looked like 30 fps on NTSC (33.5 ms a frame,
+the CPU 27.8). It was a bug: the rectangles' top and bottom were 96 pixels
+out, and it culled what was on the screen; the pixel comparison caught it.
+
+**What it's really worth.** Correct, the fight room keeps ~71% of its cells
+(the simulation), and the drawing's time (both CPUs, a fight frame) goes
+45.3 -> 39.0 ms: at most ~2.7 ms off the frame. The flow for it reaches 100
+clusters, projects 637 portals and looks at 978: 21 ms in C. An assembly
+flow with each portal projected once a frame would still be ~5 ms (the boxes
+are in low work RAM: a miss each; then ~26 multiplies and two to four
+divides). Also tried, in the simulation: clusters merged into rooms where
+the opening between them is big (fewer visits, but as many projections: a
+room borders as many portals), and narrowing only near the camera (the
+unnarrowed rectangles go everywhere: more tests). So it's off: on this
+level's 1,447 clusters and 4,163 portals the flow costs more than it saves.
+Something cheaper would have to find the fight room's hidden faces some
+other way (a finer facevis in the big rooms, say).
+
+**Kept from it**: the fight benchmark's game step is now always two fields
+(the rounding of section 28 still let one slow frame, the restart's, send
+the fight another way): a new baseline, a heavier fight (2.8 models on the
+screen, not 2.1): PAL CPU 34.0 ms, NTSC frame 34.8 ms, CPU 33.3. The
+profiler's build keeps the level out of its low work RAM.

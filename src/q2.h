@@ -80,6 +80,9 @@ typedef struct { u8 kind, flags; s16 team_next; u16 targetname, target; s32 move
 typedef struct { u16 kind, angle; u32 spawnflags; s32 origin[3]; } q_spawn;
 /* the player's starts, by name (tools/bake_map.py): a level's exit names the next's */
 typedef struct { char name[16]; s32 origin[3], angle; } q_start;
+/* an opening between two clusters: qbsp's portals between them, a box round them (whole units,
+   a unit out all round: tools/bake_map.py cluster_portals) */
+typedef struct { s16 lo[3], hi[3]; } q_portal;
 #define SPAWN_SOLDIER_LIGHT (1)
 #define SPAWN_SOLDIER   (2)
 #define SPAWN_SOLDIER_SS (3)
@@ -137,6 +140,10 @@ typedef struct
     int             nspawns;
     const q_start   *starts;
     int             nstarts;
+    const q_portal  *portals;               /* (none: nportals 0) */
+    const u16       *cportals;              /* each cluster's first in the list (and one after the last), then the list:
+                                               the other cluster and the portal, each */
+    int             nportals;
     s16             *brushbounds;           /* each brush's box: mins[3] maxs[3], whole units (src/level.c, src/trace.c) */
     const u16       *leaflight;             /* per leaf: r g b brightness (8.8), pad */
     const void      *erecs;                 /* the map's entities (game.h q_erec) */
@@ -314,6 +321,7 @@ const q_mdl         *view_frame(int *f0, int *f1, s32 *lerp);   /* what to draw 
 void                r_view_slot(int slot);  /* (render.c) a slot's new gun: its old textures forgotten */
 void                r_view_luts(int slot);  /* (render.c) the gun to be drawn: its colour tables up */
 void                r_view_level(void);     /* (render.c) a new level (the gun's) */
+void                r_portals_level(void);  /* (render.c) ...its portals' (after the models and traces) */
 extern u32          r_full[3];              /* (render.c) frames each CPU's texture cache ran out; late uploads */
 void                ents_light(void);                       /* their base lighting, before drawing */
 bool                ents_pvs(void);                         /* (ents_light's: the PVS marked is the camera's?) */
@@ -331,6 +339,9 @@ typedef struct
     u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys, t_mwait, t_masm, t_mnorm;
     u32             us_rwpre, t_dltest, t_dlsum;    /* (FIGHT_BENCH: render_world to the slave's signal; the world's dynamic lights) */
     int             n_dlfaces, n_dlpts, n_dlin;    /* (and dl_face's points x lights, those in reach) */
+    int             portal_out, n_reach, n_proj, n_ptest;  /* faces not seen through the portals, clusters reached,
+                                                       portals projected, looked at */
+    u32             t_flow;                         /* (FIGHT_BENCH: the flow's us) */
     u32             t_view;                 /* the gun in your hands (us) */
     u32             us_pre, us_mdsp, us_tree;   /* R_PROFILE: the walk's parts (the master's, us) */
     u32             t_mfar;                     /* R_PROFILE: models beyond 400 units: their time, */

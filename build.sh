@@ -23,9 +23,10 @@ for m in demo1 demo2 demo3; do
     # faces this many cells or more get a coarse grid too: demo3's the biggest,
     # and with them all its data and the models are more than the cart's 4 MB
     lodmin=${LODMIN:-12}
-    [ "$m" = demo3 ] && lodmin=${LODMIN:-24}
+    portals=${PORTALS:-0}                                       # (PORTALS=1, rebaked: OPT=-DPORTALS's data)
+    [ "$m" = demo3 ] && lodmin=${LODMIN:-24} && portals=0      # (none: ~80 KB more than its cart has)
     if [ ! -f "$out" ] || [ -n "$(find tools -newer "$out" -name '*.py')" ]; then
-        python3 tools/bake_map.py data/pak0.pak "maps/$m.bsp" "$out" --res=${RES:-2} --lodmin=$lodmin
+        python3 tools/bake_map.py data/pak0.pak "maps/$m.bsp" "$out" --res=${RES:-2} --lodmin=$lodmin --portals=$portals
     fi
 done
 # the status bar's pictures

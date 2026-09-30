@@ -14,7 +14,11 @@
 #define NLUMPS          (13)
 
 #define LWRAM_BASE      ((u8 *)0x00200000)
+#ifdef SLAVE_PROF
+#define LWRAM_END       ((u8 *)0x002E7000)      /* (the profiler's, above: src/main.c) */
+#else
 #define LWRAM_END       ((u8 *)0x00300000)
+#endif
 #define HWRAM_END       ((u8 *)0x060F8000)      /* the stacks are above (engine/link.ld) */
 
 q_level             lv;
@@ -251,6 +255,9 @@ bool                level_load(const char *name)
     lv.lodlights = (const u16 *)(b + h[54]);
     lv.starts = (const q_start *)(b + h[56]);
     lv.nstarts = (int)h[57];
+    lv.portals = (const q_portal *)(b + h[58]);
+    lv.nportals = (int)h[59];
+    lv.cportals = (const u16 *)(b + h[60]);
     cart_next = CART_BASE + (((u32)size + 2047) & ~2047u);
     hw_next = (u8 *)(((u32)_bss_end + 15) & ~15u);
     lw_next = (u8 *)(((u32)_lwtext_end + 15) & ~15u);   /* (after the code that lives there) */
@@ -268,6 +275,9 @@ bool                level_load(const char *name)
     lv.brushsides = hot_spare(lv.brushsides, h[29] * sizeof(q_brushside), false, LW_RESERVE);
     lv.leafbrushes = hot_spare(lv.leafbrushes, h[31] * 2, false, LW_RESERVE);
     brush_bounds();
+    /* the portals (the renderer's flow reads them every frame): low work RAM if there's room */
+    lv.portals = hot_spare(lv.portals, (u32)lv.nportals * sizeof(q_portal), false, LW_RESERVE);
+    lv.cportals = hot_spare(lv.cportals, ((u32)lv.nclusters + 1 + 4 * (u32)lv.nportals) * 2, false, LW_RESERVE);
     {
         const s32 *s = (const s32 *)(b + h[24]);
 

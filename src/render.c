@@ -2025,9 +2025,9 @@ static __attribute__((noinline)) void cell_c(r_ctx *x, const q_cell *cell, gv *t
 static void         face_dlights(r_ctx *x, const q_face *f, int model)
 {
     int             i;
+    unsigned        m = 0;
 
-    x->dmask = 0;
-    for (i = 0; i < r_ndlights; ++i)
+    for (i = 0; i < ndl; ++i)
     {
         const q_plane   *pl = &lv.planes[f->plane];
         const s32       *lp = r_dlights[i].pos, *o = mover_ofs[model];
@@ -2037,8 +2037,36 @@ static void         face_dlights(r_ctx *x, const q_face *f, int model)
         if (f->flags & FF_BACK)
             dist = -dist;
         if (dist > -FIX(8) && dist < r_dlights[i].radius)
-            x->dmask |= (u8)(1 << i);
+            m |= 1u << i;
     }
+#ifdef FIGHT_BENCH
+    x->st.n_dltest += ndl > 0;
+    x->st.n_dlplane += m != 0;
+#endif
+#ifndef NO_DL_REACH
+    if (m)
+    {
+        /* near its plane, but near the face? The box of its grid's corners (dl_face's), each
+           light out of reach of all of it dropped: most faces the plane test passes (a floor,
+           a light a little above it) are too far along it, and would take the lit way for
+           nothing */
+        const face_args *a = &x->fa;
+        const v3        *fs = (const v3 *)&x->gk[GK_F0];
+        v3              across, down, corner[4], lo, hi;
+
+        grid_step(&across, &x->ga.e0, &x->ga.d, &x->ga.e1, a->fnu, a->fnu);
+        grid_step(&down, &fs[0], &fs[1], &fs[2], a->fnv, a->fnv);
+        corner[0] = a->fo;
+        corner[1].x = a->fo.x + across.x; corner[1].y = a->fo.y + across.y; corner[1].z = a->fo.z + across.z;
+        corner[2].x = a->fo.x + down.x; corner[2].y = a->fo.y + down.y; corner[2].z = a->fo.z + down.z;
+        corner[3].x = corner[1].x + down.x; corner[3].y = corner[1].y + down.y; corner[3].z = corner[1].z + down.z;
+        dl_box(corner, 4, &lo, &hi);
+        for (i = 0; i < ndl; ++i)
+            if (m & 1u << i && dl_boxd2(dl[i].x, dl[i].y, dl[i].z, &lo, &hi) >= dl[i].r2)
+                m &= ~(1u << i);
+    }
+#endif
+    x->dmask = (u8)m;
 }
 
 #if defined(NO_FACE_ASM) || defined(FACE_CHECK)
@@ -5298,6 +5326,8 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.n_dlfaces += s->n_dlfaces;
         rs.n_dlpts += s->n_dlpts;
         rs.n_dlin += s->n_dlin;
+        rs.n_dltest += s->n_dltest;
+        rs.n_dlplane += s->n_dlplane;
         rs.nfast += s->nfast;
         rs.nslow += s->nslow;
         rs.ns_dl += s->ns_dl;

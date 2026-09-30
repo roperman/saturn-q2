@@ -101,7 +101,7 @@ static bool         fight_done;
 static g_trace_site fight_sites[16];            /* the traces' call sites, most time first */
 static u32          fight_tr[8];                /* trace.c's counts */
 static u32          fight_seg[6], fight_t[7];   /* the master's frame in parts (us): input, player, game, before, world, after */
-static u32          fight_dl[5];                /* (the world's dynamic lights: the faces' test, the sums, us; faces lit) */
+static u32          fight_dl[7];                /* (the world's dynamic lights: the faces' test, the sums, us; faces lit) */
 static u32          fight_pre[8], fight_pref[8], fight_pt;  /* (the master before the walk, us: movers, pmove, camera+gun,
                                                    sky+effects, entities+sprites, their light, the tint; render_world to
                                                    the slave's signal. fight_pref: this frame's, added in while timing) */
@@ -541,7 +541,16 @@ void                main(void)
     {
         q_usercmd   cmd;
         bool        pre_slave;
+#ifdef FIGHT_BENCH
+        /* (the benchmark: the game's step in whole fields, not the frame's time as measured, a
+           few us different each frame and build: then the fight goes the same way each run,
+           for builds whose frames take the same fields) */
+        s32         fu = VDP2_TVSTAT & 1 ? 20000 : 16683;
+        s32         dt = (s32)(((u64)imax(imin(imax(((s32)us_frame + fu / 2) / fu, 1) * fu, 100000), 10000) << 16)
+                           / 1000000);
+#else
         s32         dt = (s32)(((u64)imax(imin((s32)us_frame, 100000), 10000) << 16) / 1000000);
+#endif
         int         turn = (int)fmul(dt, 0x6000);   /* 135 degrees a second */
 
         FT(0);
@@ -667,6 +676,7 @@ void                main(void)
 
                 menu_cur = MENU_NONE;           /* (from anywhere: the level afresh, everything in it) */
                 g_skill = -1;
+                rng_seed(0x2545F491);           /* (and the same dice: the same fight each run) */
                 new_game();
                 god = true;
                 pmove_spawn(at);
@@ -1245,7 +1255,8 @@ void                main(void)
                        fight_pre[6] / n, fight_pre[7] / n);
             vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US TEST %d SUMS %d FACES %d", fight_dl[0] / n, fight_dl[1] / n,
                        fight_dl[2] / n);
-            vdp_printf(8, 80, RGB(160, 220, 255), "DL POINT-LIGHTS %d IN %d", fight_dl[3] / n, fight_dl[4] / n);
+            vdp_printf(8, 80, RGB(160, 220, 255), "DL POINT-LIGHTS %d IN %d PLANE %d OF %d", fight_dl[3] / n,
+                       fight_dl[4] / n, fight_dl[6] / n, fight_dl[5] / n);
 #ifdef DLF_CHECK
             {
                 extern u32 dlf_checks, dlf_diffs;
@@ -1553,6 +1564,8 @@ void                main(void)
                 fight_dl[2] += (u32)rs.n_dlfaces;
                 fight_dl[3] += (u32)rs.n_dlpts;
                 fight_dl[4] += (u32)rs.n_dlin;
+                fight_dl[5] += (u32)rs.n_dltest;
+                fight_dl[6] += (u32)rs.n_dlplane;
                 fight_gmax = imax((s32)fight_gmax, (s32)us_game);
                 ++fight_n;
                 if (fight_us >= 20000000)

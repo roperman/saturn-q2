@@ -116,9 +116,9 @@ SOUNDS = [
     ("plat_start", "plats/pt1_strt", 0.6, 100),
     ("plat_end", "plats/pt1_end", 0.6, 100),
     ("button", "switches/butn2", 0.6, 100),
-    ("menu_move", "misc/menu1", 0.3, 100),
-    ("menu_select", "misc/menu2", 0.5, 100),
-    ("menu_back", "misc/menu3", 0.3, 100),
+    ("menu_move", "misc/menu1", 0.6, 100),          # (whole: cut, they ended in a click)
+    ("menu_select", "misc/menu2", 1.1, 100),
+    ("menu_back", "misc/menu3", 0.41, 100),
 ]
 
 
@@ -146,9 +146,10 @@ def to_11k8(v, rate, secs):
     """to RATE, 8-bit signed: pairs averaged (a little low-pass on the way)"""
     if rate == 2 * RATE:
         v = [(v[i] + v[i + 1]) * 0.5 for i in range(0, len(v) - 1, 2)]
+    cut = len(v) > int(secs * RATE)
     v = v[:int(secs * RATE)]
-    # a short fade at the end if it was cut
-    n = min(len(v), 64)
+    # a fade at the end: 40 ms if it was cut (a sound stopped still loud clicks), else 6
+    n = min(len(v), int(0.04 * RATE) if cut else 64)
     for k in range(n):
         v[len(v) - n + k] *= (n - k) / n
     return bytes((max(-127, min(127, int(round(s * 127)))) & 0xFF) for s in v)

@@ -1740,3 +1740,28 @@ reading a texel (its source has that line commented out), so plain and
 textured cost it the same. On a Saturn the texel reads cost something, but
 if Mednafen's proportions are near right the read-back is most of it.
 Worth trying on the hardware; if it doesn't pay there it can go.
+
+## 38. Sound: the pop at the start, the clicks, the jitter
+
+Found from Mednafen's own recording of what it plays (`RECORD=out.wav
+tools/emu.sh start`), each sample's level read back:
+- **The pop** as the sound driver starts (the end of the boot's loading,
+  and each level's): the output stepped to +11,762 and down again in
+  steps every 32 and 43 ms over a quarter of a second. Those are the
+  reverb's two delay lines. The SCSP's DSP runs on its own, so as the
+  driver wrote its program a step at a time it ran half set up, filled its
+  delay lines with what was there, and played them back. The game never
+  turns the reverb on. Now the driver stops the DSP first thing and mutes
+  its return; the reverb starts only if asked for, its ring cleared first
+  and its program written last. No pop in the recording now.
+- **The menu's clicks**: its move and select sounds were cut short (0.3 s
+  of 0.6, 0.5 of 1.1) while still at a fifth of their peak, faded over 6
+  ms, so each ended in a click. They're whole now (10 KB more in each bank:
+  57-94 KB still free), and any sound still cut fades over 40 ms.
+- **The jitter**: the machinegun's shots, 100 ms apart in Quake, came 65
+  and 135 ms apart in turn. The game's 10 Hz tick runs at a frame's start,
+  so at 25 fps (PAL: 40 ms frames) its ticks are 80 and 120 ms apart; and
+  the 68000 takes the SH-2's requests at 60 Hz, which makes those 67 and
+  133. At 30 fps three frames are 100 ms, so NTSC is steadier. Not yet
+  fixed: each sound started at its tick's time plus a frame would make
+  them even, for ~20 ms more delay on average on PAL.

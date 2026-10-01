@@ -81,6 +81,8 @@ static u16              keyoff_mask, keyon_mask;
 static int              sfx_next;
 static int              music_vol = 15;
 static int              reverb;             /* 0-7: how much of everything goes to the reverb */
+static int              dsp_on;             /* (its program running: only once some's asked for) */
+static void             dsp_init(void);
 static u32              ticks;
 
 static u16              be16(const u8 *p) { return (u16)((p[0] << 8) | p[1]); }
@@ -108,6 +110,8 @@ static void             pause(void)
    (EFSDL/EFPAN): one a little left, one a little right */
 static u16              effect_return(int s)
 {
+    if (!dsp_on)
+        return 0;                           /* (nothing back from it till it's running) */
     return s == 0 ? (u16)((7 << 5) | 0x18) : s == 1 ? (u16)((7 << 5) | 0x08) : 0;
 }
 
@@ -356,7 +360,7 @@ static void             take_commands(void)
             case SND_CMD_PLAY: play_song(arg, 0); break;
             case SND_CMD_CUT: play_song(arg, 1); break;
             case SND_CMD_STOP: play_song(-1, 0); break;
-            case SND_CMD_REVERB: reverb = arg > 7 ? 7 : arg; break;
+            case SND_CMD_REVERB: reverb = arg > 7 ? 7 : arg; if (reverb && !dsp_on) dsp_init(); break;
             case SND_CMD_SFX: play_sfx(arg); break;
             case SND_CMD_SFXVP: vp_vol = arg >> 5; vp_pan = (int)(arg & 31) - 15; break;
             case SND_CMD_VOLUME: music_vol = arg > 15 ? 15 : arg; break;
@@ -443,16 +447,29 @@ static const u16        reverb_prog[][4] =
 #define DSP_MPRO(n, w)  SCSP(0x800 + (n) * 8 + (w) * 2)
 #define DSP_RING        0x402                   /* RBL (length) << 7 | RBP (where, in 8 KB units) */
 
-static void             dsp_init(void)
+/* stopped: its program all NOPs (it runs on its own, whatever the 68000's doing: a step at a time
+   written while it runs is how a half-set-up program filled its delay lines with what was there,
+   and played it back as a pop as the driver started) */
+static void             dsp_stop(void)
 {
     unsigned            i, w;
 
     for (i = 0; i < 128; ++i)
         for (w = 0; w < 4; ++w)
             DSP_MPRO(i, w) = 0;
-    for (i = 0; i < sizeof(reverb_prog) / sizeof(reverb_prog[0]); ++i)
-        for (w = 0; w < 4; ++w)
-            DSP_MPRO(i, w) = reverb_prog[i][w];
+}
+
+/* the reverb started (the first time some's asked for): its ring placed and cleared, its
+   coefficients and delays set, then its program; then slots 0 and 1 bring it back out */
+static void             dsp_init(void)
+{
+    unsigned            i, w;
+    volatile u16        *ring = (volatile u16 *)SND_DSP_RING;
+
+    dsp_stop();
+    SCSP(DSP_RING) = (u16)((0 << 7) | (SND_DSP_RING >> 13));   /* 8K words (16 KB) at SND_DSP_RING */
+    for (i = 0; i < 8192; ++i)
+        ring[i] = 0;
     /* coefficients are 13-bit fractions (4096 = 1.0), stored << 3 */
     DSP_COEF(0) = (u16)(2048 << 3);             /* input gain 0.5 */
     DSP_COEF(1) = (u16)(2460 << 3);             /* feedback 0.6: a longer tail */
@@ -463,7 +480,12 @@ static void             dsp_init(void)
     DSP_MADRS(1) = 1433;                        /* ...read 32 ms later */
     DSP_MADRS(2) = 4096;                        /* B, in the other half */
     DSP_MADRS(3) = 4096 + 1901;                 /* 43 ms */
-    SCSP(DSP_RING) = (u16)((0 << 7) | (SND_DSP_RING >> 13));   /* 8K words (16 KB) at SND_DSP_RING */
+    for (i = 0; i < sizeof(reverb_prog) / sizeof(reverb_prog[0]); ++i)
+        for (w = 0; w < 4; ++w)
+            DSP_MPRO(i, w) = reverb_prog[i][w];
+    dsp_on = 1;
+    SLOT(0, 0x16) = (u16)((SLOT(0, 0x16) & ~0xFF) | effect_return(0));
+    SLOT(1, 0x16) = (u16)((SLOT(1, 0x16) & ~0xFF) | effect_return(1));
 }
 
 /* timer A counts up at 44100 / 8 Hz and flags an overflow past 0xFF:
@@ -474,11 +496,12 @@ void                    main(void)
 {
     int                 i;
 
+    dsp_stop();                             /* (first: whatever was left running) */
     for (i = 0; i < 32; ++i)
     {
         SLOT(i, 0x00) = 0;
         SLOT(i, 0x0C) = 0xFF;
-        SLOT(i, 0x16) = effect_return(i);   /* slots 0 and 1 carry the reverb back out */
+        SLOT(i, 0x16) = 0;                  /* (the reverb, if it's started, comes back through 0 and 1) */
     }
     key_exec();
     SCSP(MVOL) = 0x000F;                    /* 512 KB sound RAM, full volume */
@@ -501,7 +524,6 @@ void                    main(void)
     deck[0].song = deck[1].song = -1;
     deck[0].slot0 = 0;
     deck[1].slot0 = 8;
-    dsp_init();
     SCSP(TIMA) = TIMER_RELOAD;
     SCSP(SCIRE) = TIMER_A;
     MBOX[MB_MAGIC] = SND_ALIVE;

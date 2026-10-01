@@ -1640,3 +1640,13 @@ the CPUs in every frame.
 On by default (the walls a frame behind decided on). A level whose cart has
 no room for it keeps the walls on the CPUs, going by this frame's lights.
 The default build's fight: 33.6 / 31.8 ms, 3 pictures up 3 fields.
+
+**Noting faces every frame, lights or not** (`-DDW_ALWAYS`, a test). The
+DSP then had all 20 of the fight's lit faces (the 3 a light's first frame
+missed are covered), and the walls' dynamic lights cost the CPUs 0.20 ms,
+not 0.53. But the fight's frame didn't move (33.6 / 31.8 ms, 3 pictures up
+3 fields, both ways). The static benchmark (six views, no dynamic lights)
+paid for it: CPU 154.1 -> 156.1 ms over the six, ~0.35 ms a view on each
+CPU (~50 cycles a whole face drawn: the tests, a store to the cart). So
+faces are noted only while there are lights. Noting them more cheaply would
+help the default too: it pays the same in every frame with lights.

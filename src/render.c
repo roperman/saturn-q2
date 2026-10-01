@@ -1762,7 +1762,11 @@ static bool         dw_frame(void)
         dw_ran = false;
     }
     ++dw_count;
+#ifdef DW_ALWAYS
+    dw_on = r_dl_verts;                     /* (a test: every frame's faces noted, lights or not) */
+#else
     dw_on = r_dl_verts && nl;
+#endif
     if (!nl || nl > DW_LIGHTS)
         return false;
     n1 = ((const r_ctx *)UNCACHED(&ctx[1]))->wl_nrec;      /* (the slave's still adding, maybe: those so far) */

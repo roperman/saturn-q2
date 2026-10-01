@@ -147,10 +147,11 @@ def dw_model(lv, fi, lt, mask):
     return out
 
 
-def run_chain(lv, level_bytes, faces, ls, walls_bin, trace=None, seed=1):
+def run_chain(lv, level_bytes, faces, ls, walls_bin, trace=None, seed=1, odd=False):
     """walls0 -> walls1 -> walls2 -> the models' program's end, as the Saturn chains them: the host's
     numbers as src/render.c's dw_level and dw_params set them. -> (dsp, instructions, walls1.dsp's words
-    (index << 16 | where its lit lights are), the lit lights' words, walls2's lights, walls0's)"""
+    (index << 16 | where its lit lights are), the lit lights' words, walls2's lights, walls0's). The
+    list: the faces' indices, two to a word (odd: starting in the second half of the first)"""
     mem = Mem()
     mem.add(CART, level_bytes)
     mem.add(PROGS, open(walls_bin, "rb").read())
@@ -163,8 +164,9 @@ def run_chain(lv, level_bytes, faces, ls, walls_bin, trace=None, seed=1):
         at[name] = addr
         mem.add(addr, bytes(4 * words))
         addr += 4 * words + 64
-    for i, fi in enumerate(faces):
-        mem.w32(at["list"] + 4 * i, ((CART + lv.faces_off + 32 * fi) & 0x07FFFFFF) >> 2)
+    hw = [0x7777] * odd + list(faces) + [0x7777]
+    for i in range(0, len(hw) - 1, 2):
+        mem.w32(at["list"] + 2 * i, hw[i] << 16 | hw[i + 1])
     for i, w in enumerate(lt):
         mem.w32(at["lt"] + 4 * i, w)
     for i, w in enumerate(lt0):
@@ -177,7 +179,7 @@ def run_chain(lv, level_bytes, faces, ls, walls_bin, trace=None, seed=1):
     params = [len(faces), 0, sh(at["blocks"]), sh(at["out"]), sh(at["lt"]), 32 if nl == 3 else 8 * nl, nl - 1,
               sh(CART + lv.axes_off), sh(CART + lv.lights_off), lv.N, 65536 // lv.N, sh(PROGS + 3072),
               sh(PROGS + 1024), 0, sh(CART + lv.planes_off), sh(PROGS), 0x7FFF, sh(PROGS + 2048), sh(at["list"]),
-              len(faces), sh(CART + lv.faces_off), 0, sh(at["acc"]), sh(at["lt0"])]
+              len(faces), sh(CART + lv.faces_off), int(odd), sh(at["acc"]), sh(at["lt0"])]
     d = DSP(mem)
     d.trace = trace
     rnd = random.Random(seed)
@@ -186,6 +188,9 @@ def run_chain(lv, level_bytes, faces, ls, walls_bin, trace=None, seed=1):
             d.ram[b][i] = rnd.getrandbits(32)       # (what the models' job leaves)
     for i, w in enumerate(params):
         d.ram[0][40 + i] = w & 0xFFFFFFFF
+    if odd:
+        d.ram[0][25] = mem.r32(at["list"])          # (the host's dsp_walls_word: the first word,
+        d.ram[0][58] += 1                           # ...and the list from the next)
     d.prog = load_bin(walls_bin)[768:1024]          # (WALLS.BIN: walls1, walls2, the models', walls0)
     d.start(0)
     n = d.run()
@@ -216,8 +221,8 @@ def test_lights(lv):
     return [([lv.start[i] + FIX(at[k][i]) for i in range(3)], FIX(160 + 60 * k)) + col[k] for k in range(3)]
 
 
-def check(lv, lvb, faces, ls, walls_bin):
-    d, n, acc, outw, lt, lt0 = run_chain(lv, lvb, faces, ls, walls_bin)
+def check(lv, lvb, faces, ls, walls_bin, odd=False):
+    d, n, acc, outw, lt, lt0 = run_chain(lv, lvb, faces, ls, walls_bin, odd=odd)
     want = [fi for fi in faces if dw_filter(lv, fi, lt0, len(ls))][:MAXF]
     listed = [w >> 16 for w in acc]
     nbadf = nbadp = npts = off_want = 0
@@ -248,4 +253,6 @@ if __name__ == "__main__":
         path = os.path.join(ROOT, "cd", m.upper() + ".MAP")
         lv = Level(path)
         faces = near_faces(lv, dist=a.dist)
-        print(m, len(faces), "faces", check(lv, open(path, "rb").read(), faces, test_lights(lv), a.walls))
+        for odd in (False, True):
+            print(m, len(faces), "faces", "(odd start)" if odd else "",
+                  check(lv, open(path, "rb").read(), faces, test_lights(lv), a.walls, odd))

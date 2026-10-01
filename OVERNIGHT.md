@@ -1647,6 +1647,21 @@ missed are covered), and the walls' dynamic lights cost the CPUs 0.20 ms,
 not 0.53. But the fight's frame didn't move (33.6 / 31.8 ms, 3 pictures up
 3 fields, both ways). The static benchmark (six views, no dynamic lights)
 paid for it: CPU 154.1 -> 156.1 ms over the six, ~0.35 ms a view on each
-CPU (~50 cycles a whole face drawn: the tests, a store to the cart). So
-faces are noted only while there are lights. Noting them more cheaply would
-help the default too: it pays the same in every frame with lights.
+CPU.
+
+**Cheaper noting didn't make it cheaper.** The noting moved into a small
+function of its own (face_cells' registers left alone), the coarse-grid
+test only for faces that have one, and a 16-bit index stored, not a 32-bit
+address. walls0 takes them two to a word and multiplies by 8; when the
+list's first is a word's second half, the host gives walls0 that word. The
+cart's lists are halved. Exact as before, odd starts too
+(`tools/walls_sim.py` runs both). But the static benchmark paid the same
+(154.3 -> 156.4 ms), and with no store at all it was 156.1. The cost is the
+call and its tests on each of a busy view's few hundred whole faces, ~30
+cycles each, not the cart.
+
+**So noted while there are lights, and for 60 frames (2 s) after.** A
+fight's next light's first frame then has the DSP's lit lights: all 20 of
+the fight's lit faces are the DSP's, the walls' dynamic lights 0.22 ms of
+the CPUs, the frame 33.5 / 31.8 ms with 2 pictures up 3 fields. A quiet view
+pays nothing (the static benchmark 154.2 ms, as without).

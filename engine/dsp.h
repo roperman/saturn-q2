@@ -41,14 +41,16 @@ typedef struct
     u32             planes;                 /* the cart's copy of the level's planes */
     u32             prog1, c7fff;           /* walls1.dsp; 0x7FFF */
     u32             prog0;                  /* the models' (xformm.dsp), back after them */
-    u32             list, list_n;           /* the whole faces drawn: their records' addresses; how many */
+    u32             list, list_n;           /* the whole faces drawn: their indices, two to a word; how many */
     u32             faces_cart;             /* the cart's copy of the level's faces */
-    u32             unused;
+    u32             half;                   /* 1: the list's first's the second half of a word: (that word in
+                                               walls0.dsp's RAM0[25], dsp_walls_word; the list from the next) */
     u32             acc;                    /* the faces walls0.dsp picks (after a word for how many) */
     u32             lights0;                /* walls0.dsp's lights, 10 words each, then its constants */
 } dsp_walls_p;
 void                dsp_walls_params(const dsp_walls_p *p);
 void                dsp_walls_start(void);  /* (the walls alone: no models) */
+void                dsp_walls_word(u32 w);  /* (dsp_walls_p's half) */
 void                dsp_init_faces(void);               /* (a test) faces' grids into view space (xformf.dsp) */
 void                dsp_faces(const u32 *jobs, int n, volatile u32 *count, const s32 *axes, const s32 *rows9,
                               const s32 *cam3);

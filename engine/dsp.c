@@ -95,6 +95,13 @@ void                dsp_walls_params(const dsp_walls_p *p)
     walls_set = true;
 }
 
+/* (the DSP stopped) the list's first word, when its first face is the word's second half */
+void                dsp_walls_word(u32 w)
+{
+    DSP_PDA = 25;
+    DSP_PDD = w;
+}
+
 void                dsp_walls_start(void)
 {
     walls_set = false;

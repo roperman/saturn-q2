@@ -3,8 +3,10 @@
 ;
 ; The models' program (xformm.dsp) loads this one over itself when it's done;
 ; it starts at 255 (a NOP), then 0. The host gives it a list (the whole faces
-; the CPUs drew last frame: their records' addresses on the cart, >> 2) and
-; this frame's lights, 10 words each (16.16, the world), then 8 units, 5, 6:
+; the CPUs drew last frame: their indices, two to a word; if the first is the
+; second half of its word, W_HALF is 1 and that word's in I_W already) and
+; this frame's lights, 10 words each
+; (16.16, the world), then 8 units, 5, 6:
 ;
 ;   x y z, radius, x y z + reach, reach - x y z     (reach: radius + 2 units)
 ;
@@ -37,14 +39,17 @@ I_NV    = 15
 I_MP    = 19                            ; the lights near its plane
 I_BIT   = 20                            ; this light's bit,
 I_LB    = 21                            ; its place in RAM3
+I_W     = 25                            ; the list's word: two faces' indices
 W_NJ    = 40                            ; (faces listed: walls1.dsp's)
 W_NL1   = 46                            ; lights - 1
 W_AX    = 47                            ; the cart's axes >> 2
 W_PLN   = 54                            ; the cart's planes >> 2
 W_PW1   = 55                            ; walls1.dsp >> 2
 W_P0    = 57                            ; the models' program >> 2
-W_L0    = 58                            ; the list's next >> 2,
-W_N0    = 59                            ; its entries left
+W_L0    = 58                            ; the list's next word >> 2,
+W_N0    = 59                            ; its entries left,
+W_FB    = 60                            ; the cart's faces >> 2
+W_HALF  = 61                            ; 1: the next entry's the second half of the word in I_W
 W_ACC   = 62                            ; the list out >> 2
 W_LT0   = 63                            ; this program's lights >> 2
 LO      = 0                             ; RAM1
@@ -83,14 +88,33 @@ list:   mov W_N0,ct0
         mov m0,a  mov 1,pl
         sub  mov all,mc0                ; an entry fewer
         jmp s,done                      ; (none left)
-        mov W_L0,ct0
+        mov W_HALF,ct0
+        mov m0,a
+        xor  mov all,mc0                ; (the other half next)
+        jmp z,half2                     ; (the second half's turn)
+        mov I_W,ct0
+        mov W_L0,ct0                    ; a new word: its first half
         mov m0,ra0
         mov m0,a
         add  mov all,mc0                ; (the list's next)
-        mov I_FA,ct0
-        dma d0,mc0,1                    ; the face's record's address
+        mov I_W,ct0
+        dma d0,mc0,1
 w1:     jmp t0,w1
         nop
+        mov I_W,ct0
+        mov m0,a  mov 0,pl
+        jmp rec
+        ad2  mov alh,pl
+half2:  mov m0,a
+        mvi $FFFF,pl
+        and  mov all,pl
+rec:    clr a                           ; the face's index
+        add  mov alu,a
+        sl   mov alu,a
+        sl   mov alu,a
+        sl   mov alu,a  mov W_FB,ct0
+        mov m0,p  mov I_FA,ct0
+        add  mov all,mc0                ; its record's address (8 words each)
         mov I_FA,ct0
         mov m0,ra0
         mov F,ct0

@@ -243,7 +243,7 @@ bool                level_load(const char *name)
     lv.leafbrushes = (const u16 *)(b + h[30]);   lv.nleafbrushes = (int)h[31];
     lv.movers = (const q_mover *)(b + h[32]);
     lv.facevis = h[35] ? b + h[34] : NULL;
-    lv.sky = h[37] ? (const u16 *)(b + h[36]) : NULL;
+    /* (h[36], h[37]: the sky, which has its own file now: render_sky_init) */
     lv.spawns = (const q_spawn *)(b + h[38]);   lv.nspawns = (int)h[39];
     lv.leaflight = (const u16 *)(b + h[40]);
     lv.erecs = b + h[42];                       lv.nerecs = (int)h[43];

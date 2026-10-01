@@ -143,7 +143,6 @@ typedef struct
     const u16       *leafbrushes;
     const q_mover   *movers;
     const u8        *facevis;               /* per cluster: the faces really visible (bits, Quake's RLE) */
-    const u16       *sky;                   /* w, h, palette[16], above, below, zenith, then 4bpp pixels */
     const q_spawn   *spawns;
     int             nspawns;
     const q_start   *starts;
@@ -398,7 +397,7 @@ void                render_world(vdp_writer *w0, vdp_writer *w1);
 extern void         (*r_during)(void);                      /* run on the master between the walk and its drawing */
 extern void         (*r_pre_wait)(void);                    /* (render_world, before it puts the entities in their leaves) */
 void                render_slave(void);                     /* the slave's part, when signalled */
-void                render_sky_init(void);                  /* the skybox's horizon on a VDP2 layer */
+void                render_sky_init(const char *map);       /* the level's skybox on a VDP2 layer (its .SKY) */
 void                render_sky(void);                       /* per frame, after cam_update() */
 bool                r_leaf_in_pvs(int leaf);                /* in the camera's PVS */
 bool                r_pvs_marked(int cluster);              /* the PVS marked is this cluster's (and it's one) */

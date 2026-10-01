@@ -39,8 +39,10 @@ static int          strlen_(const char *s)
 }
 
 /* Quake 2's console background behind the loading screens (tools/bake_conback.py, cd/CONBACK.BIN):
-   a 256-colour bitmap on VDP2's NBG1, read once into its VRAM's bank A0 (which nothing else uses),
-   its palette (at its row 240) into colour RAM at 0x300; up with message(), down once a level's in */
+   a 256-colour bitmap on VDP2's NBG1, read once into its VRAM's bank A0 (which nothing else uses);
+   its palette (at its row 240: Quake's) into colour RAM at 0x200, where the status bar has it too
+   (but for 0 and 255, which it swaps: the picture uses neither); up with message(), down once a
+   level's in. (engine/sky.c leaves NBG1's settings as they are here) */
 static bool         back_ok;
 
 static __attribute__((cold)) void         loading_back(bool on)
@@ -56,8 +58,8 @@ static __attribute__((cold)) void         loading_back(bool on)
         vdp2_bgon(0, 0x0002);
         return;
     }
-    for (i = 0; i < 256; ++i)
-        cram[0x300 + i] = r_gamma(pal[i]);
+    for (i = 1; i < 255; ++i)
+        cram[0x200 + i] = r_gamma(pal[i]);
     REG16(VDP2_REG + 0x28) = 0x1200;        /* CHCTLA: NBG1 a 512 x 256 bitmap, 256 colours (NBG0 as the sky has it) */
     REG16(VDP2_REG + 0x2C) = 0;             /* BMPNA */
     REG16(VDP2_REG + 0x3C) = 0;             /* MPOFN: NBG1's at VRAM 0 */
@@ -65,7 +67,7 @@ static __attribute__((cold)) void         loading_back(bool on)
         REG16(VDP2_REG + 0x80 + i * 2) = (u16)(i == 4 || i == 6);  /* its scroll 0, its zoom 1 */
     REG16(VDP2_REG + 0x10) = 0x5555;        /* CYCA0L: bank A0's slots NBG1's */
     REG16(VDP2_REG + 0x12) = 0xFFFF;
-    REG16(VDP2_REG + 0xE4) = 0x0031;        /* CRAOFA: NBG0's colours at 0x100, NBG1's at 0x300 */
+    REG16(VDP2_REG + 0xE4) = 0x0020;        /* CRAOFA: NBG0's colours from 0 (the sky's), NBG1's from 0x200 */
     REG16(VDP2_REG + 0xF8) = 0x0201;        /* PRINA: NBG1 over NBG0 (the sky), under VDP1 */
     vdp2_bgon(0x0002, 0);
 }
@@ -186,6 +188,14 @@ static const s32    (*bench_views)[5];
 /* (OPT=-DTURN_BENCH: at each view a full turn in 90 frames, textures and all:
    the first column is then the texture uploads a frame, not the walk) */
 # define BENCH_FRAMES   (92)
+#elif defined(SKY_VIEWS)
+/* (OPT=-DSKY_VIEWS: the benchmark's views the sky from demo1's yard, level and looking up, 6 s each,
+   for pictures of it) */
+static const s32    bench_sky[][5] = {
+    { -300, 1400, -82, 0x0000, 0 }, { -300, 1400, -82, 0x4000, 0 }, { -300, 1400, -82, 0x8000, -0x0C00 },
+    { -300, 1400, -82, 0xC000, -0x1800 }, { -164, 1396, -82, 0x74A6, 0 }, { -164, 1396, -82, 0x74A6, -0x1400 },
+};
+# define BENCH_FRAMES   (150)
 #else
 # define BENCH_FRAMES   (16)
 #endif
@@ -713,7 +723,7 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
     trace_init();
     movers_init();
     g_init();
-    render_sky_init();
+    render_sky_init(file);
     models_hot();
     level_trace_hot();                      /* (after the models: what HWRAM's left) */
     r_portals_level();                      /* (and the portals' flow: what's left of that) */
@@ -818,6 +828,9 @@ void                main(void)
         back_ok = cd_load("CONBACK.BIN", (void *)VDP2_VRAM, 0x20000) == 0x20000;
     message("QUAKE II", "LOADING DEMO1 ONTO THE RAM CART");
     bench_views = MAP_FILE[4] == '2' ? bench_demo2 : bench_demo1;      /* "DEMO2.MAP" */
+#ifdef SKY_VIEWS
+    bench_views = bench_sky;
+#endif
     if (!level_load(MAP_FILE))
         for (;;)
             message(cart_mb < 4 ? "THIS NEEDS THE 4MB RAM CART" : MAP_FILE " WON'T LOAD", NULL);
@@ -831,7 +844,7 @@ void                main(void)
     trace_init();
     movers_init();
     g_init();
-    render_sky_init();
+    render_sky_init(MAP_FILE);
     models_hot();
     level_trace_hot();                      /* (after the models: what HWRAM's left) */
     r_portals_level();                      /* (and the portals' flow: what's left of that) */

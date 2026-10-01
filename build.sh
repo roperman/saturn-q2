@@ -25,7 +25,7 @@ for m in demo1 demo2 demo3; do
     lodmin=${LODMIN:-12}
     portals=${PORTALS:-0}                                       # (PORTALS=1, rebaked: OPT=-DPORTALS's data)
     [ "$m" = demo3 ] && lodmin=${LODMIN:-24} && portals=0      # (none: ~80 KB more than its cart has)
-    if [ ! -f "$out" ] || [ -n "$(find tools -newer "$out" -name '*.py')" ]; then
+    if [ ! -f "$out" ] || [ ! -f "${out%.MAP}.SKY" ] || [ -n "$(find tools -newer "$out" -name '*.py')" ]; then
         python3 tools/bake_map.py data/pak0.pak "maps/$m.bsp" "$out" --res=${RES:-2} --lodmin=$lodmin --portals=$portals
     fi
 done

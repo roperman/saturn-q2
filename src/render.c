@@ -6617,7 +6617,8 @@ u32                 render_bench_grid(void)
 
 /* ---- the sky: a VDP2 layer behind everything, showing where VDP1 drew nothing ---- */
 
-static int          sky_h;
+static int          sky_h, sky_up;          /* (the sky's rows, those above the horizon) */
+static bool         sky_ok;                 /* (the level has one: its file read into VDP2) */
 static u16          sky_above, sky_below, sky_zenith;
 static volatile int sky_line = -9999;       /* the horizon the back colour table was last built for */
 static s32          sky_ring[4][2];         /* each frame's yaw and horizon, for when it's on screen */
@@ -6627,9 +6628,9 @@ static void         sky_vblank(void)
 {
     volatile u16    *tab = (volatile u16 *)(VDP2_VRAM + 0x7F000);
     const s32       *r = sky_ring[vdp_shown & 3];
-    int             y, sky_horizon = (int)r[1], top = sky_horizon - sky_h / 2;
+    int             y, sky_horizon = (int)r[1], top = sky_horizon - sky_up;
 
-    sky_prepare((int)r[0], sky_horizon + sky_h / 2, FOCAL);
+    sky_prepare((int)r[0], sky_horizon + sky_h - sky_up, FOCAL);
     sky_commit();
     if (sky_line == sky_horizon)
         return;
@@ -6656,32 +6657,32 @@ static void         sky_vblank(void)
     sky_line = sky_horizon;
 }
 
-/* the sky's colours at the brightness chosen: its 16, and the gradient's above and below it */
+/* the sky's colours at the brightness chosen: its palettes, and the gradient's above and below it */
 static __attribute__((cold)) void sky_colours(void)
 {
-    const u16       *s = lv.sky;
-    u16             pal[16];
-    int             i;
-
-    if (!s)
-        return;
-    for (i = 0; i < 16; ++i)
-        pal[i] = r_gamma(s[2 + i]);
-    sky_set_palette(pal);
-    sky_above = r_gamma(s[18]);
-    sky_below = r_gamma(s[19]);
-    sky_zenith = r_gamma(s[20]);
+    if (sky_ok)
+        sky_set_colours(r_gamma, &sky_above, &sky_below, &sky_zenith);
 }
 
-void                render_sky_init(void)
+/* the level's sky (tools/bake_sky.py: map's name, .SKY), from the disc straight into VDP2 */
+__attribute__((cold)) void render_sky_init(const char *map)
 {
-    const u16       *s = lv.sky;
+    char            file[16];
+    int             i;
 
-    if (!s)
+    for (i = 0; map[i] && map[i] != '.' && i < 11; ++i)
+        file[i] = map[i];
+    memcpy(file + i, ".SKY", 5);
+    REG16(VDP2_REG + 0x0E) = 0x0300;        /* RAMCTL: banks A and B split (the sky's in B0 and B1) */
+    sky_ok = sky_load(file);
+    if (!sky_ok)
+    {
+        sky_enable(false);
         return;
-    sky_h = s[1];
-    REG16(VDP2_REG + 0x0E) = 0x0300;        /* RAMCTL: banks A and B split; the sky's in B1 */
-    sky_init((const u8 *)(s + 21), s[0], sky_h, s + 2);
+    }
+    sky_h = sky_rows();
+    sky_up = sky_rows_above();
+    sky_line = -9999;
     sky_colours();
     sky_enable(true);
     vdp_set_vblank_hook(sky_vblank);
@@ -6691,7 +6692,7 @@ void                render_sky(void)
 {
     s32             c = fcos(cam.pitch), *r = sky_ring[vdp_frame_no() & 3];
 
-    if (!lv.sky)
+    if (!sky_ok)
         return;
     /* the horizon's screen line: straight ahead at infinity (put on screen with this frame) */
     r[0] = cam.yaw;

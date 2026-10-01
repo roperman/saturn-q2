@@ -542,7 +542,8 @@ class Baker:
         lump("starts", b"".join(starts))
         movers = self.movers()
         lump("movers", b"".join(movers))
-        lump("sky", self.sky())
+        self.sky(out_path[:-4] + ".SKY")
+        lump("sky", b"")                    # (its own file now: the game reads it straight into VDP2)
         spawns = self.spawns()
         lump("spawns", b"".join(spawns))
         erecs, estrings = self.entities()
@@ -591,7 +592,7 @@ class Baker:
                   "texdata": len(tex_blob), "luts": len(self.tile_data), "vis": b.numclusters,
                   "models": len(b.models), "start": 1, "brushes": len(b.brushes),
                   "brushsides": len(b.brushsides), "leafbrushes": len(b.leafbrushes), "movers": len(movers),
-                  "facevis": len(rows), "sky": 1, "spawns": len(spawns), "leaflight": len(b.leafs),
+                  "facevis": len(rows), "sky": 0, "spawns": len(spawns), "leaflight": len(b.leafs),
                   "entities2": len(erecs), "strings": len(estrings), "axes": len(axes),
                   "quarts": len(self.tile_data), "lodfaces": len(lods), "lodcells": nlc, "lodlights": nll,
                   "starts": len(starts), "portals": len(portals), "cportals": len(portals) and len(first)}
@@ -695,41 +696,12 @@ class Baker:
             out += b"\0\0"
         return bytes(out)
 
-    def sky(self, h=96):
-        """The skybox's horizon as a 1024-wide panorama for a VDP2 scroll plane (engine/sky.c):
-        16 colours, 4bpp. Quake 2's box (ref_gl/gl_warp.c): +x is "rt", -y "ft", -x "lf", +y "bk";
-        the strip runs to decreasing yaw, with yaw 0 (rt's middle) at x = 0.
-        Layout: u16 w, h, palette[16], above, below, zenith (RGB555), then w * h / 2 bytes."""
-        import io
+    def sky(self, out_path):
+        """The skybox (the level's "sky", unit1_ if none) as a VDP2 layer: tools/bake_sky.py, beside
+        the level (cd/DEMO1.SKY)"""
+        import bake_sky
         name = self.bsp.parse_entities()[0].get("sky", "unit1_")
-
-        def face(suf):
-            for ext in ("tga", "pcx"):
-                n = "env/%s%s.%s" % (name, suf, ext)
-                if self.pak.has(n):
-                    return Image.open(io.BytesIO(self.pak.read(n))).convert("RGB").resize((256, 256))
-            return Image.new("RGB", (256, 256), (60, 50, 40))
-        rt, ft, lf, bk = face("rt"), face("ft"), face("lf"), face("bk")
-        strip = Image.new("RGB", (1024, 256))
-        strip.paste(rt.crop((128, 0, 256, 256)), (0, 0))
-        strip.paste(ft, (128, 0))
-        strip.paste(lf, (384, 0))
-        strip.paste(bk, (640, 0))
-        strip.paste(rt.crop((0, 0, 128, 256)), (896, 0))
-        band = strip.crop((0, 128 - h // 2, 1024, 128 + h // 2))
-        q = band.quantize(colors=15, method=Image.Quantize.MEDIANCUT)
-        pal = (q.getpalette() + [0] * 45)[:45]
-        cols = [0] + [rgb555((pal[i * 3], pal[i * 3 + 1], pal[i * 3 + 2])) for i in range(15)]
-        idx = [i + 1 for i in q.getdata()]
-        pix = bytes((idx[i] << 4) | idx[i + 1] for i in range(0, len(idx), 2))
-
-        def avg(img):
-            px = list(img.getdata())
-            return rgb555(tuple(sum(c[k] for c in px) // len(px) for k in range(3)))
-        above = avg(band.crop((0, 0, 1024, 4)))
-        below = avg(band.crop((0, h - 4, 1024, h)))
-        zenith = avg(face("up"))
-        return struct.pack(">2H16H3H", 1024, h, *cols, above, below, zenith) + pix
+        bake_sky.bake(self.pak, name, out_path)
 
     def cluster_portals(self):
         """The openings between clusters: qbsp's portals made again (tools/portal_estimate.py), a

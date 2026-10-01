@@ -172,7 +172,12 @@ At run time (`src/render.c`, and SH-2 assembly in `src/*.s`):
   after the models: it picks the faces the CPUs drew that the lights reach
   and lights them for the next frame (`engine/walls0.dsp` to `walls2.dsp`,
   loading each other in turn), so the walls, like the models, go by last
-  frame's lights. The sky is a panorama on VDP2.
+  frame's lights.
+- **The sky**: the skybox (all six faces) on a cylinder round you, from 63
+  degrees up to 19 down, on a VDP2 layer that scrolls as you turn and look:
+  16-colour cells, each with whichever of 48 palettes suits it, read from
+  the disc straight into VDP2's VRAM (`tools/bake_sky.py`). Above and below
+  it, VDP2 fills each line with a colour, fading to the zenith's.
 
 Level data sits on the 4 MB cart, and what's read every frame is copied
 into work RAM: the BSP into the fast high 1 MB, faces, cells and lights into

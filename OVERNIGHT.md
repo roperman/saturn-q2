@@ -1677,3 +1677,39 @@ B1). Its palette (Quake's) goes into colour RAM at 0x300 through the
 brightness setting each time it goes up. It's up with any loading message
 and down once the level's in (the sky's set up again over it). It costs no
 work RAM or cart, and nothing in the game.
+
+## 36. The sky
+
+It was the middle 96 rows of the skybox's four sides (about 17 degrees
+above and below the horizon), in 15 colours, the faces pasted side by side;
+above and below it, VDP2's line colours. So most of the time you looked up
+you saw flat red, and the sun and clouds were in bands.
+
+Now (`tools/bake_sky.py`) it's all six faces, mapped as Quake 2 maps them
+(ref_gl/gl_warp.c), onto a cylinder round you whose radius is the screen's
+focal length, so looking level a row is a screen line. It runs from 63
+degrees up (320 rows) to 19 down (56), 1024 a turn. Its top and bottom rows
+fade into the line colours above and below it, so there's no edge.
+
+Its colours: 8 x 8 cells of 16 colours, each cell with whichever of 48
+palettes suits it best. The cells are grouped by colour, each group gets a
+palette (median cut), each cell then goes to the palette that suits it
+best, six times over. The sky's average colour error is 1-2 levels in 255
+against the picture. The palettes take colour RAM 0x000-0x1FF and
+0x300-0x3FF; Quake's palette at 0x200 is the status bar's and now the
+loading screens' picture's too.
+
+It costs nothing in a frame (the static benchmark's views: the same to the
+0.1 ms). It's 1024 x 376 at 4 bits a pixel: 188 KB of VDP2's VRAM, in banks
+A1 and B0, which nothing used. Each level has its own file (cd/DEMO1.SKY,
+198 KB) read from the disc straight into VDP2 as the level loads, so it's
+no longer in the level's file on the cart. Each level has ~49 KB more cart
+free: demo1 208 KB, demo2 114 KB, demo3 50 KB, which was 2.
+
+The sky's setup had been rewriting VDP2 settings the loading screens'
+picture uses (its bitmap mode, priority, colour offset and VRAM slots)
+while a level was still loading. Mednafen doesn't mind; a Saturn might.
+Now each leaves the other's alone.
+
+`OPT=-DSKY_VIEWS` makes the benchmark's six views ones of the sky from
+demo1's yard, 6 s each, for pictures of it.

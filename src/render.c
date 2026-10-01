@@ -294,8 +294,10 @@ u32                 r_full[3];              /* frames each CPU's part of the tex
 #ifdef TEX_WSET
 u32                 r_wset[5];              /* most textures a frame, each CPU; their sums; the slots each */
 #endif
-static u16          frame = 1, visframe;
-static u16          *node_vis, *leaf_vis;
+static u16          frame = 1;
+u16                 visframe = 1;           /* (1: leaf_vis's zeroes aren't a PVS before the first's marked) */
+static u16          *node_vis;
+u16                 *leaf_vis;
 static u8           *face_vis;              /* the camera cluster's visible faces, a bit each */
 static s16          *node_parent, *leaf_parent;
 static int          view_cluster = -2;
@@ -883,12 +885,6 @@ static void         mark_leaves(int cluster)
 bool                r_pvs_marked(int cluster)
 {
     return cluster >= 0 && cluster == view_cluster;
-}
-
-/* is a leaf in the camera's PVS? (for the AI: can't see what isn't) */
-bool                r_leaf_in_pvs(int leaf)
-{
-    return leaf >= 0 && leaf_vis[leaf] == visframe;
 }
 
 /* ---- faces ---- */

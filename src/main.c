@@ -490,6 +490,7 @@ void                slave_main(void)
             while (!PRE_CAM)
                 ;
             cache_purge();                      /* (the camera, just moved) */
+            g_render_late(PRE_CAM > 1);
             ents_light_pvs(PRE_CAM > 1);
             PRE_DONE = 1;
 #ifdef FIGHT_BENCH
@@ -562,15 +563,16 @@ static int          warp_e = -1;
 
 static __attribute__((cold)) void         warp_ent(bool items)
 {
-    int             tries, a;
+    int             tries, a, n = g_nfull + g_nitems;  /* (the ones that can be drawn: g_ent_at's first) */
 
-    for (tries = 0; tries < nents; ++tries)
+    for (tries = 0; tries < n; ++tries)
     {
-        const q_entity  *e;
+        const g_ent     *e;
 
-        warp_e = (warp_e + 1) % nents;
-        e = &ents[warp_e];
-        if (!e->live || warp_e >= MAX_EDICTS || (g_edicts[warp_e].kind == EK_ITEM) != items)
+        warp_e = (warp_e + 1) % n;
+        e = g_ent_at(warp_e);
+        if (e->inactive || !e->mdl || (e->kind == EK_ITEM) != items
+            || (e->kind != EK_ITEM && e->kind != EK_MONSTER && e->kind != EK_OBJECT))
             continue;
         for (a = 0; a < 0x10000; a += 0x2000)
         {
@@ -598,17 +600,17 @@ static __attribute__((cold)) void         warp_trigger(void)
 {
     int             n, k;
 
-    for (n = 0; n < MAX_EDICTS; ++n)
+    for (n = 0; n < g_ntrigs; ++n)
     {
         g_ent   *e;
         s32     p[3];
 
-        warp_t = (warp_t + 1) % MAX_EDICTS;
-        e = &g_edicts[warp_t];
+        warp_t = (warp_t + 1) % g_ntrigs;
+        e = G_SHORT_ENT(g_nitems + warp_t);
         if (e->kind != EK_TRIGGER || e->inactive)
             continue;
         for (k = 0; k < 3; ++k)
-            p[k] = (e->mins[k] >> 1) + (e->maxs[k] >> 1);
+            p[k] = (g_trig_areas[warp_t].lo[k] >> 1) + (g_trig_areas[warp_t].hi[k] >> 1);
         pmove_spawn(p);
         pl.origin[2] -= FIX(9);
         g_centerprint(e->message ? e->message : "(trigger)");
@@ -783,6 +785,17 @@ static __attribute__((cold)) void         new_game(void)
         pmove_spawn(at);
         cam.yaw = 0xD000;
         god = true;
+    }
+#endif
+#ifdef EXIT_TEST
+    {
+        /* (OPT=-DEXIT_TEST: on demo1's lift down to its exit, facing its button) */
+        static const s32 at[3] = { FIX(EXIT_TEST == 2 ? -1480 : -1768), FIX(1536), FIX(EXIT_TEST == 2 ? 200 : 128) };
+
+        pmove_spawn(at);
+        pl.noclip = EXIT_TEST == 2;
+        cam.yaw = 0x8000;
+        cam.pitch = EXIT_TEST == 2 ? 0x0700 : 0;
     }
 #endif
 #ifdef WATER_TEST
@@ -981,12 +994,12 @@ void                main(void)
         {
             menu_action a = menu_input((u16)(pad_now & ~pad_prev));
 
-#ifndef GUNNER_TEST
+#if !defined(GUNNER_TEST) && !defined(SLOT_CHECK)
             if (a == MA_NEW_GAME && !same(cur_map, "DEMO1.MAP"))
                 load_level("demo1", NULL, false);       /* a new game's from the first level */
 #else
             if (0)
-                ;                                       /* (the gunner's level stays) */
+                ;                                       /* (the level it starts on stays: MAP=) */
 #endif
             else if (a == MA_NEW_GAME || a == MA_RESTART || a == MA_TITLE)
                 new_game();
@@ -1082,7 +1095,7 @@ void                main(void)
                 new_game();
                 god = true;
                 pmove_spawn(at);
-                for (i = 1; i < MAX_EDICTS; ++i)
+                for (i = 1; i < g_nfull; ++i)
                 {
                     g_ent   *e = &g_edicts[i];
 
@@ -1239,6 +1252,7 @@ void                main(void)
             lights_lag();                   /* (last frame's lights, for the models') */
             fx_update(0);
             g_render_ents();
+            g_render_late(ents_pvs());
             fx_render();
 #ifdef DL_BENCH
             {
@@ -1448,7 +1462,10 @@ void                main(void)
         if (!paused)
             r_clock += (u32)dt;
         if (!pre_slave)
+        {
             g_render_ents();
+            g_render_late(ents_pvs());
+        }
         fx_render();
         PRE(4);
         if (!pre_slave)
@@ -1522,6 +1539,13 @@ void                main(void)
 #endif
         render_world(vdp_get_writer(0), vdp_get_writer(1));
         r_during = NULL;
+#ifdef SLOT_CHECK
+        {
+            extern void g_slot_check(void);
+
+            g_slot_check();
+        }
+#endif
 #ifndef NO_PREMOVE
         PM_DRAWN = 1;
 #endif
@@ -1866,14 +1890,25 @@ void                main(void)
 #endif
 
             }
-            vdp_printf(8, 48, c, "%d %d %d %X%s%s%s W%d", pl.origin[0] >> 16, pl.origin[1] >> 16, pl.origin[2] >> 16,
-                       cam.yaw, pl.on_ground ? " GROUND" : "", pl.noclip ? " NOCLIP" : "", god ? " GOD" : "",
-                       pl.waterlevel);
+            {
+                extern int g_dropped;
+
+                vdp_printf(8, 48, c, "%d %d %d %X%s%s%s W%d D%d", pl.origin[0] >> 16, pl.origin[1] >> 16,
+                           pl.origin[2] >> 16, cam.yaw, pl.on_ground ? " GROUND" : "", pl.noclip ? " NOCLIP" : "",
+                           god ? " GOD" : "", pl.waterlevel, g_dropped);
+            }
 #ifdef LADDER_CHECK
             {
                 extern u32 lc_frames, lc_near, lc_ladder, lc_bad;
 
                 vdp_printf(8, 8, c, "LADDER F%d NEAR%d ON%d BAD%d", lc_frames, lc_near, lc_ladder, lc_bad);
+            }
+#elif defined(SLOT_CHECK)
+            {
+                extern u32 slot_frames, slot_missed, slot_peak, slot_moved, slot_full;
+
+                vdp_printf(8, 8, c, "SLOTS F%d MISSED %d+%d FULL %d MOST %d", slot_frames, slot_missed, slot_moved,
+                           slot_full, slot_peak);
             }
 #elif defined(ENTLIGHT_CHECK)
             {

@@ -24,7 +24,7 @@ typedef struct
 #define UNSET           ((s32)0x80000000)
 
 #define FRAMETIME       FIX(0.1)
-#define MAX_EDICTS      (64)
+#define MAX_FULL        (64)                /* full entities a level, at most (g_init: the rest go) */
 
 typedef struct g_ent_s g_ent;
 
@@ -108,21 +108,49 @@ typedef struct
 extern g_client     client;
 extern const g_weapon weapons[W_COUNT];
 
+/* An entity. The short ones (items, triggers, targets: no AI, no box, never
+   hurt) are only the part before old_origin (G_SHORT bytes: g_init lays them
+   out so); the full ones (the player, monsters, barrels, func_explosives) have
+   it all. What's looked at every tick or frame comes first, a 16-byte line at a
+   time: the thinks' (kind, nextthink, think), then g_render_ents' (and a
+   monster's blend, the first of the full ones') */
 struct g_ent_s
 {
-    int             kind;
-    s32             origin[3], old_origin[3];   /* now, and at the last tick (the renderer blends) */
+    u8              kind;
+    u8              inactive;               /* not there yet (waits to be triggered) */
+    u8              dead, solid;
+    u8              takedamage, pad;
+    s16             leaf;                   /* monsters, barrels: the leaf it's in (g_render_ents' slots) */
+    s32             nextthink;
+    void            (*think)(g_ent *self);
+    s32             origin[3];
+    int             yaw;
+    const q_mdl     *mdl;
+    void            (*touch)(g_ent *self, g_ent *other);
+    void            (*use)(g_ent *self, g_ent *other, g_ent *activator);
+    g_ent           *activator;
+    /* the map's keys, and what the entity does */
+    int             cls, spawnflags;
+    u16             targetname, target, killtarget;
+    const char      *message;
+    s32             delay, wait, random;
+    int             count, dmg, model;      /* model: its brush model, if it has one */
+    int             health;
+    /* the full ones' (a trigger's box is in g_trig_areas, an item's 15 units round it) */
+    s32             old_origin[3];          /* at the last tick (the renderer blends) */
+    int             old_yaw;
+    int             frame, old_frame, skinnum;      /* model frames */
     s32             mins[3], maxs[3];
+    int             max_health, gib_health;
     s32             velocity[3];
-    int             yaw, old_yaw, ideal_yaw, yaw_speed;     /* yaw_speed: a tick */
+    int             ideal_yaw, yaw_speed;   /* yaw_speed: a tick */
     s32             viewheight;
-    int             health, max_health, gib_health;
-    bool            dead, solid, on_ground;
-    int             flags, spawnflags, skinnum;
+    bool            on_ground;
+    int             flags;
     int             waterlevel;
     /* monsterinfo */
     const mmove_t   *move;
-    int             frame, old_frame, nextframe;    /* model frames */
+    int             nextframe;
     int             aiflags, attack_state, lefty;
     s32             pausetime, attack_finished, search_time, idle_time, pain_debounce, show_hostile;
     s32             last_sighting[3], saved_goal[3];
@@ -134,22 +162,9 @@ struct g_ent_s
     void            (*sight)(g_ent *self);
     void            (*pain)(g_ent *self, g_ent *other, int damage);
     void            (*die)(g_ent *self, g_ent *attacker, int damage, const s32 *point);
-    const q_mdl     *mdl;
-    /* the map's keys, and what the entity does */
-    int             cls;
-    u16             targetname, target, killtarget;
-    const char      *message;
-    s32             delay, wait, random;
-    int             count, dmg, model;      /* model: its brush model, if it has one */
-    int             item;                   /* an item: its class */
-    bool            inactive;               /* not there yet (waits to be triggered) */
-    bool            takedamage;
-    s32             nextthink;
-    void            (*think)(g_ent *self);
-    void            (*use)(g_ent *self, g_ent *other, g_ent *activator);
-    void            (*touch)(g_ent *self, g_ent *other);
-    g_ent           *activator;
 };
+#define G_SHORT         (__builtin_offsetof(g_ent, old_origin))
+_Static_assert(G_SHORT % 16 == 0, "g_ent: the short ones a whole number of lines");
 
 /* The monsters think in groups (edict number % MON_GROUPS), each at 10 Hz
    but a share of a tick apart, so a fight's AI is spread over the frames
@@ -172,15 +187,27 @@ extern g_level      level;
 
 typedef struct { u32 at, n, us; } g_trace_site;
 extern g_trace_site g_trace_sites[16];
-extern g_ent        *g_edicts;                  /* MAX_EDICTS of them, in low work RAM (g_init) */
+extern g_ent        *g_edicts;                  /* the full ones, g_nfull (g_init): [0] the player */
+extern u8           *g_shorts;                  /* the short ones, g_nshort of G_SHORT bytes: the items first */
+extern int          g_nfull, g_nshort, g_nitems, g_ntrigs;  /* (g_nitems items, then g_ntrigs triggers) */
+#define G_SHORT_ENT(j)  ((g_ent *)(g_shorts + (u32)(j) * G_SHORT))
+typedef struct { s16 pos[3], leaf; } g_spot;    /* an item's place (units, rounded down) and leaf (-1: gone) */
+typedef struct { s32 lo[3], hi[3]; } g_area;    /* a trigger's box */
+extern g_spot       *g_item_spots;              /* g_nitems: for the tests that needn't read the item */
+extern g_area       *g_trig_areas;              /* g_ntrigs (g_nitems on among the short ones) */
+#define ITEM_HALF       FIX(15)                 /* an item's box: this round its origin */
 extern g_ent        *g_player;
 extern g_ent        goal_marker;            /* a stand-in goal: a point (ai_run's tempgoal) */
 
 /* g_main.c */
 void                g_init(void);           /* after the level and models are loaded */
 void                g_frame(s32 dt);        /* the game: ticks at 10 Hz as the time comes */
-void                g_render_ents(void);    /* the monsters into the renderer's list, blended */
-g_ent               *g_spawn(void);
+void                g_render_ents(void);    /* the monsters, items and barrels in view into the renderer's list, blended */
+void                g_render_late(bool pvs);    /* once the camera's moved: pvs, the PVS marked is the camera's */
+g_ent               *g_spawn(void);         /* a short one (G_UseTargets' stand-ins), or NULL */
+g_ent               *g_ent_at(int n);       /* each entity, n 0 to g_nfull + g_nshort: the full ones, then the short */
+void                g_free(g_ent *e);       /* one gone (an item: g_render_ents and the touches told) */
+g_ent               *g_drawn(int s);        /* (debugging) the entity render entity s is, or NULL */
 q_trace             g_trace(const s32 *start, const s32 *mins, const s32 *maxs, const s32 *end, const g_ent *pass,
                             int mask, g_ent **hit);
 void                g_damage(g_ent *targ, g_ent *attacker, int damage, const s32 *point);
@@ -244,6 +271,7 @@ void                monster_start(g_ent *self);
 /* g_items.c: items, and the player's weapons */
 void                g_client_init(void);
 bool                g_spawn_item(g_ent *e, const q_erec *r);
+bool                g_item_spawns(int cls);     /* (g_init) an item this level has the model for */
 void                g_touch_items(void);
 void                g_next_weapon(void);
 void                g_player_fire(bool held, const s32 *eye, int yaw, int pitch);

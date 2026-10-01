@@ -88,7 +88,7 @@ void                g_models_needed(bool *need)
     }
 }
 
-static const g_item *item_of(int cls)
+static __attribute__((cold)) const g_item *item_of(int cls)
 {
     unsigned        i;
 
@@ -100,7 +100,7 @@ static const g_item *item_of(int cls)
 
 static char         pickup_msg[48];
 
-static void         say_pickup(const char *name)
+static __attribute__((cold)) void         say_pickup(const char *name)
 {
     int             n = 0;
     const char      *p = "You got the ";
@@ -114,7 +114,7 @@ static void         say_pickup(const char *name)
 }
 
 /* give an item: false if it's no use (and so stays put) */
-static bool         pickup(const g_item *it)
+static __attribute__((cold)) bool         pickup(const g_item *it)
 {
     switch (it->kind)
     {
@@ -183,7 +183,7 @@ static bool         pickup(const g_item *it)
     return true;
 }
 
-static void         touch_item(g_ent *self, g_ent *other)
+static __attribute__((cold)) void         touch_item(g_ent *self, g_ent *other)    /* (on a pickup) */
 {
     const g_item    *it = item_of(self->cls);
 
@@ -192,14 +192,22 @@ static void         touch_item(g_ent *self, g_ent *other)
     if (pickup(it))
     {
         G_UseTargets(self, other);
-        self->kind = EK_FREE;
+        g_free(self);
     }
 }
 
-bool                g_spawn_item(g_ent *e, const q_erec *r)
+/* (g_init) one of the items this level has the model for? */
+__attribute__((cold)) bool g_item_spawns(int cls)
+{
+    const g_item    *it = item_of(cls);
+
+    return it && models[it->model].loaded;
+}
+
+__attribute__((cold)) bool g_spawn_item(g_ent *e, const q_erec *r)
 {
     const g_item    *it = item_of(r->cls);
-    s32             end[3];
+    s32             end[3], mins[3], maxs[3];
     q_trace         t;
     int             k;
 
@@ -209,8 +217,8 @@ bool                g_spawn_item(g_ent *e, const q_erec *r)
     e->mdl = &models[it->model];
     for (k = 0; k < 3; ++k)
     {
-        e->mins[k] = -FIX(15);
-        e->maxs[k] = FIX(15);
+        mins[k] = -ITEM_HALF;
+        maxs[k] = ITEM_HALF;
     }
     e->touch = touch_item;
     e->yaw = (int)(rng() & 0xFFFF);
@@ -218,29 +226,40 @@ bool                g_spawn_item(g_ent *e, const q_erec *r)
     end[0] = e->origin[0];
     end[1] = e->origin[1];
     end[2] = e->origin[2] - FIX(128);
-    t = trace_world(e->origin, e->mins, e->maxs, end, MASK_SOLID_ONLY);
+    t = trace_world(e->origin, mins, maxs, end, MASK_SOLID_ONLY);
     if (!t.startsolid)
         for (k = 0; k < 3; ++k)
             e->origin[k] = t.endpos[k];
     return true;
 }
 
-/* walking over items (every tick) */
+/* walking over items (every tick): their places first (g_item_spots), only an item near is read */
 void                g_touch_items(void)
 {
     int             i, k;
+    s32             plo[3], phi[3];
 
     if (g_player->dead || pl.noclip)
         return;
-    for (i = 1; i < MAX_EDICTS; ++i)
+    for (k = 0; k < 3; ++k)
     {
-        g_ent *e = &g_edicts[i];
+        plo[k] = ((g_player->origin[k] + g_player->mins[k]) >> 16) - 16;   /* (an item's box: 15 round it) */
+        phi[k] = ((g_player->origin[k] + g_player->maxs[k]) >> 16) + 17;
+    }
+    for (i = 0; i < g_nitems; ++i)
+    {
+        const g_spot *sp = &g_item_spots[i];
+        g_ent   *e;
 
+        if (sp->leaf < 0 || sp->pos[0] < plo[0] || sp->pos[0] > phi[0] || sp->pos[1] < plo[1] || sp->pos[1] > phi[1]
+            || sp->pos[2] < plo[2] || sp->pos[2] > phi[2])
+            continue;
+        e = G_SHORT_ENT(i);
         if (e->kind != EK_ITEM)
             continue;
         for (k = 0; k < 3; ++k)
-            if (g_player->origin[k] + g_player->maxs[k] < e->origin[k] + e->mins[k]
-                || g_player->origin[k] + g_player->mins[k] > e->origin[k] + e->maxs[k])
+            if (g_player->origin[k] + g_player->maxs[k] < e->origin[k] - ITEM_HALF
+                || g_player->origin[k] + g_player->mins[k] > e->origin[k] + ITEM_HALF)
                 break;
         if (k == 3)
             touch_item(e, g_player);
@@ -249,7 +268,7 @@ void                g_touch_items(void)
 
 /* ---- the player's weapons ---- */
 
-void                g_client_init(void)
+__attribute__((cold)) void g_client_init(void)
 {
     memset(&client, 0, sizeof(client));
     client.have[W_BLASTER] = true;

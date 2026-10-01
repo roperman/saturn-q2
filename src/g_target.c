@@ -32,9 +32,9 @@ void                G_UseTargetName(int name, g_ent *other, g_ent *activator)
 
     if (!name)
         return;
-    for (i = 0; i < MAX_EDICTS; ++i)
+    for (i = 0; i < g_nfull + g_nshort; ++i)
     {
-        g_ent *t = &g_edicts[i];
+        g_ent *t = g_ent_at(i);
 
         if (t->kind != EK_FREE && t->targetname == name && t->use && t != other)
             t->use(t, other, activator);
@@ -51,19 +51,20 @@ void                G_UseTargets(g_ent *ent, g_ent *activator)
     ++g_uses;
     if (ent->delay)
     {
-        /* do it later, from a stand-in */
+        /* do it later, from a stand-in (none free: now) */
         g_ent *t = g_spawn();
 
-        if (!t)
+        if (t)
+        {
+            t->kind = EK_POINT;
+            t->activator = activator;
+            t->message = ent->message;
+            t->target = ent->target;
+            t->killtarget = ent->killtarget;
+            t->nextthink = level.time + ent->delay;
+            t->think = think_delay;
             return;
-        t->kind = EK_POINT;
-        t->activator = activator;
-        t->message = ent->message;
-        t->target = ent->target;
-        t->killtarget = ent->killtarget;
-        t->nextthink = level.time + ent->delay;
-        t->think = think_delay;
-        return;
+        }
     }
     if (ent->message && activator == g_player)
     {
@@ -71,9 +72,13 @@ void                G_UseTargets(g_ent *ent, g_ent *activator)
         s_play(SND_TALK, NULL, ATTN_NONE);
     }
     if (ent->killtarget)
-        for (i = 1; i < MAX_EDICTS; ++i)
-            if (g_edicts[i].kind != EK_FREE && g_edicts[i].targetname == ent->killtarget)
-                g_edicts[i].kind = EK_FREE;
+        for (i = 1; i < g_nfull + g_nshort; ++i)
+        {
+            g_ent *t = g_ent_at(i);
+
+            if (t->kind != EK_FREE && t->targetname == ent->killtarget)
+                g_free(t);
+        }
     G_UseTargetName(ent->target, ent, activator);
 }
 
@@ -126,27 +131,29 @@ static void         trigger_enable(g_ent *self, g_ent *other, g_ent *activator)
     self->use = use_multi;
 }
 
+/* the player against the triggers' boxes (g_trig_areas: only a trigger touched is read) */
 void                g_touch_triggers(void)
 {
     int             i, k;
+    s32             plo[3], phi[3];
 
     if (g_player->dead || pl.noclip)
         return;
-    for (i = 1; i < MAX_EDICTS; ++i)
+    for (k = 0; k < 3; ++k)
     {
-        g_ent   *t = &g_edicts[i];
-        s32     lo, hi;
+        plo[k] = g_player->origin[k] + g_player->mins[k];
+        phi[k] = g_player->origin[k] + g_player->maxs[k];
+    }
+    for (i = 0; i < g_ntrigs; ++i)
+    {
+        const g_area *a = &g_trig_areas[i];
+        g_ent   *t;
 
-        if (t->kind != EK_TRIGGER || t->inactive || !t->touch)
+        if (a->hi[0] < plo[0] || a->lo[0] > phi[0] || a->hi[1] < plo[1] || a->lo[1] > phi[1]
+            || a->hi[2] < plo[2] || a->lo[2] > phi[2])
             continue;
-        for (k = 0; k < 3; ++k)
-        {
-            lo = t->origin[k] + t->mins[k];
-            hi = t->origin[k] + t->maxs[k];
-            if (g_player->origin[k] + g_player->maxs[k] < lo || g_player->origin[k] + g_player->mins[k] > hi)
-                break;
-        }
-        if (k == 3)
+        t = G_SHORT_ENT(g_nitems + i);
+        if (t->kind == EK_TRIGGER && !t->inactive && t->touch)
             t->touch(t, g_player);
     }
 }
@@ -208,9 +215,9 @@ void                T_RadiusDamage(const s32 *p, g_ent *inflictor, g_ent *attack
     static const s32 zero[3] = { 0, 0, 0 };
     int             i, k;
 
-    for (i = 0; i < MAX_EDICTS; ++i)
+    for (i = 0; i < g_nfull; ++i)
     {
-        g_ent   *e = &g_edicts[i];
+        g_ent   *e = &g_edicts[i];             /* (only full ones take damage) */
         s32     v[3], points, len;
         q_trace t;
 
@@ -343,16 +350,9 @@ bool                g_spawn_point(g_ent *e, const q_erec *r)
     {
         case C_TRIGGER_ONCE:
         case C_TRIGGER_MULTIPLE:
-        {
-            const q_model *m = &lv.models[r->model];
-
-            e->kind = EK_TRIGGER;
+            e->kind = EK_TRIGGER;           /* (its box: its brush model's, in g_trig_areas: g_init) */
             for (k = 0; k < 3; ++k)
-            {
                 e->origin[k] = 0;
-                e->mins[k] = m->mins[k];
-                e->maxs[k] = m->maxs[k];
-            }
             e->wait = r->cls == C_TRIGGER_ONCE ? -1 : r->wait == UNSET ? FIX(0.2) : r->wait;
             e->touch = touch_multi;
             if (r->spawnflags & 4)
@@ -363,7 +363,6 @@ bool                g_spawn_point(g_ent *e, const q_erec *r)
             else
                 e->use = use_multi;
             return true;
-        }
         case C_TRIGGER_RELAY:
             e->kind = EK_POINT;
             e->use = use_relay;

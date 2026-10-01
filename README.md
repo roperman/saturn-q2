@@ -40,11 +40,12 @@ Two numbers from that log (Mednafen, PAL):
 
 | | first measured | now |
 |---|---|---|
-| the fight benchmark: 20 s in a room of monsters, the game running | 82 ms a frame (12 fps) | 39.8 ms (25 fps) |
-| the static benchmark: six busy views, frame times summed | 481 ms | 217 ms |
+| the fight benchmark: 20 s in a room of monsters, the game running | 82 ms a frame (12 fps) | 40.4 ms (25 fps) |
+| the static benchmark: six busy views, frame times summed | 481 ms | 227 ms |
 
-The static benchmark draws more now than it did then (the gun in your
-hands, for one).
+Both draw more now than they did then: the gun in your hands, for one,
+and, since the levels got all their entities (there was room for only 64,
+and over half of each level's never came), more monsters and items.
 
 ## What works
 

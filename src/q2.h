@@ -304,8 +304,9 @@ typedef struct
     int             skin;
     int             frame, oldframe;        /* model frames (anims' first + n) */
     s32             lerp;                   /* 0..1 from oldframe to frame (16.16) */
-    int             anim;                   /* the q_manim playing */
-    s32             anim_time;
+    u16             g_owner;                /* the game's entity drawn here (g_render_ents' number + 1), 0 none */
+    u16             g_idle;                 /* frames it's not been wanted (g_render_ents) */
+    s32             g_yaw0;                 /* an item's yaw when it was filled in (g_render_ents: then it only turns) */
     u8              live;                   /* (bytes, not bools: they're ints here, and a q_entity stays 384) */
     u8              g_moved;                /* its origin's changed since ents_light last looked (its leaf to find) */
     /* its light by normal, as Gouraud colours: the leaf's light and Quake's
@@ -318,7 +319,8 @@ typedef struct
 }                   q_entity;
 _Static_assert(sizeof(q_entity) == 384, "q_entity: g_moved in the padding");
 
-#define MAX_ENTITIES    (96)                /* 0..63: the game's entities; then projectiles */
+#define MAX_ENTITIES    (96)                /* GAME_ENTS of the game's monsters, items, barrels in view; then projectiles */
+#define GAME_ENTS       (64)                /* (g_render_ents' render entities; fx.c's after them) */
 #include "q2models.h"
 #define VIEW_SLOTS      (2)                     /* the gun in your hands, and the next (src/view.c) */
 #define MDL_VIEW0       (MDL_COUNT)             /* ...in models[]: MDL_VIEW0 + slot */
@@ -399,7 +401,11 @@ extern void         (*r_pre_wait)(void);                    /* (render_world, be
 void                render_slave(void);                     /* the slave's part, when signalled */
 void                render_sky_init(const char *map);       /* the level's skybox on a VDP2 layer (its .SKY) */
 void                render_sky(void);                       /* per frame, after cam_update() */
-bool                r_leaf_in_pvs(int leaf);                /* in the camera's PVS */
+extern u16          visframe, *leaf_vis;                    /* (render.c's: the PVS marked, a leaf's visframe if it's in it) */
+static inline bool  r_leaf_in_pvs(int leaf)                 /* in the camera's PVS? (the AI: can't see what isn't) */
+{
+    return leaf >= 0 && leaf_vis[leaf] == visframe;
+}
 bool                r_pvs_marked(int cluster);              /* the PVS marked is this cluster's (and it's one) */
 
 #endif

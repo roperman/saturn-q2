@@ -1772,3 +1772,86 @@ tools/emu.sh start`), each sample's level read back:
   not of a tick (the menu, footsteps) start at once. The machinegun's
   shots now come 100 ms apart, PAL and NTSC, for ~20 ms more delay on
   average on PAL (less on NTSC).
+
+## 39. Every entity the levels have (the table of 64 was full)
+
+Outer Base's exit didn't work: the lift goes down, and nothing happens.
+The game had room for 64 entities (monsters, items, triggers, relays,
+targets), and Outer Base needs about 148 at medium skill; once the table
+was full, the rest of the level's entity records were never spawned. That
+was 220 of its 372 records, the trigger at the bottom of the lift shaft
+among them (and its `target_changelevel`), and half its monsters, items,
+triggers and secrets. Installation and Comm Center lost as many (they need
+~168 and ~171). Doors, lifts and buttons are movers.c's, so the levels
+looked whole. Found with `OPT="-DEXIT_TEST -DSTATS"` (on the lift, facing
+its button; `=2`: in front of the exit's doors, flying) and a count of what
+didn't spawn (`D` on the stats line's position row: 0 now).
+
+**Two sizes of entity.** The player, monsters, barrels and func_explosives
+are full ones (304 bytes, at most `MAX_FULL`, 64: their boxes stay in
+HWRAM's `g_solids`). Items, triggers and the rest (relays, timers, targets,
+`G_UseTargets`' delayed stand-ins) are short: only the first 96 bytes of
+`g_ent`, the fields they use. A trigger's box is in `g_trig_areas` instead,
+an item's is 15 units round it, and what's read every tick or frame comes
+first, a 16-byte line at a time. The short ones are laid out items first,
+then triggers, then the rest, with each item's place and leaf
+(`g_item_spots`) and each trigger's box beside them: the touches each tick
+read only those, and only an item or trigger the player touches. An item
+or barrel's model is checked at spawn (`g_pool`: one the level has no model
+for isn't counted or spawned).
+
+**Room.** For everything the level has at any skill (`g_skill` -1, the title
+and the benchmarks, spawns it all) where there's room, else for this
+skill's; low work RAM first, keeping 5 KB for what comes after (`dw_hash`),
+then the cart only if it has 160 KB to spare. Comm Center's cart decides
+the DSP walls and the gun's slots (`r_wall_level`, `view_level_init`), and
+any less there loses the DSP walls (as a first try did: 18 KB of short ones
+on its cart). Rarely run game code is `cold` now (low work RAM): HWRAM's
+240 bytes better off than before.
+
+| left after loading (bytes) | HWRAM before / now | LWRAM before / now | cart before / now |
+|---|---|---|---|
+| demo1 | 2,608 / 2,848 | 125,360 / 111,280 | 212,992 / same |
+| demo2 | 28,704 / 28,944 | 8,784 / 9,904 | 116,736 / 98,304 |
+| demo3 | 4,336 / 4,576 | 20,448 / 5,552 | 51,200 / same |
+
+Every level keeps what it had where it had it: the DSP walls, the gun's
+slots, the brushes' boxes in HWRAM on Comm Center, the monsters' records.
+
+**What's drawn.** The renderer still has 64 entities for the game
+(`GAME_ENTS`; HWRAM has no room for more: one's 384 bytes, its light by
+normal most of it). Each monster, barrel or item gets one while it's in the
+PVS marked or within 1,024 units of the camera, and keeps it until it's
+been neither for 60 frames, or another in the PVS needs it (one only near
+gives way). Only those in the PVS are filled in each frame; the rest keep
+their light for when they're back. The PVS marked is the last frame's when
+the slave fills them in, so on a frame the camera's gone into another
+cluster `g_render_late` fills in the ones kept too, once the camera's
+moved. Once drawn, an item only turns (its spot goes when it's taken) and a
+barrel stays: only a monster is read each frame. `OPT="-DSTATS -DSLOT_CHECK"`
+counts, after the walk, the models in this frame's PVS and on the screen
+without one: walking each level from its start (`MAP=`; New Game stays on
+it) and then warping to items, 0 on demo1 and demo2, 1 on demo3 (beyond
+1,024 units, on a frame the camera changed cluster), and no request for
+one refused; up to 45, 64 and 64 held. Before the first PVS is marked,
+`visframe` 1 (not 0) keeps leaf_vis's zeroes from looking like one.
+
+**Speed.** `OPT=-DOLD_SET` spawns only what the table of 64 had room for,
+to time the same fights:
+
+| | before | OLD_SET | everything |
+|---|---|---|---|
+| fight, PAL: frame / CPU | 39.8 / 32.4 ms | 39.8 / 32.1 | 40.4 / 38.6 |
+| fight, NTSC: frame / CPU | 33.5 / 31.8 ms | 33.5 / 31.7 | 38.4 / 36.8 |
+| fight, NTSC: pictures up 3 fields | 2 of 596 | 0 of 597 | 152 of 521 |
+| static benchmark: CPU / frame (summed) | 1541 / 2180 | 1537 / 2173 | 1788 / 2268 |
+
+So the tables cost nothing; the levels cost more now they're whole. The
+fight benchmark's room wakes more monsters than it did (the game's tick
+5.5 -> 11.1 ms on NTSC, 8 -> 18 traces a frame; the models' drawing 2.8 ->
+4.9 ms), and the static benchmark's views have 2.5 times the models'
+drawing. Filling the render entities was 0.94 ms a frame on the static
+benchmark's master at first (vs 0.58 before), from filling more of them
+and from reading each one's entity; filling only those in the PVS, and
+items and barrels only once, made it 0.59 with the same entities (0.84
+with all of them).

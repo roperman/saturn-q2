@@ -28,7 +28,7 @@ extern bool         game_during_draw;       /* (main.c) */
 
 /* the options, in order */
 enum { OPT_VOLUME, OPT_BRIGHT, OPT_FIGHTS, OPT_CROSSHAIR, OPT_BOB, OPT_TRANS, OPT_WATER, OPT_STATS, OPT_BACK, OPT_COUNT };
-static const char   *trans_names[3] = { "OFF", "MESH", "BLEND" };
+static const char   *trans_names[4] = { "OFF", "MESH", "BLEND", "BLEND, PLAIN WATER" };
 
 static const char   *skill_names[3] = { "EASY", "MEDIUM", "HARD" };
 
@@ -107,7 +107,7 @@ menu_action         menu_input(u16 pressed)
         else if (sel == OPT_BOB)
             opt_gun_bob = !opt_gun_bob;
         else if (sel == OPT_TRANS)
-            r_trans = (r_trans + d + 3) % 3;
+            r_trans = (r_trans + d + 4) % 4;
         else if (sel == OPT_WATER)
             r_water = !r_water;
         else if (sel == OPT_STATS)

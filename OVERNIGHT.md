@@ -1713,3 +1713,30 @@ Now each leaves the other's alone.
 
 `OPT=-DSKY_VIEWS` makes the benchmark's six views ones of the sky from
 demo1's yard, 6 s each, for pictures of it.
+
+## 37. Translucency: blend, plain water (an option)
+
+Blending (VDP1's half-transparency) reads back every pixel it draws over,
+so where water fills the view it's VDP1 that holds the frame up. A fourth
+setting, TRANSLUCENCY BLEND, PLAIN WATER: translucent water's cells drawn
+as half-transparent Gouraud polygons in its texture's average colour (its
+first cell's colour table, at the brightness chosen), not textured
+sprites, so VDP1 has no texels to read for them. Glass and screens stay
+textured. Their commands are made as before and changed after the face is
+done (`plain_water`, in RAM before the lists' DMA), so nothing changes in
+the cells' assembly, and nothing costs anything with another setting.
+
+Over demo1's pool, NTSC (`OPT="-DWATER_TEST=1 -DSTATS -DTRANS_MODE=n"`):
+
+| | fps | CPU |
+|---|---|---|
+| mesh | 24.1 | 39 ms |
+| blend | 19.8 | 38 |
+| blend, plain water | 19.8 | 39 |
+
+No gain in Mednafen, and Mednafen can't show one. Its VDP1 timing charges
+a pixel 1 cycle and a blended one 5 more for the read-back, but nothing for
+reading a texel (its source has that line commented out), so plain and
+textured cost it the same. On a Saturn the texel reads cost something, but
+if Mednafen's proportions are near right the read-back is most of it.
+Worth trying on the hardware; if it doesn't pay there it can go.

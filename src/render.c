@@ -192,7 +192,8 @@ bool                r_water = false;
 #else
 bool                r_water = true;         /* water moves (waves, and a ripple of light) */
 #endif
-int                 r_trans = TRANS_MODE;   /* translucent surfaces: 0 solid, 1 mesh, 2 half-transparent (VDP1) */
+int                 r_trans = TRANS_MODE;   /* translucent surfaces: 0 solid, 1 mesh, 2 half-transparent (VDP1),
+                                               3 half-transparent, the water untextured (plain_water) */
 #ifndef BRIGHT
 #define BRIGHT          (0)                 /* (OPT=-DBRIGHT=n: start at another) */
 #endif
@@ -3019,6 +3020,40 @@ static __attribute__((noinline)) void water_grid(r_ctx *x, u16 *lit, const u16 *
     }
 }
 
+/* (the options' "blend, plain water") a translucent water face's cells, written from command
+   first on: half-transparent Gouraud polygons, not textured ones, in its texture's colour (its first
+   cell's colour table's, averaged, at the brightness chosen): VDP1 has no texels to read for them,
+   only the screen's pixels it blends with. Their corners and Gouraud tables are as written */
+static __attribute__((noinline)) void plain_water(vdp_writer *w, int first)
+{
+    const u16       *lut;
+    u32             r = 0, g = 0, b = 0, n, i;
+    u16             colour;
+    int             k;
+
+    if (first >= w->count)
+        return;
+    n = ((u32)w->cmds[first].colr * 8 - lut_vram) / 32;    /* (its colour table: the first cell's) */
+    if (n >= (u32)lv.nluts)
+        return;
+    lut = &lv.luts[n * 16];
+    for (i = 1; i < 16; ++i)                /* (0: the transparent pixels') */
+    {
+        r += lut[i] & 31;
+        g += lut[i] >> 5 & 31;
+        b += lut[i] >> 10 & 31;
+    }
+    colour = r_gamma((u16)(0x8000 | (b / 15) << 10 | (g / 15) << 5 | r / 15));
+    for (k = first; k < w->count; ++k)
+    {
+        vdp1_cmd    *c = &w->cmds[k];
+
+        c->ctrl = (u16)((c->ctrl & ~0xF) | VDP1_POLYGON);
+        c->pmod = PMOD_RGB | PMOD_GOURAUD | PMOD_HALF_TRANS;
+        c->colr = colour;
+    }
+}
+
 /* a face's cells, its grid done if whole; if not (a big face), its grid and cells a row at
    a time */
 static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int model, bool whole)
@@ -3261,6 +3296,8 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
         }
     }
     x->st.cells += w->count - count0;       /* once a face, not a store a cell */
+    if (r_trans == 3 && f->flags & FF_WARP && f->flags & (FF_TRANS33 | FF_TRANS66))
+        plain_water(w, count0);
     x->cpmod = x->ca.pmod = (u32)CELL_PMOD << 16;
 #ifdef R_PROFILE
     prof_gouraud(x, gc0);

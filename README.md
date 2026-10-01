@@ -64,7 +64,8 @@ hands, for one).
 - Dynamic lights (muzzle flashes, rockets, explosions) and the skybox.
 - Water that moves (gentle waves and a ripple of light), a tint when you're
   under it, and see-through water and glass (VDP1's mesh, or real
-  half-transparency if you choose it: it costs more).
+  half-transparency if you choose it: it costs more; or that with the water
+  plain, untextured, which may cost less on a Saturn).
 - A title menu with options, including brightness (for a PC screen, say),
   and Quake 2's console background behind the loading screens.
 

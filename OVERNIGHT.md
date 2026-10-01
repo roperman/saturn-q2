@@ -1665,3 +1665,15 @@ fight's next light's first frame then has the DSP's lit lights: all 20 of
 the fight's lit faces are the DSP's, the walls' dynamic lights 0.22 ms of
 the CPUs, the frame 33.5 / 31.8 ms with 2 pictures up 3 fields. A quiet view
 pays nothing (the static benchmark 154.2 ms, as without).
+
+## 35. The loading screens' background
+
+The loading screens showed the last level's sky behind their words. Now
+it's Quake 2's own console background (`pics/conback.pcx`, 320 x 240, the
+middle 224 rows: `tools/bake_conback.py`), as Quake 2 shows while it loads.
+It's a 256-colour bitmap on VDP2's NBG1, read from the disc once at boot
+straight into VDP2's VRAM bank A0, which nothing else uses (the sky is in
+B1). Its palette (Quake's) goes into colour RAM at 0x300 through the
+brightness setting each time it goes up. It's up with any loading message
+and down once the level's in (the sky's set up again over it). It costs no
+work RAM or cart, and nothing in the game.

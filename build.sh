@@ -31,6 +31,8 @@ for m in demo1 demo2 demo3; do
 done
 # the status bar's pictures
 [ -f cd/HUD.BIN ] && [ cd/HUD.BIN -nt tools/bake_hud.py ] || python3 tools/bake_hud.py data/pak0.pak cd/HUD.BIN
+# Quake 2's console background, behind the loading screens
+[ -f cd/CONBACK.BIN ] && [ cd/CONBACK.BIN -nt tools/bake_conback.py ] || python3 tools/bake_conback.py data/pak0.pak cd/CONBACK.BIN
 # the sound effects, a bank a level (and their ids for the C)
 rm -f cd/SOUND.BIN
 [ -f cd/DEMO3.SND ] && [ -f obj/gen/sound_ids.h ] && [ cd/DEMO3.SND -nt tools/bake_sound.py ] \

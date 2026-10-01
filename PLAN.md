@@ -23,7 +23,11 @@ section by section.
 ## Next: speed
 
 The aim: a steady 30 fps on NTSC in a fight, so the fight benchmark's CPU
-time under 33.3 ms. It's 34.6 now (PAL's 25 fps is held already).
+time under 33.3 ms. It's 31.8 now on average, and 2 of its ~600 pictures
+take a frame longer (PAL's 25 fps is held already). The walls' dynamic
+lights are mostly the DSP's now (OVERNIGHT.md section 34): what's left is
+the heaviest frames (the game's tick at its slowest, ~10 ms; the slave's
+drawing, ~29 ms; the half-transparent water and glass).
 
 Where a frame goes (`OPT=-DR_PROFILE`, both CPUs, the static benchmark): the
 faces' setup and grids 17.5 ms, the cells 16, the models 5.5, the BSP walk

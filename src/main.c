@@ -38,10 +38,43 @@ static int          strlen_(const char *s)
     return n;
 }
 
+/* Quake 2's console background behind the loading screens (tools/bake_conback.py, cd/CONBACK.BIN):
+   a 256-colour bitmap on VDP2's NBG1, read once into its VRAM's bank A0 (which nothing else uses),
+   its palette (at its row 240) into colour RAM at 0x300; up with message(), down once a level's in */
+static bool         back_ok;
+
+static __attribute__((cold)) void         loading_back(bool on)
+{
+    volatile u16    *cram = (volatile u16 *)0x25F00000;
+    const volatile u16 *pal = (const volatile u16 *)(VDP2_VRAM + 240 * 512);
+    int             i;
+
+    if (!back_ok)
+        return;
+    if (!on)
+    {
+        vdp2_bgon(0, 0x0002);
+        return;
+    }
+    for (i = 0; i < 256; ++i)
+        cram[0x300 + i] = r_gamma(pal[i]);
+    REG16(VDP2_REG + 0x28) = 0x1200;        /* CHCTLA: NBG1 a 512 x 256 bitmap, 256 colours (NBG0 as the sky has it) */
+    REG16(VDP2_REG + 0x2C) = 0;             /* BMPNA */
+    REG16(VDP2_REG + 0x3C) = 0;             /* MPOFN: NBG1's at VRAM 0 */
+    for (i = 0; i < 8; ++i)
+        REG16(VDP2_REG + 0x80 + i * 2) = (u16)(i == 4 || i == 6);  /* its scroll 0, its zoom 1 */
+    REG16(VDP2_REG + 0x10) = 0x5555;        /* CYCA0L: bank A0's slots NBG1's */
+    REG16(VDP2_REG + 0x12) = 0xFFFF;
+    REG16(VDP2_REG + 0xE4) = 0x0031;        /* CRAOFA: NBG0's colours at 0x100, NBG1's at 0x300 */
+    REG16(VDP2_REG + 0xF8) = 0x0201;        /* PRINA: NBG1 over NBG0 (the sky), under VDP1 */
+    vdp2_bgon(0x0002, 0);
+}
+
 static __attribute__((cold)) void         message(const char *a, const char *b)
 {
     int             i;
 
+    loading_back(true);
     for (i = 0; i < 2; ++i)
     {
         vdp_begin();
@@ -718,6 +751,7 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
         ++lt_nhw;
     }
 #endif
+    loading_back(false);
     return true;
 }
 
@@ -780,6 +814,8 @@ void                main(void)
 #ifndef NO_PIPE
     vdp_set_pipelined(true);                    /* (OPT=-DNO_PIPE: submit waits for the swap) */
 #endif
+    if (cd_init())
+        back_ok = cd_load("CONBACK.BIN", (void *)VDP2_VRAM, 0x20000) == 0x20000;
     message("QUAKE II", "LOADING DEMO1 ONTO THE RAM CART");
     bench_views = MAP_FILE[4] == '2' ? bench_demo2 : bench_demo1;      /* "DEMO2.MAP" */
     if (!level_load(MAP_FILE))
@@ -801,6 +837,7 @@ void                main(void)
     r_portals_level();                      /* (and the portals' flow: what's left of that) */
     r_wall_level();
     view_level_init();
+    loading_back(false);
 #ifdef LEVEL_TEST
     {
         extern u32 models_cold;

@@ -65,7 +65,8 @@ hands, for one).
 - Water that moves (gentle waves and a ripple of light), a tint when you're
   under it, and see-through water and glass (VDP1's mesh, or real
   half-transparency if you choose it: it costs more).
-- A title menu with options, including brightness (for a PC screen, say).
+- A title menu with options, including brightness (for a PC screen, say),
+  and Quake 2's console background behind the loading screens.
 
 Not yet: the other monsters (flyers, the tank, berserkers and parasites,
 so Installation and Comm Center are quieter than Quake's), flickering
@@ -75,8 +76,10 @@ lights, saving, and full-resolution textures. [PLAN.md](PLAN.md) has what's next
 
 In Mednafen (PAL, 50 Hz), most of the benchmark's views run at 25 fps and
 the open ones at 50. The fight benchmark holds 25 fps: its frames are 39.8
-ms, of which the CPUs are busy 34.6. On NTSC the aim is a steady 30 fps,
-which needs that under 33.3 ms. The per-change numbers are in OVERNIGHT.md.
+ms, of which the CPUs are busy 32.5. On NTSC the aim is a steady 30 fps,
+which needs that under 33.3 ms: the fight's CPUs are busy 31.8 ms on
+average, and 2 of its ~600 pictures take a frame longer. The per-change
+numbers are in OVERNIGHT.md.
 
 ## Building
 

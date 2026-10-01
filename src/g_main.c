@@ -621,6 +621,7 @@ void                g_frame(s32 dt)
     while (level.acc >= FRAMETIME && n++ < 3)
     {
         level.acc -= FRAMETIME;
+        s_lag(level.acc);                   /* (its moment: the rest of the frame's time ago) */
         g_tick();
     }
     if (level.acc >= FRAMETIME)
@@ -631,11 +632,13 @@ void                g_frame(s32 dt)
         for (n = 0; level.mon_acc[g] >= FRAMETIME && n < 3; ++n)
         {
             level.mon_acc[g] -= FRAMETIME;
+            s_lag(level.mon_acc[g]);
             g_tick_monsters(g);
         }
         while (level.mon_acc[g] >= FRAMETIME)
             level.mon_acc[g] -= FRAMETIME;  /* (far behind: those ticks go, the group keeps its place) */
     }
+    s_lag(-1);
 }
 
 /* monsters, items and objects into the renderer's entities, blended between the last tick and this one */

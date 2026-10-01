@@ -124,6 +124,18 @@ void                snd_sfx_at(int id, int vol, int pan)
     post(SND_CMD_SFX, id);
 }
 
+/* ...us microseconds from now (to its fast tick: SND_FAST_HZ) */
+void                snd_sfx_later(int id, int vol, int pan, int us)
+{
+    int             ticks = (int)((u32)(us > 0 ? us : 0) * SND_FAST_HZ / 1000000u);
+
+    if (id < 0)
+        return;
+    if (ticks > 0)
+        post(SND_CMD_DELAY, ticks > 0xFFF ? 0xFFF : ticks);
+    snd_sfx_at(id, vol, pan);
+}
+
 /* straight to a song, no crossfade (a battle starting) */
 void                snd_music_cut(int id)
 {

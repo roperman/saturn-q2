@@ -19,6 +19,7 @@
 typedef unsigned char   u8;
 typedef signed char     s8;
 typedef unsigned short  u16;
+typedef signed short    s16;
 typedef unsigned long   u32;
 
 /* the SCSP, as the 68000 sees it */
@@ -320,12 +321,22 @@ static void             deck_tick(t_deck *d)
 }
 
 /* the next effect's volume (0-127, times its own) and pan, if SND_CMD_SFXVP set them */
-static int              vp_vol = -1, vp_pan;
+static int              vp_vol = -1, vp_pan, vp_delay;
+static u16              fticks;             /* fast ticks (SND_FAST_HZ) */
+
+/* effects waiting for their moment (SND_CMD_DELAY: the SH-2's game ticks run at its frames' starts,
+   so each is held to start when its tick should have happened, a frame on: evenly, not as the
+   frames fall) */
+#define PENDING         16
+static struct { u16 due; s16 id, vol, pan; } pend[PENDING];
+static int              npend;
+
+static void             sfx_start(int id, int vol, int pan);
 
 static void             play_sfx(int id)
 {
     const u8            *e;
-    int                 s, vol, pan;
+    int                 vol, pan;
 
     if (id < 0 || id >= n_sfx)
         return;
@@ -338,6 +349,39 @@ static void             play_sfx(int id)
         pan = vp_pan;
         vp_vol = -1;
     }
+    if (vp_delay > 0 && npend < PENDING)
+    {
+        pend[npend].due = (u16)(fticks + vp_delay);
+        pend[npend].id = (s16)id;
+        pend[npend].vol = (s16)vol;
+        pend[npend].pan = (s16)pan;
+        ++npend;
+    }
+    else
+        sfx_start(id, vol, pan);
+    vp_delay = 0;
+}
+
+/* those whose moment's come */
+static void             pending_due(void)
+{
+    int                 i = 0;
+
+    while (i < npend)
+        if ((s16)(fticks - pend[i].due) >= 0)
+        {
+            sfx_start(pend[i].id, pend[i].vol, pend[i].pan);
+            pend[i] = pend[--npend];
+        }
+        else
+            ++i;
+}
+
+static void             sfx_start(int id, int vol, int pan)
+{
+    const u8            *e = sfx_tab + id * 4;
+    int                 s;
+
     s = SFX_FIRST + sfx_next;
     sfx_next = (sfx_next + 1) % SFX_SLOTS;
     slot_off(s);
@@ -363,18 +407,18 @@ static void             take_commands(void)
             case SND_CMD_REVERB: reverb = arg > 7 ? 7 : arg; if (reverb && !dsp_on) dsp_init(); break;
             case SND_CMD_SFX: play_sfx(arg); break;
             case SND_CMD_SFXVP: vp_vol = arg >> 5; vp_pan = (int)(arg & 31) - 15; break;
+            case SND_CMD_DELAY: vp_delay = (int)arg; break;
             case SND_CMD_VOLUME: music_vol = arg > 15 ? 15 : arg; break;
         }
         MBOX[MB_READ] = (u16)((r + 1) % SND_RING);
     }
 }
 
-/* one 60 Hz tick */
+/* one 60 Hz tick (the music's) */
 static void             tick(void)
 {
     int                 i;
 
-    take_commands();
     deck_tick(&deck[0]);
     deck_tick(&deck[1]);
     if (keyoff_mask)
@@ -488,9 +532,12 @@ static void             dsp_init(void)
     SLOT(1, 0x16) = (u16)((SLOT(1, 0x16) & ~0xFF) | effect_return(1));
 }
 
-/* timer A counts up at 44100 / 8 Hz and flags an overflow past 0xFF:
-   92 counts from 164 is 59.9 Hz */
-#define TIMER_RELOAD    ((3 << 8) | (256 - 92))
+/* timer A counts up at 44100 / 8 Hz and flags an overflow past 0xFF: 6 counts from 250 is
+   SND_FAST_HZ (918.75 Hz: commands taken, effects started); every 92 counts' worth, 59.9 Hz, the
+   music's tick */
+#define TIMER_RELOAD    ((3 << 8) | (256 - 6))
+#define FAST_COUNTS     6
+#define TICK_COUNTS     92
 
 void                    main(void)
 {
@@ -527,12 +574,19 @@ void                    main(void)
     SCSP(TIMA) = TIMER_RELOAD;
     SCSP(SCIRE) = TIMER_A;
     MBOX[MB_MAGIC] = SND_ALIVE;
-    for (;;)
+    for (i = 0;;)
     {
         while (!(SCSP(SCIPD) & TIMER_A))
             ;                               /* wait for the timer */
         SCSP(SCIRE) = TIMER_A;
         SCSP(TIMA) = TIMER_RELOAD;
-        tick();
+        ++fticks;
+        take_commands();
+        pending_due();
+        if ((i += FAST_COUNTS) >= TICK_COUNTS)
+        {
+            i -= TICK_COUNTS;
+            tick();
+        }
     }
 }

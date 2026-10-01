@@ -672,6 +672,7 @@ static void         game_step(void)
 #endif
     u32             tg = frt_read();
 
+    s_lag(level.acc);                       /* (the shot's moment: the last tick's, which allowed it) */
     g_player_fire(pad_now & PAD_B && !(pad_now & PAD_START), cam.pos, cam.yaw, cam.pitch);
     g_frame(game_dt);
     us_game = frt_to_us((frt_read() - tg) & 0xFFFF);

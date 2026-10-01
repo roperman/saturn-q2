@@ -10,6 +10,15 @@
 #include "game.h"
 
 static bool         s_ready;
+static s32          lag_us = -1;            /* (s_lag: how long ago the moment the game's at was; -1 now) */
+
+/* The game's tick (10 Hz) runs as a frame starts, so its moments come to the sound as the frames
+   fall (at 25 fps 80 and 120 ms apart, not 100). Its sounds are started at the moment each is
+   of, a frame on (a frame: two fields), so they're as even as Quake's; the rest at once */
+void                s_lag(s32 ago)
+{
+    lag_us = ago < 0 ? -1 : (s32)(((s64)ago * 1000000) >> 16);
+}
 
 /* the level's bank: its map's name, .SND */
 static void         bank_file(char *out, const char *map)
@@ -60,5 +69,8 @@ void                s_play(int id, const s32 *origin, int atten)
         side = (d[0] * cam.right[0] + d[1] * cam.right[1] + d[2] * cam.right[2]) >> 16;
         pan = dist > 0 ? side * 12 / dist : 0;
     }
-    snd_sfx_at(id, (int)vol, (int)pan);
+    if (lag_us >= 0)
+        snd_sfx_later(id, (int)vol, (int)pan, (VDP2_TVSTAT & 1 ? 40000 : 33367) - lag_us);
+    else
+        snd_sfx_at(id, (int)vol, (int)pan);
 }

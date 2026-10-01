@@ -1762,6 +1762,13 @@ tools/emu.sh start`), each sample's level read back:
   and 135 ms apart in turn. The game's 10 Hz tick runs at a frame's start,
   so at 25 fps (PAL: 40 ms frames) its ticks are 80 and 120 ms apart; and
   the 68000 takes the SH-2's requests at 60 Hz, which makes those 67 and
-  133. At 30 fps three frames are 100 ms, so NTSC is steadier. Not yet
-  fixed: each sound started at its tick's time plus a frame would make
-  them even, for ~20 ms more delay on average on PAL.
+  133. At 30 fps three frames are 100 ms, so NTSC is steadier. Fixed: as
+  the game runs each tick (and the player's shot, which a tick allows) it
+  tells the sound how long ago that tick's moment was (the tick
+  accumulator's remainder: `s_lag`). Each of its sounds is started that
+  moment plus a frame (two fields) on: the SH-2 sends a delay with it
+  (`SND_CMD_DELAY`), and the 68000, its timer now at 919 Hz (the music's
+  tick still 60 Hz, every 92 counts' worth), holds it till then. Sounds
+  not of a tick (the menu, footsteps) start at once. The machinegun's
+  shots now come 100 ms apart, PAL and NTSC, for ~20 ms more delay on
+  average on PAL (less on NTSC).

@@ -23,6 +23,8 @@
 #define SND_CMD_REVERB      5       /* argument: 0 (dry) - 7 (cathedral) */
 #define SND_CMD_CUT         6       /* argument: song id - start at once, no crossfade */
 #define SND_CMD_SFXVP       7       /* argument: vol (0-127) << 5 | pan + 15 (0-30), for the next SND_CMD_SFX */
+#define SND_CMD_DELAY       8       /* argument: the 68000's fast ticks to wait before the next SND_CMD_SFX */
+#define SND_FAST_HZ         919     /* (its fast ticks a second: it takes commands and starts sounds on them) */
 #define SND_RING            32
 
 /* the mailbox, as 16-bit words (offsets in words from SND_MBOX) */

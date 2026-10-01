@@ -217,6 +217,7 @@ extern const char   *g_next_map;                /* the exit taken: "demo2$base1"
 void                s_init(const char *map);    /* at start-up: the driver, and the level's bank (DEMO1.MAP: DEMO1.SND) */
 void                s_level(const char *map);   /* a new level: its bank */
 void                s_play(int id, const s32 *origin, int atten);
+void                s_lag(s32 ago);             /* the game's moment its sounds are of: this long ago (16.16 s; -1 now) */
 
 /* src/menu.c */
 typedef enum { MENU_NONE, MENU_MAIN, MENU_SKILL, MENU_OPTIONS, MENU_PAUSE } menu_id;

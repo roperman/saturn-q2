@@ -62,18 +62,147 @@ static s32          frac_div(s32 n, s32 d)
         return n >= 0 ? FIX(2) : -FIX(2);
     if (n <= -2 * d)
         return -FIX(2);
-    return fdiv(n, d);
+    divu_start(n >> 16, (u32)n << 16, d);  /* (fdiv's, here: not a call) */
+    return divu_result();
 }
 
-static void         clip_box_brush(const q_brush *b)
+/* clipping a brush, a side at a time: how far into the move the box enters its solid (the
+   latest entering side), and leaves it (the earliest leaving one) */
+typedef struct { s32 enter, leave; int side; bool getout, startout; } t_clip;
+
+/* a side's part: d1, d2 the start's and the end's distance in front of it (pushed out for the
+   box); false: the box is wholly in front of it, no hit */
+static inline bool  clip_side(t_clip *c, s32 d1, s32 d2, int i)
+{
+    s32             f;
+
+    if (d2 > 0)
+        c->getout = true;                   /* the end isn't in the solid */
+    if (d1 > 0)
+        c->startout = true;
+    if (d1 > 0 && d2 >= d1)
+        return false;                       /* completely in front of this side: no hit */
+    if (d1 <= 0 && d2 <= 0)
+        return true;
+    if (d1 > d2)
+    {
+        /* entering */
+        f = frac_div(d1 - DIST_EPSILON, d1 - d2);
+        if (f > c->enter)
+        {
+            c->enter = f;
+            c->side = i;
+        }
+    }
+    else
+    {
+        f = frac_div(d1 + DIST_EPSILON, d1 - d2);
+        if (f < c->leave)
+            c->leave = f;
+    }
+    return true;
+}
+
+/* bb: its box (lv.brushbounds'). A BRUSH_EXACT brush's first six sides, -x +x -y +y -z +z, are
+   clipped from that (exactly their planes: the same sums), not read; the side entered is read
+   only if it's the trace's */
+static void         clip_box_brush(const q_brush *b, const s16 *bb)
+{
+    t_clip          c = { -FIX(1), FIX(1), -1, false, false };
+    s32             ofs[3], dist, d1, d2;
+    int             i = 0, j;
+
+    TR_COUNT(2, 1);
+    TR_COUNT(3, b->numsides);
+    if (b->contents & BRUSH_EXACT)
+        for (; i < 6; ++i)
+        {
+            int ty = i >> 1;
+
+            if (i & 1)
+            {
+                dist = (s32)bb[3 + ty] * 65536 - t_mins[ty];
+                d1 = t_start[ty] - dist;
+                d2 = t_end[ty] - dist;
+            }
+            else
+            {
+                dist = -(s32)bb[ty] * 65536 + t_maxs[ty];
+                d1 = -t_start[ty] - dist;
+                d2 = -t_end[ty] - dist;
+            }
+            if (!clip_side(&c, d1, d2, i))
+                return;
+        }
+    for (; i < b->numsides; ++i)
+    {
+        const q_plane   *pl = &lv.planes[lv.brushsides[b->firstside + i].plane];
+        int             ty = pl->type;
+
+        if (ty < 3)
+        {
+            /* on an axis (every brush's first six sides, its box, and most of the
+               rest): the normal's +-1 along it, so no multiplies (the same sums) */
+            if (pl->n[ty] > 0)
+            {
+                dist = pl->dist - t_mins[ty];
+                d1 = t_start[ty] - dist;
+                d2 = t_end[ty] - dist;
+            }
+            else
+            {
+                dist = pl->dist + t_maxs[ty];
+                d1 = -t_start[ty] - dist;
+                d2 = -t_end[ty] - dist;
+            }
+        }
+        else
+        {
+            if (!t_ispoint)
+            {
+                /* push the plane out for the box */
+                for (j = 0; j < 3; ++j)
+                    ofs[j] = pl->n[j] < 0 ? t_maxs[j] : t_mins[j];
+                dist = pl->dist - dot(ofs, pl->n);
+            }
+            else
+                dist = pl->dist;
+            d1 = dot(t_start, pl->n) - dist;
+            d2 = dot(t_end, pl->n) - dist;
+        }
+        if (!clip_side(&c, d1, d2, i))
+            return;
+    }
+    if (!c.startout)
+    {
+        /* the start was inside the brush */
+        tr.startsolid = true;
+        if (!c.getout)
+            tr.allsolid = true;
+        return;
+    }
+    if (c.enter < c.leave && c.enter > -FIX(1) && c.enter < tr.fraction)
+    {
+        const q_brushside *side = &lv.brushsides[b->firstside + c.side];
+
+        tr.fraction = c.enter < 0 ? 0 : c.enter;
+        tr.plane = &lv.planes[side->plane];
+        tr.surf_flags = side->flags;
+        tr.contents = b->contents & ~BRUSH_EXACT;
+    }
+}
+
+#ifdef CLIP_CHECK
+/* (OPT=-DCLIP_CHECK: as it was, every side read: the same?) */
+u32                 clip_checks, clip_diffs, clip_near, clip_near_diffs;
+
+static void         clip_box_brush_ref(const q_brush *b)
 {
     s32             enterfrac = -FIX(1), leavefrac = FIX(1), ofs[3], dist, d1, d2, f;
     const q_plane   *clipplane = NULL;
     int             i, j, leadflags = 0;
     bool            getout = false, startout = false;
 
-    TR_COUNT(2, 1);
-    TR_COUNT(3, b->numsides);
 
     for (i = 0; i < b->numsides; ++i)
     {
@@ -155,9 +284,11 @@ static void         clip_box_brush(const q_brush *b)
         tr.fraction = enterfrac;
         tr.plane = clipplane;
         tr.surf_flags = leadflags;
-        tr.contents = b->contents;
+        tr.contents = b->contents & ~BRUSH_EXACT;
     }
 }
+
+#endif
 
 static void         test_box_brush(const q_brush *b)
 {
@@ -185,7 +316,7 @@ static void         test_box_brush(const q_brush *b)
     }
     tr.startsolid = tr.allsolid = true;
     tr.fraction = 0;
-    tr.contents = b->contents;
+    tr.contents = b->contents & ~BRUSH_EXACT;
 }
 
 static void         leaf_brushes(int leafnum, bool test)
@@ -213,6 +344,23 @@ static void         leaf_brushes(int leafnum, bool test)
             ++bounds_skipped;
             if (!t_nobounds)
 #endif
+#ifdef CLIP_CHECK
+            /* (an exact box's brush the box rounded out a unit, as before, wouldn't have left: clipped
+               all the same, does it change anything?) */
+            if (!test && b->contents & BRUSH_EXACT && b->contents & t_mask && !(bb[0] - 1 > t_bb[3]
+                || bb[3] + 1 < t_bb[0] || bb[1] - 1 > t_bb[4] || bb[4] + 1 < t_bb[1] || bb[2] - 1 > t_bb[5]
+                || bb[5] + 1 < t_bb[2]))
+            {
+                extern u32 clip_near, clip_near_diffs;
+                q_trace was = tr;
+
+                clip_box_brush_ref(b);
+                ++clip_near;
+                clip_near_diffs += tr.fraction != was.fraction || tr.plane != was.plane || tr.startsolid != was.startsolid
+                                   || tr.allsolid != was.allsolid;
+                tr = was;
+            }
+#endif
             continue;
         }
         if (brush_check[bn] == checkcount)
@@ -223,7 +371,21 @@ static void         leaf_brushes(int leafnum, bool test)
         if (test)
             test_box_brush(b);
         else
-            clip_box_brush(b);
+        {
+#ifdef CLIP_CHECK
+            q_trace was = tr, ref;
+
+            clip_box_brush_ref(b);
+            ref = tr;
+            tr = was;
+#endif
+            clip_box_brush(b, bb);
+#ifdef CLIP_CHECK
+            ++clip_checks;
+            clip_diffs += tr.fraction != ref.fraction || tr.plane != ref.plane || tr.surf_flags != ref.surf_flags
+                          || tr.contents != ref.contents || tr.startsolid != ref.startsolid || tr.allsolid != ref.allsolid;
+#endif
+        }
         if (!tr.fraction)
             return;
     }
@@ -347,6 +509,7 @@ q_trace             trace_box(const s32 *start, const s32 *end, const s32 *mins,
                               int mask)
 {
     int             i;
+
 
     /* the box the whole trace sweeps, in whole units and a unit more all round (the brushes'
        boxes are rounded out too): a brush off it can't be met */

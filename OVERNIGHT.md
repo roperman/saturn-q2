@@ -1855,3 +1855,56 @@ benchmark's master at first (vs 0.58 before), from filling more of them
 and from reading each one's entity; filling only those in the PVS, and
 items and barrels only once, made it 0.59 with the same entities (0.84
 with all of them).
+
+## 40. The traces' brush sides
+
+With every entity in the levels (section 39) the fight's monsters walk more,
+and each step is a box trace down onto the floor: 10 a frame on NTSC, about
+0.56 ms each, 5.8 of the traces' 7.9 ms a frame (the call sites read from a
+save state, `g_trace_sites`). Counted a trace (`tr_count`, `tr_ticks`):
+finding the brushes (the leaves the move's box touches) ~4,400 cycles, then
+their lists, boxes and marks ~3,400, and clipping the 3.3 brushes whose
+boxes meet the move's, 30 sides, ~4,300: 144 cycles a side, mostly waiting
+on low work RAM for the side and then the plane.
+
+**Remembering the brushes near each monster** (and you) was tried first: a
+list per walker, of the brushes round it, kept till it walked out of that
+box, so each step skipped finding them. Exact (`NEAR_CHECK`: none different
+in ~40,000 traces, once two walls entered at once broke ties the same way
+whatever the order), but slower: 7.9 -> 10.0 ms of traces a frame. Finding
+the brushes is only ~30% of a trace, and making a list again (a box 64
+units bigger each way, ~25,000 cycles, one step in five) cost what it saved;
+the order-free ties cost a third more clipping besides. Not kept.
+
+**The box's sides from the box.** qbsp gives every brush its box's six
+sides first (-x +x -y +y -z +z), and in all three levels every brush has
+them there: three quarters of all brush sides. Where those are on whole
+units (79% of demo1's brushes, 98% of demo2's, 93% of demo3's), `brush_bounds`
+keeps the box exactly (not a unit out) and marks the brush `BRUSH_EXACT` (a
+contents bit Quake doesn't use, taken off what a trace reports); clipping
+it, those six sides are worked out from the box the trace has just read, the
+same sums as from their planes, and only the side it enters is read, if
+it's the trace's. The exact boxes leave out a few more brushes, all a unit
+or more from the move. `OPT=-DCLIP_CHECK` clips each brush both ways and
+compares, and clips each brush the exact box left out that the rounded one
+wouldn't have: walking each level and warping to its monsters, none
+different of 107,000 brushes clipped, and none of the 343 left out would
+have mattered. (The divider's also used here directly, not through `fdiv`:
+the same, a call less.)
+
+A side now 114 cycles, a brush's clipping 3,430 a trace (was 4,330):
+
+| the fight | before | now |
+|---|---|---|
+| NTSC: frame / CPU | 38.4 / 36.8 ms | 38.0 / 36.5 |
+| NTSC: traces a frame; pictures up 3 fields | 7.9 ms; 152 of 521 | 7.4; 142 of 526 |
+| PAL: frame / CPU | 40.4 / 38.6 ms | 40.0 / 38.1 |
+| PAL: traces a frame; pictures up 3 fields | 10.0 ms; 14 of 494 | 9.2; 5 of 499 |
+
+The static benchmark doesn't trace: CPU 1788 -> 1791, frame 2268 -> 2269.
+
+What's left of a trace is waiting on low work RAM: a brush's box (12
+bytes, so half of them across two lines), its leaf's list, its mark (another
+array), and the sides past the box's. A record of 16 (box and mark in one
+line) would cost Installation's and Comm Center's boxes their place in
+HWRAM; not done.

@@ -92,8 +92,10 @@ static const void   *hot_spare(const void *src, u32 bytes, bool high, u32 spare)
 
 /* Each brush's box, from its sides on the axes (every brush has them: qbsp adds them), in
    whole units rounded out: a trace skips a brush whose box misses its own without reading the
-   brush or its sides (src/trace.c leaf_brushes). With the brushes: LWRAM if there's room with
-   the reserve kept, else the cart */
+   brush or its sides (src/trace.c leaf_brushes). Where its box's sides are its first six (qbsp
+   puts them there, -x +x -y +y -z +z) and on whole units, the box is them exactly, and the brush
+   is marked BRUSH_EXACT: a trace clips those six from it (src/trace.c clip_box_brush). With the
+   brushes: LWRAM if there's room with the reserve kept, else the cart */
 static void         brush_bounds(void)
 {
     u32             bytes = (u32)lv.nbrushes * 12;
@@ -108,10 +110,27 @@ static void         brush_bounds(void)
         lv.brushbounds = (s16 *)cart_alloc(bytes);
     for (i = 0; i < lv.nbrushes; ++i)
     {
-        const q_brush   *b = &lv.brushes[i];
+        q_brush         *b = (q_brush *)&lv.brushes[i];     /* (its BRUSH_EXACT: in RAM, the copy's or the cart's) */
         s16             bb[6] = { -32767, -32767, -32767, 32767, 32767, 32767 };
+        bool            exact = b->numsides >= 6;
 
-        for (k = 0; k < b->numsides; ++k)
+        for (k = 0; k < 6 && exact; ++k)
+        {
+            const q_plane   *pl = &lv.planes[lv.brushsides[b->firstside + k].plane];
+
+            exact = pl->type == k >> 1 && (pl->n[k >> 1] > 0) == (k & 1) && !(pl->dist & 0xFFFF)
+                    && iabs(pl->dist >> 16) < 32000;
+            if (exact)
+                bb[(k & 1) * 3 + (k >> 1)] = (s16)(k & 1 ? pl->dist >> 16 : -(pl->dist >> 16));
+        }
+        b->contents = exact ? b->contents | BRUSH_EXACT : b->contents & ~BRUSH_EXACT;
+        if (!exact)
+            for (j = 0; j < 3; ++j)
+            {
+                bb[j] = -32767;
+                bb[3 + j] = 32767;
+            }
+        for (k = 0; k < b->numsides && !exact; ++k)
         {
             const q_plane   *pl = &lv.planes[lv.brushsides[b->firstside + k].plane];
             int             ty = pl->type;

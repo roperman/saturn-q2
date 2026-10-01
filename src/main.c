@@ -1903,6 +1903,13 @@ void                main(void)
 
                 vdp_printf(8, 8, c, "LADDER F%d NEAR%d ON%d BAD%d", lc_frames, lc_near, lc_ladder, lc_bad);
             }
+#elif defined(CLIP_CHECK)
+            {
+                extern u32 clip_checks, clip_diffs, clip_near, clip_near_diffs;
+
+                vdp_printf(8, 8, c, "CLIPPED %d DIFF %d NEAR %d DIFF %d", clip_checks, clip_diffs, clip_near,
+                           clip_near_diffs);
+            }
 #elif defined(SLOT_CHECK)
             {
                 extern u32 slot_frames, slot_missed, slot_peak, slot_moved, slot_full;

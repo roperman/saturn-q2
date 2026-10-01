@@ -113,6 +113,8 @@ typedef struct { s16 lo[3], hi[3]; } q_portal;
 #define CONTENTS_PLAYERCLIP (0x10000)
 #define CONTENTS_MONSTER (0x2000000)
 #define CONTENTS_LADDER (0x20000000)
+#define BRUSH_EXACT     (0x4000)            /* (a brush's, not Quake's: its box's sides, its first six, on whole units,
+                                               so lv.brushbounds has them exactly: level.c brush_bounds) */
 #define MASK_PLAYERSOLID (CONTENTS_SOLID | CONTENTS_PLAYERCLIP | CONTENTS_WINDOW | CONTENTS_MONSTER)
 #define MASK_WATER      (CONTENTS_WATER | CONTENTS_LAVA | CONTENTS_SLIME)
 #define SURF_SLICK      (2)

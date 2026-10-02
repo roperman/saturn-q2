@@ -2318,3 +2318,28 @@ cart left 913, 790 and 512 KB). `FACEVIS=24 ./build.sh` has the old lists. The e
 records (section 50) stay on the cart: 21, 21 and 23 KB a level, which the
 cart has room for now (520-920 KB left); loading them off the CD at a
 level's start and restart would give back only that.
+
+## 53. The berserker (Comm Center's five)
+
+`src/m_berserk.c`: Quake 2's m_berserk.c as the gunner was ported (section
+19): it runs at you and swings, the spike (15 to 20) or the club (5 to 10),
+and has nothing for a distance (the port's AI asks the one attack function
+further off too; the berserker's only swings in reach, else keeps running,
+as Quake's, which has no ranged attack). Left out to fit: its fidget and
+idle sound, walk, search sound and the gibs. BERSERK.MDL: stand, run, the
+spike and club (att_c1-20), two pains, two deaths, 76 of its 244 frames, two
+skins, a far mesh: 196 KB on the cart, loaded where there's room (optional,
+as the gunner). Its sounds in the banks of levels with berserkers; and the
+gunner's now in Comm Center's too (left out while its gunners were: section
+50 gave them back without them). Comm Center's bank: 464 of 480 KB.
+
+Tried on Comm Center (`MAP=demo3 OPT="-DNEW_GAME_DEMO3
+-DWARP_ONLY=MDL_BERSERK"`: a new game there, START + A to the next
+berserker): it comes at you, swings and hits (100 -> 63 in three seconds),
+and two together finished me. `OPT=-DLEVEL_TEST`'s line: `N` the gunner and
+the berserker loaded, and how many berserkers (Comm Center: 1, 1, 5).
+
+The cost: its code is in low work RAM (built small) on every level, ~1.5 KB,
+and on Comm Center that's what tips its short entities' table onto the
+cart (LWRAM 18.6 KB left after). Comm Center's cart: 289 KB left. The
+fight (Outer Base, no berserkers) the same: NTSC 38.4 / 36.8 ms.

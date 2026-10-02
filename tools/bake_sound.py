@@ -38,9 +38,10 @@ MONSTER_SOUNDS = {
     "sol_": ("monster_soldier_light", "monster_soldier", "monster_soldier_ss"),
     "inf_": ("monster_infantry",),
     "gun_": ("monster_gunner",),
+    "ber_": ("monster_berserk",),
 }
-# monsters a level has that are left out anyway (src/model.c: Comm Center's cart has no room for the gunner)
-LEFT_OUT = {"demo3": ("monster_gunner",)}
+# monsters a level has that are left out anyway (none now: the cart has room, OVERNIGHT.md 50)
+LEFT_OUT = {}
 
 RATE = 11025
 BASE = 0x2000                               # engine/snd68k.h SND_BANK_BASE
@@ -85,6 +86,10 @@ SOUNDS = [
     ("gun_open", "gunner/gunatck1", 0.3, 100),
     ("gun_fire", "gunner/gunatck2", 0.1, 110),
     ("gun_grenade", "gunner/gunatck3", 0.4, 110),
+    ("ber_sight", "berserk/sight", 0.8, 110),
+    ("ber_pain", "berserk/berpain2", 0.6, 110),
+    ("ber_death", "berserk/berdeth2", 1.2, 115),
+    ("ber_punch", "berserk/attack", 0.5, 110),
     ("player_pain25", "player/male/pain25_1", 0.6, 120),
     ("player_pain50", "player/male/pain50_1", 0.7, 120),
     ("player_pain75", "player/male/pain75_1", 0.6, 120),

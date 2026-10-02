@@ -285,6 +285,7 @@ void                SP_monster_infantry(g_ent *self);
 
 /* m_gunner.c */
 void                SP_monster_gunner(g_ent *self);
+void                SP_monster_berserk(g_ent *self);
 
 /* g_target.c: triggers, relays, timers, targets, barrels */
 void                G_UseTargets(g_ent *ent, g_ent *activator);

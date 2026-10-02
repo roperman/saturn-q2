@@ -478,9 +478,10 @@ enum { G_NONE, G_FULL, G_ITEM, G_TRIG, G_POINT, G_POOLS };
 
 static __attribute__((cold)) int          g_pool(int c)
 {
-    if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_GUNNER)
+    if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_BERSERK)
         return (c == C_MONSTER_INFANTRY && !models[MDL_INFANTRY].loaded)
-               || (c == C_MONSTER_GUNNER && !models[MDL_GUNNER].loaded) ? G_NONE : G_FULL;
+               || (c == C_MONSTER_GUNNER && !models[MDL_GUNNER].loaded)
+               || (c == C_MONSTER_BERSERK && !models[MDL_BERSERK].loaded) ? G_NONE : G_FULL;
     if (c == C_MISC_EXPLOBOX)
         return models[MDL_BARREL].loaded ? G_FULL : G_NONE;
     if (c == C_FUNC_EXPLOSIVE)
@@ -654,22 +655,24 @@ __attribute__((cold)) void g_init(void)
         e->count = r->count;
         e->model = r->model;
         e->kind = EK_POINT;
-        if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_GUNNER)
+        if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_BERSERK)
         {
-            if (c == C_MONSTER_INFANTRY || c == C_MONSTER_GUNNER)
+            if (c == C_MONSTER_INFANTRY || c == C_MONSTER_GUNNER || c == C_MONSTER_BERSERK)
             {
-                int m = c == C_MONSTER_INFANTRY ? MDL_INFANTRY : MDL_GUNNER;
+                int m = c == C_MONSTER_INFANTRY ? MDL_INFANTRY : c == C_MONSTER_GUNNER ? MDL_GUNNER : MDL_BERSERK;
 
                 if (!models[m].loaded)
                 {
-                    e->kind = EK_FREE;      /* (the gunner: no room for it on Comm Center's cart) */
+                    e->kind = EK_FREE;      /* (an optional one with no room on the cart: tools/models.txt) */
                     continue;
                 }
                 e->mdl = &models[m];
                 if (c == C_MONSTER_INFANTRY)
                     SP_monster_infantry(e);
-                else
+                else if (c == C_MONSTER_GUNNER)
                     SP_monster_gunner(e);
+                else
+                    SP_monster_berserk(e);
             }
             else
             {

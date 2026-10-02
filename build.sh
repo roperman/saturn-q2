@@ -53,8 +53,9 @@ python3 tools/dspasm.py engine/xformm.dsp obj/xformm_b.h xformm_prog obj/xformm.
 cat obj/walls1.bin obj/walls2.bin obj/xformm.bin obj/walls0.bin > cd/WALLS.BIN
 # the models (tools/models.txt): whichever are out of date
 python3 tools/bake_models.py data/pak0.pak cd
-# built small (engine/build.inc.sh): start-up, menus, saving, the CD, trigger targets, the gunner (one level's),
+# built small (engine/build.inc.sh): start-up, menus, saving, the CD, trigger targets, the gunner and the
+# berserker (two levels' and one's),
 # the level loading, the boot-time timings, the HUD, the sounds, the items
-COLD="main.c menu.c bup.c cd.c g_target.c m_gunner.c level.c cycles.c hud.c sound.c g_items.c ${COLD_MORE:-}" \
-engine_build QUAKE2 "src/main.c src/math.c src/level.c src/render.c src/trace.c src/pmove.c src/movers.c src/fx.c src/model.c src/g_main.c src/g_ai.c src/m_soldier.c src/m_infantry.c src/m_gunner.c src/g_target.c src/g_items.c src/hud.c src/sound.c src/menu.c src/view.c src/cycles.c src/grid.s src/cells.s src/face.s src/dlight.s src/walk.s src/mdraw.s src/tline.s src/tbox.s" \
+COLD="main.c menu.c bup.c cd.c g_target.c m_gunner.c m_berserk.c level.c cycles.c hud.c sound.c g_items.c ${COLD_MORE:-}" \
+engine_build QUAKE2 "src/main.c src/math.c src/level.c src/render.c src/trace.c src/pmove.c src/movers.c src/fx.c src/model.c src/g_main.c src/g_ai.c src/m_soldier.c src/m_infantry.c src/m_gunner.c src/m_berserk.c src/g_target.c src/g_items.c src/hud.c src/sound.c src/menu.c src/view.c src/cycles.c src/grid.s src/cells.s src/face.s src/dlight.s src/walk.s src/mdraw.s src/tline.s src/tbox.s" \
     "-DVDP_MAX_CMDS=2802 -DVDP_WRITER_CMDS=1100 -DVDP_WRITER1_CMDS=1300 -DVDP_GOURAUD_MAX=2800 -DMAP_FILE=\"$MAPFILE\" ${OPT}"

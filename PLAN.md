@@ -10,10 +10,11 @@ section by section.
 ## Next: the game
 
 - [ ] **The other monsters.** Installation has flyers and a tank the port
-      doesn't have yet, and Comm Center berserkers, parasites, flyers and
-      gunners. Each needs its AI ported from Quake 2's `m_*.c`, and room on
-      the cart for its model: OVERNIGHT.md section 11 has the sizes and the
-      ways to make room. Flyers need flying.
+      doesn't have yet, and Comm Center parasites and flyers (its gunners
+      and berserkers are in: OVERNIGHT.md sections 50, 53). Each needs its
+      AI ported from Quake 2's `m_*.c`; the cart has room for their models
+      now, and low work RAM is what's short (each one's code is in it on
+      every level). Flyers need flying.
 - [ ] **Flickering lights** (Quake's light styles): a lightmap layer a
       style, blended at run time.
 - [ ] **Saving** to backup RAM (the engine has a driver, `engine/bup.c`).

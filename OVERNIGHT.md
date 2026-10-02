@@ -2307,3 +2307,14 @@ spawns as it did (it reads the entities' records, which stay).
 Roper asked for the frame rate on its own. The options' STATISTICS goes OFF,
 FPS (the frame rate in the corner, over the last few frames) and ALL (the
 overlay as it was). `OPT=-DSTATS_FPS`: FPS from the start (`-DSTATS`: ALL).
+
+## 52. FACEVIS=64c the default
+
+Roper's choice: the levels' visibility lists from 64 points a cluster and
+each leaf's corners (section 49), fewer far faces missed for ~1.5 ms of a
+fight frame (the NTSC fight 38.3 / 36.7 ms, 152 of 522 pictures up 3
+fields; PAL CPU 38.1 ms, 5 of 499 up 3 fields; the three levels load, the
+cart left 913, 790 and 512 KB). `FACEVIS=24 ./build.sh` has the old lists. The entities'
+records (section 50) stay on the cart: 21, 21 and 23 KB a level, which the
+cart has room for now (520-920 KB left); loading them off the CD at a
+level's start and restart would give back only that.

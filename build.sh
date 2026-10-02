@@ -25,9 +25,9 @@ for m in demo1 demo2 demo3; do
     lodmin=${LODMIN:-12}
     portals=${PORTALS:-0}                                       # (PORTALS=1, rebaked: OPT=-DPORTALS's data)
     [ "$m" = demo3 ] && lodmin=${LODMIN:-24} && portals=0      # (none: ~80 KB more than its cart has)
-    # (FACEVIS=64c: which faces each part of a level can see, from more points and each leaf's
-    # corners: fewer far faces missed, a fuller list to draw. README: Settings)
-    facevis=${FACEVIS:-24}
+    # (which faces each part of a level can see: from 64 points and each leaf's corners; FACEVIS=24,
+    # as it was: more far faces missed, a lighter list to draw. README: Settings)
+    facevis=${FACEVIS:-64c}
     if [ ! -f "$out" ] || [ ! -f "${out%.MAP}.SKY" ] || [ -n "$(find tools -newer "$out" -name '*.py')" ] \
         || [ "$(cat "obj/$m.facevis" 2>/dev/null)" != "$facevis" ]; then
         python3 tools/bake_map.py data/pak0.pak "maps/$m.bsp" "$out" --res=${RES:-2} --lodmin=$lodmin --portals=$portals \

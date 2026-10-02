@@ -105,9 +105,9 @@ Then:
     ./build.sh      # bakes the levels, models, sounds and HUD from pak0.pak, builds game.cue
     ./run.sh        # runs it in Mednafen (REGION=jp or na for NTSC)
 
-The first build bakes all three levels, which takes a few minutes: working
-out which faces each part of a level can see (rendering it from points all
-over each part) is slow, and cached in `obj/` after.
+The first build bakes all three levels, which takes about a quarter of an
+hour: working out which faces each part of a level can see (rendering it
+from points all over each part) is slow, and cached in `obj/` after.
 `MAP=demo2 ./build.sh` starts the game on another level.
 
 ### Settings
@@ -127,12 +127,12 @@ or save. Change them there, or give them to the build:
 | `NO_WATER` | off | the water's waves off (also in Options) |
 | `NO_GAME_DURING_DRAW`, `NO_LIGHT_AHEAD`, `NO_PIPE` | off | each a little less latency for a slower frame |
 
-And one for the levels' bake, given to `build.sh` as `FACEVIS=64c ./build.sh`:
-which faces each part of a level can see, worked out from 64 points a part and
-each leaf's corners rather than 24 points. Far faces go missing less often (on
-Outer Base, of points that see a face their part's list hasn't, 31% -> 10%),
-but the lists are fuller: the NTSC fight 35.2 -> 36.7 ms of CPU. The bake takes
-a few minutes more a level (cached in `obj/`).
+And one for the levels' bake, given to `build.sh`: which faces each part of a
+level can see is worked out from 64 points a part and each leaf's corners
+(`FACEVIS=64c`, the default). `FACEVIS=24 ./build.sh` uses 24 points, as it
+was: far faces go missing more often (on Outer Base, of points that see a face
+their part's list hasn't, 10% -> 31%), but the lists are lighter: the NTSC
+fight 36.7 -> 35.2 ms of CPU. A change rebakes the levels (cached in `obj/`).
 
 ## Running
 

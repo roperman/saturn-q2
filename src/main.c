@@ -797,6 +797,7 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
     s_level(file);                          /* (its sounds: its monsters') */
     bench_views = cur_map[4] == '2' ? bench_demo2 : bench_demo1;
     models_load_all();
+    g_overlays_load();                      /* (the code of the monsters it has: after their models) */
     vdp_tex_release(vram_base);
     hud_init();
     render_init();
@@ -936,6 +937,7 @@ void                main(void)
             message(cart_mb < 4 ? "THIS NEEDS THE 4MB RAM CART" : MAP_FILE " WON'T LOAD", NULL);
     message("QUAKE II", "LOADING THE MODELS");
     models_load_all();
+    g_overlays_load();                      /* (the code of the monsters it has: after their models) */
     message("QUAKE II", "LOADING THE SOUNDS");
     s_init(cur_map);
     vram_base = vdp_tex_mark();

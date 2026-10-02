@@ -17,7 +17,7 @@ SECTIONS
     .text : ALIGN(4)
     {
         *(.start)
-        *(EXCLUDE_FILE(*level.o *menu.o *cd.o *g_target.o *m_gunner.o *m_berserk.o *cycles.o) .text)
+        *(EXCLUDE_FILE(*level.o *menu.o *cd.o *g_target.o *cycles.o) .text)
         *(.text.hot .text.hot.* .text.startup .text.startup.*)
         *(.rodata .rodata.*)
     } > HWRAM
@@ -30,8 +30,7 @@ SECTIONS
     .lwtext : ALIGN(16)
     {
         __lwtext_start = .;
-        *level.o(.text) *menu.o(.text) *cd.o(.text) *g_target.o(.text) *m_gunner.o(.text) *m_berserk.o(.text)
-        *cycles.o(.text)
+        *level.o(.text) *menu.o(.text) *cd.o(.text) *g_target.o(.text) *cycles.o(.text)
         *(.text.unlikely .text.unlikely.*)
         . = ALIGN(16);
         __lwtext_end = .;

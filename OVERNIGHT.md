@@ -2349,3 +2349,28 @@ COLD only builds a file small; engine/link.ld names the files whose code
 goes to low work RAM, and m_berserk.o wasn't among them. With it there,
 784 bytes of HWRAM back, and Comm Center's gun's kept drawing fits in HWRAM
 again (no DMA a fight frame); its low work RAM 17.8 KB left.)
+
+## 54. The monsters' code loaded per level
+
+Roper asked whether every level needs every monster's code. It doesn't: the
+soldier and the infantry are on all three, but the gunner only on
+Installation and Comm Center, the berserker only on Comm Center. So those
+two are now files on the CD, read by the levels that have them:
+
+- build.sh `build_overlays` (after game.elf is linked, before the disc:
+  engine/build.inc.sh's `POST_LINK`): each monster's file compiled small
+  with `-DOVERLAY`, linked against game.elf's symbols (`-R game.elf`,
+  engine/overlay.ld: code, tables and data in one image, its spawn's
+  address first) at two bases; tools/overlay.py takes the words that
+  differ by the bases' difference as the ones to move: GUNNER.OVL 2,928
+  bytes (71 to move), BERSERK.OVL 2,016 (53).
+- g_main.c `g_overlays_load`, after the models: each one whose model loaded
+  is read onto the cart, its image copied into low work RAM and moved by
+  where it landed; its spawn goes in a table g_init calls through. No file
+  (or a bad one): its model counts as not loaded, its monsters left out.
+
+Their code was in low work RAM on every level (1.7 KB) and their tables in
+HWRAM (2.3 KB); now only where they're needed. Outer Base gets both back;
+Comm Center has them both, in its LWRAM instead (14.6 KB left). Comm
+Center's berserkers and gunners and Installation's gunners as before
+(tried there: they come and hit). The fight the same (NTSC 38.4 / 36.8 ms).

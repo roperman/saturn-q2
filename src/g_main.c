@@ -532,6 +532,48 @@ static __attribute__((cold)) void         *g_room(u32 bytes, bool cart)
     return cart && ca >= bytes + G_CART_ROOM ? cart_alloc(bytes) : NULL;
 }
 
+/* The monsters only some levels have: their code on the CD (build.sh build_overlays), read
+   into low work RAM by the levels that have them, after the models (a model loaded with no
+   code: not loaded after all, its monsters left out). The file: "Q2OV", the base it was linked
+   at, the image's size, how many words to move by where it lands; the image (its spawn's
+   address first); those words' offsets. Read onto the cart (whole sectors), the image copied */
+static void         (*ovl_spawn[MDL_COUNT])(g_ent *self);
+
+__attribute__((cold)) void g_overlays_load(void)
+{
+    static const struct { int mdl; const char *file; } ovl[] = {
+        { MDL_GUNNER, "GUNNER.OVL" }, { MDL_BERSERK, "BERSERK.OVL" },
+    };
+    unsigned        i;
+
+    for (i = 0; i < sizeof(ovl) / sizeof(ovl[0]); ++i)
+    {
+        int         m = ovl[i].mdl;
+        const u32   *h, *rel;
+        u32         lba, size, base, n, k;
+        u8          *img;
+
+        ovl_spawn[m] = NULL;
+        if (!models[m].loaded)
+            continue;
+        h = cd_find(ovl[i].file, &lba, &size) ? (const u32 *)cart_load(ovl[i].file) : NULL;
+        if (!h || memcmp(h, "Q2OV", 4))
+        {
+            models[m].loaded = false;
+            continue;
+        }
+        base = h[1];
+        size = h[2];
+        n = h[3];
+        img = level_alloc_low(size);
+        memcpy(img, h + 4, size);
+        rel = (const u32 *)((const u8 *)(h + 4) + size);
+        for (k = 0; k < n; ++k)
+            *(u32 *)(img + rel[k]) += (u32)img - base;
+        ovl_spawn[m] = *(void (**)(g_ent *))img;
+    }
+}
+
 /* A new level: room for everything it has at any skill (g_skill -1 spawns it all) where there's
    room for it, else for this skill's: the full ones, then the short ones. Each time: the
    entities at this skill (any past the room: g_dropped), the items first among the short
@@ -669,10 +711,8 @@ __attribute__((cold)) void g_init(void)
                 e->mdl = &models[m];
                 if (c == C_MONSTER_INFANTRY)
                     SP_monster_infantry(e);
-                else if (c == C_MONSTER_GUNNER)
-                    SP_monster_gunner(e);
                 else
-                    SP_monster_berserk(e);
+                    ovl_spawn[m](e);        /* (its code loaded with the level: g_overlays_load) */
             }
             else
             {

@@ -63,6 +63,10 @@ PY
     done
     "$CC" -m2 -nostdlib -nostartfiles -T "$ENGINE/link.ld" -Wl,-Map,game.map -o game.elf $objs -lgcc
     "$OBJCOPY" -O binary game.elf cd/0.bin
+    # (anything built against game.elf before the disc's made: build.sh's code loaded per level)
+    if [ -n "${POST_LINK:-}" ]; then
+        "$POST_LINK" "$cflags" || return 1
+    fi
     [ -f cd/ABS.TXT ] || printf '%s' "$name" > cd/ABS.TXT
     [ -f cd/BIB.TXT ] || printf '%s' "$name" > cd/BIB.TXT
     [ -f cd/CPY.TXT ] || printf '(c) 2026' > cd/CPY.TXT

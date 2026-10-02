@@ -284,8 +284,9 @@ extern int          found_secrets, total_secrets, found_goals, total_goals, kill
 void                SP_monster_infantry(g_ent *self);
 
 /* m_gunner.c */
-void                SP_monster_gunner(g_ent *self);
+void                SP_monster_gunner(g_ent *self);         /* (loaded per level: g_overlays_load) */
 void                SP_monster_berserk(g_ent *self);
+void                g_overlays_load(void);                  /* (a level's start, after the models) */
 
 /* g_target.c: triggers, relays, timers, targets, barrels */
 void                G_UseTargets(g_ent *ent, g_ent *activator);

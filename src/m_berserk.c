@@ -157,3 +157,8 @@ void                SP_monster_berserk(g_ent *self)
     self->sight = berserk_sight;
     monster_start(self);
 }
+
+#ifdef OVERLAY
+/* (loaded per level: build.sh build_overlays) the loader finds its spawn here, first */
+__attribute__((section(".ovlhead"), used)) void (*const ovl_spawn)(g_ent *self) = SP_monster_berserk;
+#endif

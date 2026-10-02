@@ -16,7 +16,14 @@
 **   pvs:    nclusters rows of (nclusters + 7) / 8 bytes
 ** Output: nclusters rows of (nfaces + 7) / 8 bytes.
 **
+** The sample points in each of the cluster's leaves: its middle, random
+** ones, and (samples with 0x10000 set) its box's eight corners, drawn in
+** towards the middle until they're in the leaf: the far ends of a leaf see
+** what its middle can't.
+**
 **   cc -O2 -o facevis facevis.c -lm && ./facevis in.bin out.bin
+**   ./facevis in.bin out.bin --check n    (out.bin's lists against n new random points a
+**                                         cluster: the faces they see that aren't listed)
 */
 #include <math.h>
 #include <stdio.h>
@@ -35,6 +42,10 @@ static int          nfaces, nleafs, nnodes, nclusters, samples, res;
 static float        *zbuf;
 static int          *ibuf;
 static unsigned     rng = 12345;
+static int          check, ck_points, ck_bad, ck_worst;    /* (--check) */
+static long         ck_faces, ck_px;
+static float        ck_at[3];
+static int          *cl_leafs, only, corners;              /* (--check: the cluster's leaves) */
 
 static float        frand(void)
 {
@@ -229,6 +240,8 @@ int                 main(int argc, char **argv)
         return 1;
     }
     rd(f, &nfaces, 4); rd(f, &nleafs, 4); rd(f, &nnodes, 4); rd(f, &nclusters, 4); rd(f, &samples, 4); rd(f, &res, 4);
+    corners = samples >> 16 & 1;
+    samples &= 0xFFFF;
     faces = calloc(nfaces, sizeof(*faces));
     for (i = 0; i < nfaces; ++i)
     {
@@ -255,14 +268,143 @@ int                 main(int argc, char **argv)
     rd(f, pvs, (size_t)rowc * nclusters);
     fclose(f);
     out = calloc((size_t)rowf, nclusters);
+    only = getenv("FACEVIS_ONLY") ? atoi(getenv("FACEVIS_ONLY")) : -1;
+    if (getenv("FACEVIS_RES"))
+        res = atoi(getenv("FACEVIS_RES"));  /* (a test: another resolution) */
+    if (argc >= 9 && !strcmp(argv[3], "--view"))
+    {
+        /* (--view x y z yaw out.ppm: a test, the view forward along yaw (degrees), 90 degrees wide:
+           faces flagged 4 (the sky) red, the rest grey by their number) */
+        float p[3], yw = (float)atof(argv[7]) * 3.14159265f / 180.0f, rt[3], up[3] = { 0, 0, 1 }, fw[3];
+        unsigned char *ok = malloc(nfaces), *sn = malloc(nfaces);
+        FILE *o;
+
+        p[0] = (float)atof(argv[4]); p[1] = (float)atof(argv[5]); p[2] = (float)atof(argv[6]);
+        fw[0] = cosf(yw); fw[1] = sinf(yw); fw[2] = 0;
+        rt[0] = fw[1]; rt[1] = -fw[0]; rt[2] = 0;
+        memset(ok, getenv("FACEVIS_PVS") ? 0 : 1, nfaces);
+        if (getenv("FACEVIS_PVS"))
+        {
+            /* (only the PVS of the point's cluster, as the game draws) */
+            int rc = (nclusters + 7) / 8, j, cl = leafs[point_leaf(p)].cluster;
+
+            for (j = 0; j < nleafs; ++j)
+            {
+                int lc = leafs[j].cluster;
+
+                if (lc >= 0 && pvs[(size_t)cl * rc + (lc >> 3)] & (1 << (lc & 7)))
+                    for (k = 0; k < leafs[j].nfaces; ++k)
+                        ok[leafs[j].faces[k]] = 1;
+            }
+        }
+        zbuf = malloc(sizeof(float) * res * res);
+        ibuf = malloc(sizeof(int) * res * res);
+        render(p, rt, up, fw, ok, sn);
+        if (getenv("FACEVIS_PICK"))
+        {
+            /* (FACEVIS_PICK="x y": the face at that pixel of the 320 x 224 screen) */
+            int px, py, rx, ry;
+
+            sscanf(getenv("FACEVIS_PICK"), "%d %d", &px, &py);
+            rx = px * res / 320;
+            ry = (py + 48) * res / 320;
+            printf("face at %d %d: %d\n", px, py, ibuf[ry * res + rx]);
+        }
+        o = fopen(argv[8], "wb");
+        fprintf(o, "P6 %d %d 255\n", res, res);
+        for (k = 0; k < res * res; ++k)
+        {
+            int id = ibuf[k];
+            unsigned char px[3] = { 0, 0, 40 };
+
+            if (id >= 0 && faces[id].flags & 4)
+                px[0] = 220, px[1] = 40, px[2] = 20;
+            else if (id >= 0)
+                px[0] = px[1] = px[2] = (unsigned char)(80 + (id * 37) % 150);
+            fwrite(px, 1, 3, o);
+        }
+        fclose(o);
+        return 0;
+    }
+    if (argc >= 7 && !strcmp(argv[3], "--at"))
+    {
+        /* (--at x y z: what that point sees that its cluster's list (out.bin) hasn't) */
+        float p[3];
+        int li, cl, s, px = 0, nf = 0;
+        unsigned char *ok = malloc(nfaces), *sn = malloc(nfaces);
+
+        if (!(f = fopen(argv[2], "rb")))
+            return 1;
+        rd(f, out, (size_t)rowf * nclusters);
+        fclose(f);
+        p[0] = (float)atof(argv[4]); p[1] = (float)atof(argv[5]); p[2] = (float)atof(argv[6]);
+        li = point_leaf(p);
+        cl = leafs[li].cluster;
+        memset(ok, getenv("FACEVIS_PVS") ? 0 : 1, nfaces);
+        if (getenv("FACEVIS_PVS"))
+        {
+            /* (the cluster's PVS only, as the lists are made) */
+            int rc = (nclusters + 7) / 8, j;
+
+            for (j = 0; j < nleafs; ++j)
+            {
+                int lc = leafs[j].cluster;
+
+                if (lc >= 0 && pvs[(size_t)cl * rc + (lc >> 3)] & (1 << (lc & 7)))
+                    for (k = 0; k < leafs[j].nfaces; ++k)
+                        ok[leafs[j].faces[k]] = 1;
+            }
+        }
+        memset(sn, 0, nfaces);
+        zbuf = malloc(sizeof(float) * res * res);
+        ibuf = malloc(sizeof(int) * res * res);
+        for (s = 0; s < 6; ++s)
+        {
+            render(p, dirs[s][0], dirs[s][1], dirs[s][2], ok, sn);
+            for (k = 0; k < res * res; ++k)
+                if (ibuf[k] >= 0 && !(out[(size_t)cl * rowf + (ibuf[k] >> 3)] & (1 << (ibuf[k] & 7))))
+                    ++px;
+        }
+        for (k = 0; k < nfaces; ++k)
+            if (sn[k] && !(out[(size_t)cl * rowf + (k >> 3)] & (1 << (k & 7))))
+            {
+                if (nf < 12)
+                    printf("  face %d (centre %.0f %.0f %.0f)\n", k, faces[k].v[0][0], faces[k].v[0][1], faces[k].v[0][2]);
+                ++nf;
+            }
+        printf("at %.0f %.0f %.0f: leaf %d cluster %d, %d faces seen not listed, %d pixels\n", p[0], p[1], p[2], li, cl, nf, px);
+        {
+            int n = 0;
+
+            for (k = 0; k < nleafs; ++k)
+                n += leafs[k].cluster == cl;
+            printf("  its leaf %.0f %.0f %.0f - %.0f %.0f %.0f; the cluster's %d leaves\n", leafs[li].mins[0],
+                   leafs[li].mins[1], leafs[li].mins[2], leafs[li].maxs[0], leafs[li].maxs[1], leafs[li].maxs[2], n);
+        }
+        return 0;
+    }
+    if (argc >= 5 && !strcmp(argv[3], "--check"))
+    {
+        /* (the lists to check, instead of making them) */
+        check = atoi(argv[4]);
+        rng = 777;
+        if (!(f = fopen(argv[2], "rb")))
+            return 1;
+        rd(f, out, (size_t)rowf * nclusters);
+        fclose(f);
+    }
     zbuf = malloc(sizeof(float) * res * res);
     ibuf = malloc(sizeof(int) * res * res);
     face_ok = malloc(nfaces);
+    cl_leafs = malloc(sizeof(int) * nleafs);
     seen = malloc(nfaces);
 
     for (c = 0; c < nclusters; ++c)
     {
         int s, total = 0, nl = 0;
+
+        if (only >= 0 && c != only)
+            continue;                       /* (FACEVIS_ONLY=n: that cluster alone, a test) */
 
         /* the faces the PVS allows */
         memset(face_ok, 0, nfaces);
@@ -276,6 +418,48 @@ int                 main(int argc, char **argv)
                 face_ok[leafs[i].faces[k]] = 1;
         }
         memset(seen, 0, nfaces);
+        if (check)
+        {
+            /* (--check) new random points in its leaves: what they see that it doesn't list */
+            const unsigned char *row = out + (size_t)c * rowf;
+            int got = 0, tries;
+
+            for (i = 0; i < nleafs; ++i)
+                if (leafs[i].cluster == c)
+                    cl_leafs[nl++] = i;
+            for (tries = 0; nl && tries < check * 40 && got < check; ++tries)
+            {
+                int li = cl_leafs[(int)(frand() * nl) % nl], px = 0, m0 = 0;
+                const leaf_t *l = &leafs[li];
+                float p[3];
+
+                for (k = 0; k < 3; ++k)
+                    p[k] = l->mins[k] + 1 + frand() * (l->maxs[k] - l->mins[k] - 2);
+                if (point_leaf(p) != li)
+                    continue;
+                ++got;
+                memset(seen, 0, nfaces);
+                for (s = 0; s < 6; ++s)
+                {
+                    render(p, dirs[s][0], dirs[s][1], dirs[s][2], face_ok, seen);
+                    for (k = 0; k < res * res; ++k)
+                        if (ibuf[k] >= 0 && !(row[ibuf[k] >> 3] & (1 << (ibuf[k] & 7))))
+                            ++px;
+                }
+                for (k = 0; k < nfaces; ++k)
+                    m0 += seen[k] && !(row[k >> 3] & (1 << (k & 7)));
+                ck_points++;
+                ck_bad += m0 > 0;
+                ck_faces += m0;
+                ck_px += px;
+                if (px > ck_worst)
+                {
+                    ck_worst = px;
+                    ck_at[0] = p[0]; ck_at[1] = p[1]; ck_at[2] = p[2];
+                }
+            }
+            continue;
+        }
         /* sample points: in this cluster's leaves, spread by volume */
         for (i = 0; i < nleafs; ++i)
             if (leafs[i].cluster == c)
@@ -306,6 +490,29 @@ int                 main(int argc, char **argv)
                 for (s = 0; s < 6; ++s)
                     render(p, dirs[s][0], dirs[s][1], dirs[s][2], face_ok, seen);
             }
+            for (k = 0; corners && k < 8; ++k)
+            {
+                /* its corners, drawn in until they're in it */
+                float t, p[3];
+
+                for (t = 0.9f; t > 0.2f; t -= 0.2f)
+                {
+                    int j;
+
+                    for (j = 0; j < 3; ++j)
+                    {
+                        float mid = (l->mins[j] + l->maxs[j]) * 0.5f, half = (l->maxs[j] - l->mins[j]) * 0.5f - 1.0f;
+
+                        p[j] = mid + (k >> j & 1 ? half : -half) * t;
+                    }
+                    if (point_leaf(p) == i)
+                        break;
+                }
+                if (t <= 0.2f)
+                    continue;
+                for (s = 0; s < 6; ++s)
+                    render(p, dirs[s][0], dirs[s][1], dirs[s][2], face_ok, seen);
+            }
         }
         for (i = 0; i < nfaces; ++i)
             if (seen[i])
@@ -321,6 +528,14 @@ int                 main(int argc, char **argv)
                 allowed += face_ok[i];
             fprintf(stderr, "  cluster %d/%d: %d faces seen of %d in the PVS\n", c, nclusters, total, allowed);
         }
+    }
+    if (check)
+    {
+        printf("check: %d points, %d see faces not listed (%.1f%%), %.2f faces and %.1f pixels (of 6 x %d x %d) a point; "
+               "the worst %d pixels at %.0f %.0f %.0f\n", ck_points, ck_bad, 100.0 * ck_bad / (ck_points ? ck_points : 1),
+               (double)ck_faces / (ck_points ? ck_points : 1), (double)ck_px / (ck_points ? ck_points : 1), res, res,
+               ck_worst, ck_at[0], ck_at[1], ck_at[2]);
+        return 0;
     }
     f = fopen(argv[2], "wb");
     fwrite(out, (size_t)rowf, nclusters, f);

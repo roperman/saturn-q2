@@ -2223,3 +2223,44 @@ round: a model is drawn where its origin's leaf is in the list, and one
 whose origin is across one of the BSP's planes from part of it can be
 drawn before a face that's behind that part. Not fixed: drawing a model at
 the nearest leaf it touches would draw others over walls in front of them.)
+
+## 49. Far faces missing: the faces' visibility lists (a setting)
+
+Roper: from one place on Outer Base the far walls through a doorway show,
+from a little further back they don't (the sky instead). DROP and FULL
+were 0: nothing ran out; those faces weren't in the list at all. Each
+cluster's list of the faces it can see (tools/facevis.c, section 22) is
+made by rendering from points in the cluster: each leaf's middle and a
+few random ones, 24 a cluster. Where none of them sees a face, it isn't
+drawn from anywhere in the cluster.
+
+**Measuring it.** `facevis in.bin out.bin --check n`: n new random points a
+cluster, each rendered, and what they see that their cluster's list hasn't
+(faces, and pixels of the six 128 x 128 views). `--at x y z`: one point,
+its leaf and cluster (`FACEVIS_PVS=1`: within the PVS only, as the game
+draws). `--view x y z yaw out.ppm`: a picture of it (the sky red).
+
+| points seeing a face their cluster's list hasn't | Outer Base | Installation | Comm Center |
+|---|---|---|---|
+| 24 a cluster (as it was) | 31% (23.9 pixels a point) | 32% (14.8) | 30% (26.6) |
+| and each leaf's eight corners | 23% (12.2) | | |
+| 64, and the corners | 10% (4.6) | 10% (1.9) | 8% (3.4) |
+
+(The corners: a leaf's far ends see what its middle doesn't; each drawn in
+towards the middle until it's in the leaf. More resolution changed nothing.
+24 as it was gives the lists as they were, bit for bit: the same check.)
+
+But fuller lists cost: more faces listed, and more leaves "seen" so more
+models drawn that are behind walls (4.9 -> 6.0 a fight frame). The NTSC
+fight 36.7 / 35.2 -> 38.3 / 36.7 ms, 106 -> 152 pictures up 3 fields; PAL
+CPU 36.5 -> 38.1; the static benchmark's CPU 1781 -> 1852. So it's a
+setting, the old way the default (the default build after it all: NTSC
+36.5 / 34.9 ms, 99 of 548 up 3 fields; PAL 36.2; the static benchmark 1790):
+`FACEVIS=64c ./build.sh` (README: Settings; build.sh rebakes when it
+changes, and the lists are cached by the tool's source too).
+
+And Roper's place itself: on a walkway 176 units up, at the edge of where
+you can go. From there, with the fuller lists, nothing in the PVS that can
+be seen is missing (0 faces from the second place, 1 face, 2 pixels, from
+the first); what is missing is outside its cluster's PVS, Quake's own
+visibility (the map's compile), which the game draws by as Quake 2 does.

@@ -552,7 +552,7 @@ class Baker:
         lump("leaflight", self.leaf_light(faces))
         # which faces each cluster can really see (tools/facevis.c): Quake's run-length zeros, per
         # cluster an offset then the rows
-        rows = self.facevis()
+        rows = self.facevis(self.facevis_setting)
         offs, body = [], bytearray()
         for r in rows:
             offs.append(len(body))
@@ -745,9 +745,11 @@ class Baker:
         data = open(cache, "rb").read()
         return [(r[0], r[1], r[2:5], r[5:8]) for r in struct.iter_unpack("<2H6h", data)]
 
-    def facevis(self, samples=24, res=128):
+    def facevis(self, setting="24", res=128):
         """per cluster, a bit per face: can it be seen from anywhere in the cluster
-        (tools/facevis.c renders from sample points). Cached in obj/ by the map's hash."""
+        (tools/facevis.c renders from sample points: each leaf's middle, random ones, and with a
+        "c" its corners: --facevis=24, 64c, ...). Cached in obj/ by the map's hash and the tool's."""
+        samples = int(setting.rstrip("c")) | (0x10000 if setting.endswith("c") else 0)
         import hashlib
         import subprocess
         b = self.bsp
@@ -777,14 +779,17 @@ class Baker:
             blob += struct.pack("<4f2i", *pn, pd, n[1][0], n[1][1])
         for c in range(b.numclusters):
             blob += b.pvs(c)
-        key = hashlib.sha1(bytes(blob)).hexdigest()[:16]
+        key = hashlib.sha1(bytes(blob) + open(src, "rb").read()).hexdigest()[:16]
         cache = os.path.join(root, "obj", "facevis_%s.bin" % key)
         if not os.path.exists(cache):
             inp = cache + ".in"
             with open(inp, "wb") as fo:
                 fo.write(blob)
-            print("  facevis: rendering from %d samples a cluster (a few minutes)..." % samples)
+            print("  facevis: rendering from %s samples a cluster (minutes)..." % setting)
             subprocess.check_call([tool, inp, cache])
+            # (how good: new random points, 2 a cluster: what they see that their cluster doesn't list)
+            print("  facevis " + subprocess.run([tool, inp, cache, "--check", "2"], capture_output=True,
+                                                text=True).stdout.strip())
             os.remove(inp)
         data = open(cache, "rb").read()
         row = (len(b.faces) + 7) // 8
@@ -966,6 +971,7 @@ def main():
     bsp = Bsp(pak.read(args[1]))
     baker = Baker(pak, bsp, int(opts.get("res", 2)), float(opts.get("bright", 1.0)))
     baker.lod_min = int(opts.get("lodmin", LOD_MIN))     # (a bigger level, fewer coarse grids: the cart's 4 MB)
+    baker.facevis_setting = opts.get("facevis", "24")      # (--facevis=64c: more samples, the leaves' corners)
     baker.portals = int(opts.get("portals", 0))          # (--portals=1: the renderer's test, OPT=-DPORTALS)
     baker.bake(args[2], opts.get("preview"))
 

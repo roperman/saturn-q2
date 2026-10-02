@@ -106,8 +106,9 @@ Then:
     ./run.sh        # runs it in Mednafen (REGION=jp or na for NTSC)
 
 The first build bakes all three levels, which takes a few minutes: working
-out which faces each part of a level can see is slow, and cached in `obj/`
-after. `MAP=demo2 ./build.sh` starts the game on another level.
+out which faces each part of a level can see (rendering it from points all
+over each part) is slow, and cached in `obj/` after.
+`MAP=demo2 ./build.sh` starts the game on another level.
 
 ### Settings
 
@@ -125,6 +126,13 @@ or save. Change them there, or give them to the build:
 | `BRIGHT` | 0 | brightness, 0 to 4 (also in Options) |
 | `NO_WATER` | off | the water's waves off (also in Options) |
 | `NO_GAME_DURING_DRAW`, `NO_LIGHT_AHEAD`, `NO_PIPE` | off | each a little less latency for a slower frame |
+
+And one for the levels' bake, given to `build.sh` as `FACEVIS=64c ./build.sh`:
+which faces each part of a level can see, worked out from 64 points a part and
+each leaf's corners rather than 24 points. Far faces go missing less often (on
+Outer Base, of points that see a face their part's list hasn't, 31% -> 10%),
+but the lists are fuller: the NTSC fight 35.2 -> 36.7 ms of CPU. The bake takes
+a few minutes more a level (cached in `obj/`).
 
 ## Running
 

@@ -356,7 +356,11 @@ void                level_facevis(int cluster, u8 *bits)
 {
     int             bytes = (lv.nfaces + 7) >> 3;
 
+#ifdef NO_FACEVIS
+    if (1)                                  /* (OPT=-DNO_FACEVIS: every face the PVS lets through) */
+#else
     if (cluster < 0 || !lv.facevis)
+#endif
     {
         memset(bits, 0xFF, (u32)bytes);
         return;

@@ -69,6 +69,7 @@ typedef struct
 
 /* flags */
 #define FL_PARTIALGROUND (1)
+#define FL_STEPPED      (2)                 /* (this tick: its own step put it on the ground) */
 
 /* kinds */
 #define EK_FREE         (0)
@@ -80,7 +81,8 @@ typedef struct
 #define EK_OBJECT       (6)                 /* barrels and the like: a model, solid, can be shot */
 
 #define MASK_MONSTERSOLID (CONTENTS_SOLID | 0x20000 | CONTENTS_WINDOW | CONTENTS_MONSTER)
-#define MASK_SHOT       (CONTENTS_SOLID | CONTENTS_MONSTER | CONTENTS_WINDOW | 0x4000000)
+#define CONTENTS_DEADMONSTER (0x4000000)    /* (a body: shots and blasts find it, nothing walks into it) */
+#define MASK_SHOT       (CONTENTS_SOLID | CONTENTS_MONSTER | CONTENTS_WINDOW | CONTENTS_DEADMONSTER)
 #define MASK_OPAQUE     (CONTENTS_SOLID | CONTENTS_SLIME | CONTENTS_LAVA)
 #define MASK_SOLID_ONLY (CONTENTS_SOLID | CONTENTS_WINDOW)
 
@@ -219,7 +221,7 @@ void                g_muzzle_flash(const s32 *p, u8 r, u8 g, u8 b);
 s32                 crandom(void);          /* -1..1 (16.16) */
 s32                 frandom(void);          /* 0..1 */
 int                 vectoyaw(const s32 *v);
-s32                 vlen(const s32 *v);     /* units (16.16), up to a few thousand */
+s32                 vlen(const s32 *v);     /* units (16.16); to a quarter of a unit past 1024 */
 
 /* g_ai.c: g_ai.c and m_move.c */
 void                ai_move(g_ent *self, s32 dist);

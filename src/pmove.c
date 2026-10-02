@@ -243,12 +243,15 @@ static void         clip_velocity(s32 *v, const s32 *n, s32 overbounce)
     }
 }
 
+static bool         slide_clear;            /* (the last slide: the whole way, nothing touched) */
+
 static void         step_slide_move_(void)
 {
     s32             planes[MAX_CLIP_PLANES][3], primal[3], end[3], time_left = frametime;
     int             bump, numplanes = 0, i, j, k;
     q_trace         t;
 
+    slide_clear = false;
     for (i = 0; i < 3; ++i)
         primal[i] = pl.velocity[i];
     for (bump = 0; bump < 4; ++bump)
@@ -261,6 +264,7 @@ static void         step_slide_move_(void)
             pl.velocity[2] = 0;                 /* trapped */
             return;
         }
+        slide_clear = bump == 0 && t.fraction == FIX(1);
         if (t.fraction > 0)
         {
             for (i = 0; i < 3; ++i)
@@ -328,6 +332,9 @@ static void         step_slide_move(void)
         start_v[i] = pl.velocity[i];
     }
     step_slide_move_();
+    if (slide_clear)
+        return;                                 /* (the whole way with nothing in it: a step up can't go further,
+                                                   and pushed back down lands here; three traces saved) */
     for (i = 0; i < 3; ++i)
     {
         down_o[i] = pl.origin[i];

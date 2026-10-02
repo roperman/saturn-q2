@@ -41,9 +41,12 @@ int                 vectoyaw(const s32 *v)
 
 s32                 vlen(const s32 *v)
 {
-    u32             x = (u32)iabs(v[0] >> 11), y = (u32)iabs(v[1] >> 11), z = (u32)iabs(v[2] >> 11);
+    /* in units x 32 while the squares fit (a side under ~1180 units), else units x 4: a level
+       spans up to 5200 units, and past 1024 a quarter of a unit is plenty */
+    int             sh = iabs(v[0]) < FIX(1024) && iabs(v[1]) < FIX(1024) && iabs(v[2]) < FIX(1024) ? 11 : 14;
+    u32             x = (u32)iabs(v[0] >> sh), y = (u32)iabs(v[1] >> sh), z = (u32)iabs(v[2] >> sh);
 
-    return (s32)(isqrt(x * x + y * y + z * z) << 11);
+    return (s32)(isqrt(x * x + y * y + z * z) << sh);
 }
 
 /* ---- traces: the world and movers (pm_trace's), then boxes for the entities ---- */
@@ -220,8 +223,8 @@ q_trace             g_trace(const s32 *start, const s32 *mins, const s32 *maxs, 
             continue;
         if (e == pass || e->kind == EK_FREE || !e->solid)
             continue;
-        if (e->kind == EK_PLAYER && (pl.noclip || e->dead))
-            continue;
+        if (e->kind == EK_PLAYER ? pl.noclip || e->dead : e->dead && !(mask & CONTENTS_DEADMONSTER))
+            continue;                       /* (a body: only shots) */
         for (k = 0; k < 3; ++k)
         {
             bmin[k] = e->origin[k] + e->mins[k];
@@ -517,10 +520,15 @@ static __attribute__((cold)) void         monster_use(g_ent *self, g_ent *other,
 
 static __attribute__((cold)) void         monster_triggered_spawn(g_ent *self, g_ent *other, g_ent *activator)
 {
+    int             k;
+
     self->inactive = false;
     self->solid = true;
     self->use = monster_use;
     M_droptofloor(self);
+    self->leaf = (s16)level_leaf(self->origin);     /* (where it dropped to: g_render_ents' PVS test) */
+    for (k = 0; k < 3; ++k)
+        self->old_origin[k] = self->origin[k];
     if (activator && activator->kind == EK_PLAYER)
     {
         self->enemy = activator;
@@ -781,6 +789,8 @@ __attribute__((cold)) void g_init(void)
             }
             e->takedamage = true;
             ++total_monsters;
+            for (k = 0; k < 3; ++k)
+                e->old_origin[k] = e->origin[k];    /* (where its spawn dropped it to: no blend from above) */
             if (e->spawnflags & 2)
             {
                 /* not there until something triggers it */
@@ -880,10 +890,12 @@ static void         g_tick_monsters(int g)
         e->old_frame = e->frame;
         if (!e->move)
             continue;                       /* dead and done */
+        e->flags &= ~FL_STEPPED;
         M_MoveFrame(e);
-        /* ground checks only when it's moved or is in the air (Quake's linkcount test) */
-        if (!e->on_ground || e->origin[0] != e->old_origin[0] || e->origin[1] != e->old_origin[1]
-            || e->origin[2] != e->old_origin[2])
+        /* ground checks only when it's in the air, or moved other than by a step that found the
+           floor (Quake's: the step's trace is its groundentity; a box trace saved a tick) */
+        if (!e->on_ground || (!(e->flags & FL_STEPPED) && (e->origin[0] != e->old_origin[0]
+            || e->origin[1] != e->old_origin[1] || e->origin[2] != e->old_origin[2])))
             monster_physics(e);
         if (e->origin[0] != e->old_origin[0] || e->origin[1] != e->old_origin[1] || e->origin[2] != e->old_origin[2])
             e->leaf = (s16)level_leaf(e->origin);   /* (g_render_ents': is it in view) */

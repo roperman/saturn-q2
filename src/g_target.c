@@ -221,8 +221,8 @@ void                T_RadiusDamage(const s32 *p, g_ent *inflictor, g_ent *attack
         s32     v[3], points, len;
         q_trace t;
 
-        if (e == ignore || !e->takedamage || e->kind == EK_FREE || e->dead || e->inactive)
-            continue;
+        if (e == ignore || !e->takedamage || e->kind == EK_FREE || e->inactive)
+            continue;                       /* (a body takes it too: gibbed, if enough) */
         for (k = 0; k < 3; ++k)
             v[k] = e->origin[k] + (e->mins[k] >> 1) + (e->maxs[k] >> 1) - p[k];
         len = vlen(v);

@@ -121,7 +121,8 @@ static bool         SV_movestep(g_ent *ent, const s32 *move)
         return false;
     }
     ent->flags &= ~FL_PARTIALGROUND;
-    ent->on_ground = true;
+    ent->flags |= FL_STEPPED;
+    ent->on_ground = true;                  /* (on what the step's trace found: Quake's groundentity) */
     return true;
 }
 
@@ -399,8 +400,6 @@ void                FoundTarget(g_ent *self)
     {
         sight_entity = self;                /* other monsters that see this one wake up too */
         sight_entity_framenum = level.framenum;
-        if (self->sight)
-            self->sight(self);              /* (its "there you are") */
     }
     self->show_hostile = level.time + FIX(1);
     for (k = 0; k < 3; ++k)
@@ -485,7 +484,7 @@ bool                FindTarget(g_ent *self)
     }
     FoundTarget(self);
     if (!(self->aiflags & AI_SOUND_TARGET) && self->sight)
-        self->sight(self);
+        self->sight(self);                  /* (its "there you are": only on seeing you, as Quake) */
     return true;
 }
 
@@ -506,6 +505,8 @@ static bool         M_CheckAttack(g_ent *self)
         return false;                       /* something's in the way */
     if (enemy_range == RANGE_MELEE)
     {
+        if (g_skill == 0 && (rng() & 3))
+            return false;                   /* (easy: not every time it's in reach) */
         self->attack_state = AS_MISSILE;    /* soldiers have no melee */
         return true;
     }
@@ -519,6 +520,10 @@ static bool         M_CheckAttack(g_ent *self)
         chance = FIX(0.02);
     else
         return false;
+    if (g_skill == 0)
+        chance >>= 1;                       /* (Quake's: half as often on easy, twice on hard) */
+    else if (g_skill >= 2)
+        chance <<= 1;
     if (frandom() < chance)
     {
         self->attack_state = AS_MISSILE;

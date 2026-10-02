@@ -175,7 +175,7 @@ void                movers_update(s32 dt)
         const q_mover   *mv = &lv.movers[m];
         m_state         *s = &ms[m];
         s32             rest = rest_frac(mv), far = FIX(1) - rest, target, nf, before[3], delta[3];
-        bool            triggered;
+        bool            triggered, blocked;
 
         if (mv->kind < MV_DOOR)
             continue;
@@ -232,7 +232,8 @@ void                movers_update(s32 dt)
 
             s->frac = nf;
             place(m);
-            if (pl.ground_ent != m && blocks_player(m, mover_ofs[m]) && mv->kind == MV_DOOR && s->state == M_RETURNING)
+            blocked = pl.ground_ent != m && blocks_player(m, mover_ofs[m]);
+            if (blocked && mv->kind == MV_DOOR && s->state == M_RETURNING)
             {
                 /* closing on the player: stay put and open again */
                 s->frac = was;
@@ -241,7 +242,7 @@ void                movers_update(s32 dt)
                 continue;
             }
         }
-        if (pl.ground_ent != m && blocks_player(m, mover_ofs[m]))
+        if (blocked)
         {
             /* a lift coming up under the player: lift them */
             for (k = 0; k < 3; ++k)

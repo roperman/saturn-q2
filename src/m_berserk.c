@@ -115,8 +115,7 @@ static void         berserk_sight(g_ent *self)
 
 static void         berserk_dead(g_ent *self)
 {
-    self->maxs[2] = -FIX(8);
-    self->solid = false;
+    self->maxs[2] = -FIX(8);                /* (a body: shot or blown up again, it's gibbed; nothing walks into it) */
     self->move = NULL;
 }
 

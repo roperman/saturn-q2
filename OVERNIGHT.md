@@ -2078,3 +2078,35 @@ and only in a crowd.
 
 HWRAM left after it all: demo1 96 bytes, demo2 14,608, demo3 32 (the cart
 as before: 212,992, 98,304, 2,048; DSP walls on).
+
+## 44. The monsters' coarse mesh nearer: tried, left at 400 units
+
+`OPT=-DMODEL_FAR=n` (or `r_model_far`) sets where a monster takes its
+coarse mesh (a third of the polygons, the first 41 to 67 vertices).
+
+**The fight** (NTSC, CPU 35.1 ms at 400) didn't move at 300, 200 or 150:
+its monsters are beyond 400 units nearly all the time, coarse already.
+
+**The static benchmark** (PAL, its 6 views summed, 0.1 ms):
+
+| from | CPU | frames | models |
+|---|---|---|---|
+| 400 units | 1766 | 2257 | 10.1 ms |
+| 250 | 1723 | 2259 | 8.5 |
+| 200 | 1697 | 2232 | 7.7 |
+| 150 | 1691 | 2239 | 7.5 |
+
+(view 6: CPU 35.1 -> 32.0 ms at 200; the frames move little, held to whole
+fields.)
+
+**The look.** `COMPARE=far CMP_EXTRA="-DFAR_LINEUP -DMODEL_FAR=30000 -DFAR_B=0"
+tools/compare.sh`: each held view stands you in front of a soldier, then an
+infantry (the game's own entities: the renderer's are only those in sight),
+150, 200 and 300 units off where a line to it is clear, and UP flips its
+whole mesh for the coarse one. The soldier's shoulders and arms go blocky
+at 150, less so at 200; the infantry loses its gun arm's shape and the red
+glow on it at 150 and 200. (`COMPARE=far` alone: the benchmark's own views,
+400 against 200: only two views differ, their monsters 15 to 30 pixels
+tall.)
+
+Left at 400, the user's call.

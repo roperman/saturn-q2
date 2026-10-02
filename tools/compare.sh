@@ -2,8 +2,9 @@
 # Pixel-compare the benchmark's views with a renderer switch on and off (the
 # BENCH_HOLD build: DOWN steps to the next view, UP flips r_cells_asm; with
 # COMPARE=models draw_model's old loops, with COMPARE=prefetch the faces'
-# prefetch).
-#   [COMPARE=models|prefetch] [CMP_EXTRA=-D...] tools/compare.sh [outdir]
+# prefetch, with COMPARE=far the monsters' coarse mesh from 200 units
+# (CMP_EXTRA=-DFAR_B=n: from n)).
+#   [COMPARE=models|prefetch|far] [CMP_EXTRA=-D...] tools/compare.sh [outdir]
 # Builds with OPT=-DBENCH_HOLD (rebuild normally afterwards), prints each
 # view's differing pixels, and saves a/b pairs plus diffN.png (differences
 # in magenta, doubled) in outdir.

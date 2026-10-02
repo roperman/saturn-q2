@@ -31,7 +31,8 @@ held, 14 of 494); 36.5 ms and 142 of 526 since the traces' brush sides
 (section 40), and the box traces in assembly (section 41) took a frame's
 traces from 7.4 to 6.4 ms; the models' light after the slave's hand-off
 (section 42): 35.3 ms, 110 of 542; the far monsters' vertices first and the DSP's list in what
-HWRAM's left (section 43): 35.1 ms, 104 of 545. The walls' dynamic lights are mostly the DSP's now
+HWRAM's left (section 43): 35.1 ms, 104 of 545 (the coarse mesh nearer: no gain in the fight,
+its monsters far already; section 44). The walls' dynamic lights are mostly the DSP's now
 (section 34): what's left is the game's tick (11 ms a frame on average, ~30
 at its slowest), the slave's drawing (~33 ms, the monsters' 4.9 of it) and
 the half-transparent water and glass.

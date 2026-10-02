@@ -203,6 +203,43 @@ static const s32    bench_sky[][5] = {
 # define BENCH_FRAMES   (16)
 #endif
 static int          bench_view = -1, bench_frame;
+#ifdef FAR_LINEUP
+/* (OPT="-DBENCH_HOLD -DFAR_LINEUP", tools/compare.sh with COMPARE=far: each view a monster, a
+   soldier and then an infantry, from 150, 200 and 300 units, from where it can be seen: with
+   CMP_EXTRA="-DFAR_LINEUP -DMODEL_FAR=30000 -DFAR_B=0", its whole mesh against its coarse one) */
+static void         far_lineup(int view)
+{
+    static const int dist[3] = { 150, 200, 300 };
+    const q_mdl     *want = &models[view < 3 ? MDL_SOLDIER : MDL_INFANTRY];
+    int             i, k;
+
+    for (i = 1; i < g_nfull && !(g_edicts[i].mdl == want && !g_edicts[i].dead && !g_edicts[i].inactive); ++i)
+        ;
+    for (k = 0; i < g_nfull && k < 16; ++k)
+    {
+        const g_ent     *e = &g_edicts[i];  /* (the game's: the renderer's are only those in sight) */
+        int             a = (e->yaw + k * 4096) & 0xFFFF;
+        s32             o[3], p[3];
+        q_trace         t;
+
+        o[0] = e->origin[0];
+        o[1] = e->origin[1];
+        o[2] = p[2] = e->origin[2] + FIX(8);
+        p[0] = o[0] + dist[view % 3] * fcos(a);
+        p[1] = o[1] + dist[view % 3] * fsin(a);
+        t = trace_line(o, p, 0, CONTENTS_SOLID | CONTENTS_WINDOW);
+        if (t.fraction == FIX(1) && !t.startsolid)
+        {
+            cam.pos[0] = p[0];
+            cam.pos[1] = p[1];
+            cam.pos[2] = p[2];
+            cam.yaw = (a + 0x8000) & 0xFFFF;
+            cam.pitch = 0;
+            return;
+        }
+    }
+}
+#endif
 static u32          bench_acc[NBENCH][7];   /* walk, master, slave, cpu, frame (us, summed), vblanks waiting for VDP1, the lists' DMA */
 static u32          bench_prof[15];         /* setup, grid, cells, slow, models, nfast, nslow, faces, the models' light, verts, polys */
 #ifdef R_PROFILE
@@ -1232,6 +1269,21 @@ void                main(void)
 
                     r_model_ref = !r_model_ref;
                 }
+#elif defined(COMPARE_FAR)
+                if (pressed(PAD_UP))
+                {
+                    /* (COMPARE=far [CMP_EXTRA=-DFAR_B=n]: the monsters' coarse mesh from MODEL_FAR
+                       or from n units, 200 if not said) */
+#ifndef FAR_B
+#define FAR_B           (200)
+#endif
+                    extern int r_model_far;
+                    static int other = FAR_B;
+                    int t = r_model_far;
+
+                    r_model_far = other;
+                    other = t;
+                }
 #else
                 if (pressed(PAD_UP))
                 {
@@ -1254,6 +1306,9 @@ void                main(void)
             view_on = true;                 /* (the turns with the gun up: its textures in the cache too) */
 #endif
             cam.pitch = (int)bv[4];
+#ifdef FAR_LINEUP
+            far_lineup(bench_view);
+#endif
             cam_update();
             render_sky();
             lights_lag();                   /* (last frame's lights, for the models') */

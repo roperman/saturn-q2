@@ -4990,6 +4990,15 @@ static inline bool  in_pvs(int n)
     return n >= 0 ? node_vis[n] == visframe : leaf_vis[-(n + 1)] == visframe;
 }
 
+/* an entity's distance from the camera, squared (whole units) */
+static inline u32   ent_dist2(const q_entity *e)
+{
+    s32             dx = (e->origin[0] - cam.pos[0]) >> 16, dy = (e->origin[1] - cam.pos[1]) >> 16;
+    s32             dz = (e->origin[2] - cam.pos[2]) >> 16;
+
+    return (u32)(dx * dx + dy * dy + dz * dz);
+}
+
 /* what a leaf in view holds besides its faces: entities (unless none of the
    leaf can be seen), sprites, brush models (walked on their own). The walk in
    assembly calls this for a leaf with any. */
@@ -6496,8 +6505,18 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
             continue;
         l = ents[i].g_leaf >= 0 && !ents[i].g_moved ? ents[i].g_leaf : level_leaf(ents[i].origin);  /* (ents_light's) */
         ent_leaf[i] = l;
-        ent_next[i] = leaf_ent[l];
-        leaf_ent[l] = (s16)i;
+        {
+            /* into its leaf's list nearest first, as the drawing list goes (two models in one
+               leaf were drawn in the order they happened to be listed: the farther over the
+               nearer, two medkits side by side) */
+            u32 d = ent_dist2(&ents[i]);
+            s16 *p = &leaf_ent[l];
+
+            while (*p >= 0 && ent_dist2(&ents[*p]) < d)
+                p = &ent_next[*p];
+            ent_next[i] = *p;
+            *p = (s16)i;
+        }
     }
     PROF(rs.us_pre = frt_to_us((frt_read() - t0) & 0xFFFF));
     /* the models' vertices: the DSP starts on them now; the gun's records on their way */

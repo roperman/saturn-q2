@@ -1318,6 +1318,15 @@ void                main(void)
             }
 #endif
             bv = bench_views[bench_view];
+#ifdef USER_VIEWS
+            {
+                /* (OPT="-DBENCH_HOLD -DUSER_VIEWS=..." : views of your own, x y z of where you
+                   stood (the stats screen's), yaw; the eye 22 above) */
+                static const s32 uv[][5] = { USER_VIEWS };
+
+                bv = uv[bench_view % (int)(sizeof(uv) / sizeof(uv[0]))];
+            }
+#endif
 
             cam.pos[0] = FIX(bv[0]);
             cam.pos[1] = FIX(bv[1]);

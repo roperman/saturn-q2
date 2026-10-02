@@ -2203,3 +2203,23 @@ More room in all costs fast RAM (the list is built in HWRAM: 32 bytes a
 command, which demo3 hasn't got) and the texture cache's VRAM (64 bytes a
 command, the two lists): a choice to make if holes stay where both lists
 are full.
+
+## 48. Two models in one leaf: the nearer drawn over the farther
+
+Roper: two medkits side by side, the far one over the near. Each leaf's
+models were listed in the order the entities came (the walk lists a leaf's
+faces and models nearest first, and the drawing goes back to front from
+it); now each goes into its leaf's list by its distance from the camera,
+nearest first (render_world: a few multiplies an entity). The barrels'
+views: the same pixels but where models overlap (14, 16, 145 pixels in
+three of six).
+
+`OPT="-DBENCH_HOLD -DUSER_VIEWS={x,y,z,yaw,pitch},..."` (with
+tools/compare.sh) holds views of your own: the stats screen's place (its
+x y z, the eye 22 above) and its yaw, to look where someone else did.
+
+(Half a soldier against a wall, Roper's other picture, is the other way
+round: a model is drawn where its origin's leaf is in the list, and one
+whose origin is across one of the BSP's planes from part of it can be
+drawn before a face that's behind that part. Not fixed: drawing a model at
+the nearest leaf it touches would draw others over walls in front of them.)

@@ -2171,3 +2171,35 @@ benchmark 1765 / 2260).
 
 (The barrel is browner than Quake 2's grey: its one colour table of 15 for
 the whole skin, `sharedlut`, takes the red badge and the grey into browns.)
+
+## 47. Holes in big views: a CPU's command list full
+
+Roper: holes in far-off things in a big room on Outer Base, and a roof on
+Installation that flickers, the sky showing through. There's no draw
+distance (everything the PVS and the faces' visibility lists give is
+drawn); what isn't drawn is what a full list or texture cache drops. Each
+CPU has its own part of the VDP1 list (build.sh: the master 1,100 commands,
+the slave 1,300, 400 for the gun and text), and the texture cache its own
+half; a cell or polygon that finds no room is left out (the stats screen's
+DROP and FULL; now the benchmarks' too: `DROP n FULL n` under the static
+benchmark's table, `CMDS MOST ... DROP ... FULL` under the fight's). Which
+faces go depends on where the two CPUs met in the list, which moves from
+frame to frame: the flicker.
+
+The static benchmark on Outer Base dropped 210 commands (the master's
+list full in one view, the slave's with room); the fight, none (the master
+draws less there: the game's tick is its), its most M455 S951.
+
+**The fix, without memory:** a CPU within `CMD_SPARE` (96) commands of its
+list's end stops taking items, and the other (they meet in the list) takes
+the rest; both lists full is the only way to drop now. The order holds: the
+master's items are the far end, drawn first; what it leaves is nearer than
+its own and farther than all the slave's. The static benchmark: 210
+dropped -> 0, the most M1007 S1208; the view that dropped 1.2 ms slower (it
+draws what it didn't); views 1-3 the same pixels, 4 and 5 under 100 pixels
+(the split between the CPUs). The fight the same (NTSC 36.7 / 35.2 ms).
+
+More room in all costs fast RAM (the list is built in HWRAM: 32 bytes a
+command, which demo3 hasn't got) and the texture cache's VRAM (64 bytes a
+command, the two lists): a choice to make if holes stay where both lists
+are full.

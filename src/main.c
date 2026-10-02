@@ -155,6 +155,7 @@ static u32          fight_gun;                  /* the gun in your hands (us) */
 #ifdef MF_PROF
 static u32          fight_mf[12];               /* (render.c's mf_t, mf_v, mf_m as the fight ended) */
 #endif
+static u32          fight_drop[2];              /* commands dropped (a CPU's list full), textures not drawn (its cache full) */
 static u32          fight_vph[4];               /* ...its vertices, sort, commands, kept (render.c view_ph) */
 static u32          fight_r[14];
 #ifdef R_PROFILE
@@ -260,6 +261,7 @@ static void         far_lineup(int view)
 }
 #endif
 static u32          bench_acc[NBENCH][7];   /* walk, master, slave, cpu, frame (us, summed), vblanks waiting for VDP1, the lists' DMA */
+static u32          bench_drop[2];          /* commands dropped (a CPU's list full), textures not drawn (its cache full) */
 static u32          bench_prof[15];         /* setup, grid, cells, slow, models, nfast, nslow, faces, the models' light, verts, polys */
 #ifdef R_PROFILE
 static u32          bench_ax[8];            /* the faces' transforms, the C before a whole face's cells, rows a row at a time,
@@ -1245,6 +1247,7 @@ void                main(void)
                 }
 #endif
                 memset(bench_prof, 0, sizeof(bench_prof));
+                memset(bench_drop, 0, sizeof(bench_drop));
             }
 #endif
             if (pressed(PAD_L) && (pad_now & PAD_START))
@@ -1395,6 +1398,8 @@ void                main(void)
                 bench_prof[11] += (u32)rs.nexact;
                 bench_prof[13] += rs.t_mfar;
                 bench_prof[14] += (u32)rs.mfar;
+                bench_drop[0] += (u32)rs.dropped;
+                bench_drop[1] += (u32)rs.nocache;
                 bench_prof[12] += (u32)rs.models;
                 bench_prof[5] += rs.us_tree;
 #ifdef R_PROFILE
@@ -1692,8 +1697,9 @@ void                main(void)
                                walk_frames);
                 }
 #endif
-                vdp_printf(8, 106 + (NBENCH + 2) * 9, RGB(160, 255, 160), "MODELS %d, FAR %d: %d.%dMS", bench_prof[12] / n,
-                           bench_prof[14] / n, bench_prof[13] / n / 1000, bench_prof[13] / n / 100 % 10);
+                vdp_printf(8, 106 + (NBENCH + 2) * 9, RGB(160, 255, 160), "MODELS %d, FAR %d: %d.%dMS DROP %d FULL %d",
+                           bench_prof[12] / n, bench_prof[14] / n, bench_prof[13] / n / 1000, bench_prof[13] / n / 100 % 10,
+                           bench_drop[0], bench_drop[1]);
                 vdp_printf(8, 106 + (NBENCH + 3) * 9, RGB(255, 200, 160), "OUT M%d S%d OF %d LATE %d CMD %d %d %d",
                            at_end[0], at_end[1], NBENCH * BENCH_FRAMES, at_end[12], at_end[2], at_end[3], at_end[4]);
 #ifdef TEX_WSET
@@ -1759,6 +1765,8 @@ void                main(void)
             vdp_printf(8, 80, RGB(255, 255, 120), "SWAPS %d BAD %d BUSY %d", swap_n[0], swap_n[1], swap_n[2]);
 #endif
             /* (how many pictures were up 1, 2, 3 and 4+ fields: 30 fps on NTSC is all of them 2) */
+            vdp_printf(8, 196, RGB(255, 200, 160), "CMDS MOST M%d S%d GUN %d DROP %d FULL %d", vdp_peak[0], vdp_peak[1],
+                       vdp_peak[2], fight_drop[0], fight_drop[1]);
             vdp_printf(8, 187, RGB(255, 220, 120), "FIELDS UP 1:%d 2:%d 3:%d 4+:%d", fight_swaps[1], fight_swaps[2],
                        fight_swaps[3], fight_swaps[4] + fight_swaps[5] + fight_swaps[6] + fight_swaps[7]);
             vdp_printf(8, 106, RGB(255, 255, 255), "FRAME %d.%d CPU %d.%d MS", fight_us / n / 1000,
@@ -2149,6 +2157,8 @@ void                main(void)
                 fight_cpu += us_cpu;
                 fight_ldma += vdp_us_dma;           /* (the lists' DMA, vdp_submit's: after us_cpu) */
                 fight_game += us_game;
+                fight_drop[0] += (u32)rs.dropped;
+                fight_drop[1] += (u32)rs.nocache;
                 {
                     int k;
 

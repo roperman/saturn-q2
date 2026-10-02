@@ -6153,6 +6153,13 @@ static void         r_late_uploads(void)
     }
 }
 
+/* Commands a CPU keeps in hand for the item it's drawing: nearer its list's end than this, it
+   stops taking items and the other CPU (they meet in the list) takes the rest, so a frame
+   drops nothing unless both lists are full */
+#ifndef CMD_SPARE
+#define CMD_SPARE       (96)
+#endif
+
 static void         part_begin(r_ctx *x)
 {
     memset(&x->st, 0, sizeof(x->st));
@@ -6189,6 +6196,8 @@ void                render_slave(void)
 
         if (lo < n && lo < hi)
         {
+            if (x->w->count > x->w->cmax - CMD_SPARE)
+                break;                      /* (its list nearly full: the master takes the rest) */
 #ifdef FIGHT_BENCH
             if (first)
             {
@@ -6244,9 +6253,10 @@ static void         draw_master(void)
         face_frame(x);
         SHARE->hi = hi;
         SHARE->walk_done = 1;
-        while (hi - 1 >= SHARE->lo)
+        while (hi - 1 >= SHARE->lo && x->w->count <= x->w->cmax - CMD_SPARE)
         {
-            SHARE->hi = --hi;               /* claim it, then draw it */
+            SHARE->hi = --hi;               /* claim it, then draw it (its list nearly full: the
+                                               slave takes the rest) */
             draw_item(x, hi, false);
         }
     }

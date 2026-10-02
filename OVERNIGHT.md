@@ -2301,3 +2301,9 @@ short ones went there; now LWRAM for every skill, LWRAM for this one, then
 the cart, so they stay where they were. (Installation's short ones were on
 the cart already: there was never LWRAM for them.) Restarting a level
 spawns as it did (it reads the entities' records, which stay).
+
+## 51. STATISTICS: off, the frame rate, everything
+
+Roper asked for the frame rate on its own. The options' STATISTICS goes OFF,
+FPS (the frame rate in the corner, over the last few frames) and ALL (the
+overlay as it was). `OPT=-DSTATS_FPS`: FPS from the start (`-DSTATS`: ALL).

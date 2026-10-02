@@ -1963,13 +1963,21 @@ void                main(void)
             vdp_text(160 - 20 * 4, 132, RGB(200, 200, 200), "PRESS START TO GO ON");
         }
         {
-            if (opt_stats)
+            if (opt_stats == 2)
                 vdp_printf(8, 190, RGB(255, 255, 255), "LINE %d POINTBOX %d BOX %d SHORT %d", bench_us[0], bench_us[1],
                            bench_us[2], bench_us[3]);
             if (g_player->dead)
                 vdp_text(160 - 11 * 8, 100, RGB(255, 80, 60), "YOU DIED - PRESS START");
         }
-        if (opt_stats)
+        if (opt_stats == 1)
+        {
+            /* (the options' STATISTICS FPS) the frame rate alone, over the last few frames */
+            static u32 avg_us = 33333;
+
+            avg_us = (avg_us * 7 + (u32)(us_frame ? us_frame : 1)) >> 3;
+            vdp_printf(8, 8, RGB(255, 255, 255), "FPS %d.%d", 10000000 / avg_us / 10, 10000000 / avg_us % 10);
+        }
+        if (opt_stats == 2)
         {
             u16 c = RGB(255, 255, 255);
 

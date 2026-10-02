@@ -252,7 +252,7 @@ typedef enum { MA_NONE, MA_NEW_GAME, MA_RESTART, MA_RESUME, MA_TITLE } menu_acti
 extern menu_id      menu_cur;
 extern int          g_skill;                    /* 0-2; -1: everything spawns */
 extern int          opt_volume;
-extern bool         opt_stats;
+extern int          opt_stats;            /* (menu.c) 0 off, 1 the frame rate, 2 the debugging overlay */
 extern bool         opt_crosshair;
 extern bool         opt_gun_bob;
 bool                menu_active(void);

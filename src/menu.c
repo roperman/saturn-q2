@@ -19,16 +19,19 @@ static menu_id      options_from;           /* where the options go back to */
 int                 g_skill = -1;           /* 0 easy, 1 medium, 2 hard; -1 everything (until one's chosen) */
 int                 opt_volume = 15;
 bool                opt_crosshair = true;   /* (no gun on the screen to aim by) */
-#ifdef STATS
-bool                opt_stats = true;       /* the debugging overlay (OPT=-DSTATS: on from the start) */
+#if defined(STATS_FPS)
+int                 opt_stats = 1;          /* (OPT=-DSTATS_FPS: the frame rate from the start) */
+#elif defined(STATS)
+int                 opt_stats = 2;          /* 0 off, 1 the frame rate, 2 the debugging overlay (OPT=-DSTATS: that from the start) */
 #else
-bool                opt_stats;              /* the debugging overlay */
+int                 opt_stats;              /* 0 off, 1 the frame rate, 2 the debugging overlay */
 #endif
 extern bool         game_during_draw;       /* (main.c) */
 
 /* the options, in order */
 enum { OPT_VOLUME, OPT_BRIGHT, OPT_FIGHTS, OPT_CROSSHAIR, OPT_BOB, OPT_TRANS, OPT_WATER, OPT_STATS, OPT_BACK, OPT_COUNT };
 static const char   *trans_names[4] = { "OFF", "MESH", "BLEND", "BLEND, PLAIN WATER" };
+static const char   *stats_names[3] = { "OFF", "FPS", "ALL" };
 
 static const char   *skill_names[3] = { "EASY", "MEDIUM", "HARD" };
 
@@ -111,7 +114,7 @@ menu_action         menu_input(u16 pressed)
         else if (sel == OPT_WATER)
             r_water = !r_water;
         else if (sel == OPT_STATS)
-            opt_stats = !opt_stats;
+            opt_stats = (opt_stats + d + 3) % 3;
         s_play(SND_MENU_MOVE, NULL, ATTN_NONE);
     }
     if (pressed & PAD_B)
@@ -229,7 +232,8 @@ void                menu_draw(void)
             fmt(line, "TRANSLUCENCY %s", trans_names[r_trans]);
             item_text(OPT_TRANS, 139, line);
             item_text(OPT_WATER, 154, r_water ? "WATER WAVES  ON" : "WATER WAVES OFF");
-            item_text(OPT_STATS, 169, opt_stats ? "STATISTICS  ON" : "STATISTICS OFF");
+            fmt(line, "STATISTICS %s", stats_names[opt_stats]);
+            item_text(OPT_STATS, 169, line);
             item_text(OPT_BACK, 188, "BACK");
             vdp_text(160 - 19 * 4, 204, RGB(120, 110, 90), "LEFT RIGHT TO CHANGE");
             break;

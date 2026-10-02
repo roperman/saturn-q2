@@ -220,9 +220,10 @@ _mverts_asm:
 ! 2, pushed onto that bucket's list (mnext is the 64 bytes after mhead).
 ! Screen coordinates fit 16 bits, so the products are MULS.W.
 !
-! The gun in your hands (draw_viewmodel) winds the other way (P_SIGN -1: the
-! cross product negated, kept in GBR), and its polygons across the near plane
-! aren't dropped but listed (P_NEAR), for the C to cut at the plane.
+! Every model (and the gun in your hands) passes P_SIGN -1: the cross product
+! negated (kept in GBR), as front faces wind (MODEL_FRONT 1). The gun's
+! polygons across the near plane aren't dropped but listed (P_NEAR), for the C
+! to cut at the plane.
 
 P_POLYS = 0                             ! q_mpoly: v[4], tex, flags (12 bytes)
 P_N     = 4
@@ -232,7 +233,7 @@ P_MZ    = 16
 P_HEAD  = 20                            ! mhead[32], then mnext[]
 P_ZMIN  = 24
 P_INV   = 28
-P_SIGN  = 32                            ! 0: MODEL_FRONT -1; -1: the other way round
+P_SIGN  = 32                            ! -1: MODEL_FRONT 1 (every model); 0: the other way round
 P_NEAR  = 36                            ! s16 list of those across the near plane (0: dropped)
 P_NNEAR = 40                            ! ...how many (in and out)
 
@@ -322,7 +323,7 @@ _mpolys_asm:
         xor     r0,r1
         sub     r0,r1                   ! (negated for the gun)
         cmp/pz  r1
-        bt      .Lpskip                 ! facing away (MODEL_FRONT -1)
+        bt      .Lpskip                 ! facing away
         ! its bucket: ((corner 0's depth / 2 + corner 2's / 2 - nearest) >> 16) * inv >> 16, 0 to 31
         mov.w   @r14,r0
         extu.w  r0,r0

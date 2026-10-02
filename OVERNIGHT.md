@@ -2142,3 +2142,32 @@ face to the slave.
 **Not the fight's:** the walls' coarse grid nearer (`LOD_Z` 192: CPU 35.0
 ms, the same; this room's walls are big, few wholly beyond it), nor the
 monsters' (section 44).
+
+## 46. Every model was drawn inside out
+
+Roper: the barrels looked inside out, and the monsters sometimes showed the
+backs of their heads. They were: draw_model kept the polygons whose screen
+winding was MODEL_FRONT -1, and every model's front faces wind +1 (as the
+gun's do: its VIEW_FRONT 1 was put down to the guns winding the other way;
+it was the sign). So each model's near side was dropped and the inside of
+its far side drawn. A monster is near enough symmetric that it mostly looks
+like a monster from behind, mirrored; a barrel from above showed its
+bottom plate and the underside of its rim, not its lid.
+
+How it was found: `OPT="-DBENCH_HOLD -DFAR_LINEUP -DLINEUP_BARRELS"`
+(COMPARE=far tools/compare.sh) stands each view 80 units in front of the
+level's next barrel at a standing eye's height; the same barrel rendered in
+Python from the MD2 with a depth buffer (the reference), and from the baked
+file the Saturn's way (its quads, their warped textures, the depth buckets),
+both right; the Saturn's wrong, the same with the CPUs doing the vertices
+(`NO_DSP`), right with the sign flipped. The soldier and the infantry
+against references from straight in front: right only flipped.
+
+Now MODEL_FRONT is 1 and draw_model passes the gun's sign (mpolys_asm's
+-1). `-DMODEL_CHECK` in the fight: 207,784 vertices, 91,680 buckets, 2,898
+models' commands, none different from the C. The times are the same (NTSC
+36.6 / 35.1 ms, 103 of 546 up three fields; PAL CPU 36.4; the static
+benchmark 1765 / 2260).
+
+(The barrel is browner than Quake 2's grey: its one colour table of 15 for
+the whole skin, `sharedlut`, takes the red badge and the grey into browns.)

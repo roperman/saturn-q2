@@ -67,7 +67,7 @@
 #define MAX_MVERTS      (336)               /* (the gunner's 329) */
 #define MAX_MPOLYS      (384)               /* (the gunner's 382) */
 #define MBUCKETS        (32)
-#define MODEL_FRONT     (-1)                /* the sign of a front face's screen winding */                /* Gouraud steps for a model's light 0..2: sized for skin brightness */
+#define MODEL_FRONT     (1)                 /* the sign of a front face's screen winding (every model's: OVERNIGHT.md 46) */                /* Gouraud steps for a model's light 0..2: sized for skin brightness */
 
 /* outcodes */
 /* (src/grid.s builds these with ROTCL: that order). OC_FAR: beyond the guard
@@ -3703,7 +3703,7 @@ typedef struct
     const s32       *mz;
     s16             *mhead;                 /* (mnext right after it) */
     s32             zmin, inv;
-    s32             sign;                   /* 0: MODEL_FRONT; -1: the other way (the gun) */
+    s32             sign;                   /* -1: MODEL_FRONT (every model); 0: the other way round */
     s16             *nearl;                 /* those across the near plane (NULL: dropped) */
     s32             nnear;                  /* ...how many, in and out */
 }                   mpolys_args;
@@ -3742,9 +3742,7 @@ _Static_assert(__builtin_offsetof(r_ctx, mnext) == __builtin_offsetof(r_ctx, mhe
 /* ---- the gun in your hands (src/view.c) ---- */
 
 #define VIEW_NEAR       FIX(4)              /* (Quake 2's near plane for its guns: they're close) */
-#define VIEW_FRONT      (1)                 /* the guns' triangles wind the other way from the monsters':
-                                               MODEL_FRONT draws their insides (seen side by side with a
-                                               z-buffered render on the PC; a soldier the same way matches) */
+#define VIEW_FRONT      MODEL_FRONT         /* (the guns wind as every model does) */
 
 /* src/mdraw.s: the gun's vertices from its two frames into screen space. The frames are in
    the eye's space (Quake's x forward, y left, z up), so into the view's (x right = -y,
@@ -5822,7 +5820,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         a.mhead = x->mhead;
         a.zmin = zmin;
         a.inv = inv;
-        a.sign = 0;
+        a.sign = -1;                        /* (MODEL_FRONT) */
         a.nearl = NULL;
         a.nnear = 0;
         mpolys_asm(&a);

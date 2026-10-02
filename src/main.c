@@ -209,12 +209,23 @@ static int          bench_view = -1, bench_frame;
    CMP_EXTRA="-DFAR_LINEUP -DMODEL_FAR=30000 -DFAR_B=0", its whole mesh against its coarse one) */
 static void         far_lineup(int view)
 {
+#ifdef LINEUP_BARRELS
+    /* (-DLINEUP_BARRELS: the level's barrels instead, each view the next, from 80 units at a standing
+       player's eye, looking a little down) */
+    static const int dist[3] = { 80, 80, 80 };
+    const q_mdl     *want = &models[MDL_BARREL];
+    int             i, k, nth = view;
+
+    for (i = 1; i < g_nfull && !(g_edicts[i].mdl == want && !g_edicts[i].inactive && nth-- == 0); ++i)
+        ;
+#else
     static const int dist[3] = { 150, 200, 300 };
     const q_mdl     *want = &models[view < 3 ? MDL_SOLDIER : MDL_INFANTRY];
     int             i, k;
 
     for (i = 1; i < g_nfull && !(g_edicts[i].mdl == want && !g_edicts[i].dead && !g_edicts[i].inactive); ++i)
         ;
+#endif
     for (k = 0; i < g_nfull && k < 16; ++k)
     {
         const g_ent     *e = &g_edicts[i];  /* (the game's: the renderer's are only those in sight) */
@@ -224,7 +235,11 @@ static void         far_lineup(int view)
 
         o[0] = e->origin[0];
         o[1] = e->origin[1];
+#ifdef LINEUP_BARRELS
+        o[2] = p[2] = e->origin[2] + FIX(46);
+#else
         o[2] = p[2] = e->origin[2] + FIX(8);
+#endif
         p[0] = o[0] + dist[view % 3] * fcos(a);
         p[1] = o[1] + dist[view % 3] * fsin(a);
         t = trace_line(o, p, 0, CONTENTS_SOLID | CONTENTS_WINDOW);
@@ -234,7 +249,11 @@ static void         far_lineup(int view)
             cam.pos[1] = p[1];
             cam.pos[2] = p[2];
             cam.yaw = (a + 0x8000) & 0xFFFF;
+#ifdef LINEUP_BARRELS
+            cam.pitch = 0x0800;
+#else
             cam.pitch = 0;
+#endif
             return;
         }
     }

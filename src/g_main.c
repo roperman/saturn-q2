@@ -521,14 +521,14 @@ static __attribute__((cold)) u32          g_short_bytes(const int *n)
 
 /* room: low work RAM if it has it, else the cart if it has plenty (Comm Center's decides the
    DSP walls and the guns' slots: r_wall_level, view_level_init); NULL: neither */
-static __attribute__((cold)) void         *g_room(u32 bytes)
+static __attribute__((cold)) void         *g_room(u32 bytes, bool cart)
 {
     u32             hw, lw, ca;
 
     level_free(&hw, &lw, &ca);
     if (lw >= bytes + G_LW_KEEP)
         return level_alloc_low(bytes);
-    return ca >= bytes + G_CART_ROOM ? cart_alloc(bytes) : NULL;
+    return cart && ca >= bytes + G_CART_ROOM ? cart_alloc(bytes) : NULL;
 }
 
 /* A new level: room for everything it has at any skill (g_skill -1 spawns it all) where there's
@@ -548,15 +548,17 @@ __attribute__((cold)) void g_init(void)
 
         g_count(all, -1);
         g_count(now, g_skill);
-        for (k = 0; k < 2 && !g_edicts; ++k)
+        /* (LWRAM for every skill, LWRAM for this one, the cart for every skill, for this one: the
+           cart's slower, and has room now: section 50) */
+        for (k = 0; k < 4 && !g_edicts; ++k)
         {
-            g_nfull = imin(1 + (k ? now : all)[G_FULL], MAX_FULL);
-            g_edicts = g_room((u32)g_nfull * sizeof(g_ent));
+            g_nfull = imin(1 + (k & 1 ? now : all)[G_FULL], MAX_FULL);
+            g_edicts = g_room((u32)g_nfull * sizeof(g_ent), k >= 2);
         }
         if (!g_edicts)
             g_edicts = (g_ent *)cart_alloc((u32)g_nfull * sizeof(g_ent));
-        for (k = 0; k < 2 && !b; ++k)
-            b = g_room(g_short_bytes(n = k ? now : all));
+        for (k = 0; k < 4 && !b; ++k)
+            b = g_room(g_short_bytes(n = k & 1 ? now : all), k >= 2);
         if (!b)
             b = cart_alloc(g_short_bytes(n));
         g_nitems = n[G_ITEM];

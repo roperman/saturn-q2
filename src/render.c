@@ -4260,6 +4260,18 @@ __attribute__((cold)) void r_dspm_level(void)
     dspm_more = dspm_nmore ? (s32 *)level_alloc((u32)dspm_nmore * 192) : NULL;
 }
 
+#ifdef LEVEL_TEST
+/* (OPT=-DLEVEL_TEST) the level's DSP walls on, and the gun's kept drawing in HWRAM: bits 0, 1 */
+int                 r_level_flags(void)
+{
+#ifdef DSP_WALLS
+    return (dw_prog != NULL) | view_keep_hot << 1;
+#else
+    return view_keep_hot << 1;
+#endif
+}
+#endif
+
 /* the gun, over the world (VDP1's overlay list, drawn after it): its polygons facing you,
    farthest first, lit by the light where you are and the way you face (Quake's shading).
    In src/mdraw.s as the monsters are (the vertices, the sort, the commands); the polygons

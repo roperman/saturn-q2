@@ -108,6 +108,13 @@ static int          slot_of(int w)
 }
 
 /* a new level (after render_init): the slots on the cart again, the gun you hold in one */
+#ifdef LEVEL_TEST
+int                 view_nslots(void)       /* (OPT=-DLEVEL_TEST: the gun's slots, this level) */
+{
+    return nslots;
+}
+#endif
+
 void                view_level_init(void)
 {
     int             k;

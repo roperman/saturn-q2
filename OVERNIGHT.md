@@ -2264,3 +2264,40 @@ you can go. From there, with the fuller lists, nothing in the PVS that can
 be seen is missing (0 faces from the second place, 1 face, 2 pixels, from
 the first); what is missing is outside its cluster's PVS, Quake's own
 visibility (the map's compile), which the game draws by as Quake 2 does.
+
+## 50. ~700 KB of the cart back each level: the copies the load makes
+
+Roper asked what else is only needed setting up. The level's file goes onto
+the cart whole, and the load then copies the BSP's nodes, leaves and marks
+into HWRAM and the cells and brushes into LWRAM where they fit; the cart's
+copies of those were never read again. `OPT=-DLEVEL_TEST` counted them:
+~690, 757 and 752 KB.
+
+Now tools/bake_map.py writes those lumps last (`TAIL`: brushsides, brushes,
+leafbrushes, cells, marks, leaves, nodes, the likeliest to fit last), and
+the load (level.c `level_tail`), once it's copied them, gives the cart
+back from the first of a run copied to the file's end (a lump that didn't
+fit stays, and what's before it; a file not laid out that way gives
+nothing back). The DSP's reads (the planes, faces, lights and axes) aren't
+among them; the entities' records stay (a restart spawns from them).
+
+| (the default build, LEVEL_TEST) | DSP walls | gun slots | the cart left |
+|---|---|---|---|
+| Outer Base | on | 2 | 212,992 -> 919,552 |
+| Installation | on | 2 | 98,304 -> 796,672 |
+| Comm Center | on | 2 | 2,048 -> 520,192 |
+
+(LEVEL_TEST's line now: `W` the DSP walls, `K` the gun's kept drawing in
+HWRAM, `G` its slots, `N` the gunner loaded, `E` the entities' tables on the
+cart (1 the full ones, 2 the short), `B` what the cart got back.)
+
+Comm Center has room for the gunner again (its model goes onto the cart if
+two guns' and 16 KB more fit after it), so its gunners are back, as the map
+has them. Their records take some HWRAM, so its gun's kept drawing is on the
+cart now (a DMA a fight frame, ~0.3 ms, section 15) where it was in HWRAM.
+The entities' tables: g_room took the cart (room for every skill) before
+LWRAM sized for one once the cart had 160 KB to spare, and Comm Center's
+short ones went there; now LWRAM for every skill, LWRAM for this one, then
+the cart, so they stay where they were. (Installation's short ones were on
+the cart already: there was never LWRAM for them.) Restarting a level
+spawns as it did (it reads the entities' records, which stay).

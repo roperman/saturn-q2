@@ -406,9 +406,10 @@ class Baker:
         self.T, self.res = T, self.res // 2
         blob = Blob()
         lumps = {}
+        datas = {}
 
         def lump(name, data):
-            lumps[name] = blob.add(data)
+            datas[name] = data
 
         lump("planes", b"".join(struct.pack(">4iBBH", fx(n[0]), fx(n[1]), fx(n[2]), fx(d), t,
                                             (n[0] < 0) | (n[1] < 0) << 1 | (n[2] < 0) << 2, 0)
@@ -596,6 +597,11 @@ class Baker:
                   "entities2": len(erecs), "strings": len(estrings), "axes": len(axes),
                   "quarts": len(self.tile_data), "lodfaces": len(lods), "lodcells": nlc, "lodlights": nll,
                   "starts": len(starts), "portals": len(portals), "cportals": len(portals) and len(first)}
+        # the file: what the game reads off the cart first, then TAIL, in its order: what it copies
+        # to work RAM as the level loads (src/level.c), and gives back to the cart from the first
+        # of those it copied to the end (the most likely to fit last)
+        for n in [n for n in datas if n not in TAIL] + TAIL:
+            lumps[n] = blob.add(datas[n])
         hsize = (12 + 8 * len(order) + 31) & ~31
         final = bytearray(b"Q2SL" + struct.pack(">IHH", 1, T, self.N))
         for n in order:
@@ -942,6 +948,10 @@ def rle_zeros(row):
         out += bytes((0, j - i))
         i = j
     return bytes(out)
+
+
+# (src/level.c level_tail: the same order)
+TAIL = ["brushsides", "brushes", "leafbrushes", "cells", "marks", "leafs", "nodes"]
 
 
 class Blob:

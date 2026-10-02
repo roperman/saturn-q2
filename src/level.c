@@ -90,6 +90,52 @@ static const void   *hot_spare(const void *src, u32 bytes, bool high, u32 spare)
     return dst;
 }
 
+#ifdef LEVEL_TEST
+/* (OPT=-DLEVEL_TEST) the level file's lumps copied to work RAM whose cart copy nothing reads after
+   (the DSP reads the planes', faces', lights' and axes' there): bytes */
+u32                 level_dead, level_back;    /* (...and what of them went back to the cart) */
+
+static const void   *hot_dead(const void *src, u32 bytes, bool high, u32 spare)
+{
+    const void      *q = hot_spare(src, bytes, high, spare);
+
+    if (q != src)
+        level_dead += bytes;
+    return q;
+}
+#define HOT_D(s, b, h, sp)  hot_dead(s, b, h, sp)
+#else
+#define HOT_D(s, b, h, sp)  hot_spare(s, b, h, sp)
+#endif
+
+/* The lumps the level file has last (tools/bake_map.py TAIL, in its order): what the load copies to
+   work RAM. Those copied, from the first of a run of them to the file's end, go back to the cart
+   (~700 KB a level): nothing reads them there after (the DSP reads the planes', faces', lights' and
+   axes', which aren't among them). A file not made that way gives nothing back */
+static void         level_tail(const u32 *h, u32 size)
+{
+    static const u8 slot[7] = { 28, 26, 30, 10, 6, 4, 2 };  /* brushsides brushes leafbrushes cells marks leafs nodes */
+    const void      *now[7];
+    u32             end = size;
+    int             k, i;
+
+    now[0] = lv.brushsides; now[1] = lv.brushes; now[2] = lv.leafbrushes; now[3] = lv.cells;
+    now[4] = lv.marks; now[5] = lv.leafs; now[6] = lv.nodes;
+    for (k = 1; k < 7; ++k)
+        if (h[slot[k]] <= h[slot[k - 1]])
+            return;                         /* (not in this order) */
+    for (i = 0; i < 62; i += 2)
+        if (h[i] > h[slot[0]] && h[i] != h[slot[1]] && h[i] != h[slot[2]] && h[i] != h[slot[3]] && h[i] != h[slot[4]]
+            && h[i] != h[slot[5]] && h[i] != h[slot[6]])
+            return;                         /* (something else after them) */
+    for (k = 6; k >= 0 && now[k] != CART_BASE + h[slot[k]]; --k)
+        end = h[slot[k]];
+#ifdef LEVEL_TEST
+    level_back = size - end;
+#endif
+    cart_next = CART_BASE + ((end + 2047) & ~2047u);
+}
+
 /* Each brush's box, from its sides on the axes (every brush has them: qbsp adds them), in
    whole units rounded out: a trace skips a brush whose box misses its own without reading the
    brush or its sides (src/trace.c leaf_brushes). Where its box's sides are its first six (qbsp
@@ -280,22 +326,26 @@ bool                level_load(const char *name)
     cart_next = CART_BASE + (((u32)size + 2047) & ~2047u);
     hw_next = (u8 *)(((u32)_bss_end + 15) & ~15u);
     lw_next = (u8 *)(((u32)_lwtext_end + 15) & ~15u);   /* (after the code that lives there) */
-    lv.nodes = hot(lv.nodes, (u32)lv.nnodes * sizeof(q_node), true);
+#ifdef LEVEL_TEST
+    level_dead = 0;
+#endif
+    lv.nodes = HOT_D(lv.nodes, (u32)lv.nnodes * sizeof(q_node), true, 0);
     lv.planes_cart = lv.planes;
     lv.planes = hot(lv.planes, (u32)lv.nplanes * sizeof(q_plane), true);
-    lv.leafs = hot(lv.leafs, (u32)lv.nleafs * sizeof(q_leaf), true);
-    lv.marks = hot(lv.marks, h[7] * 2, true);
+    lv.leafs = HOT_D(lv.leafs, (u32)lv.nleafs * sizeof(q_leaf), true, 0);
+    lv.marks = HOT_D(lv.marks, h[7] * 2, true, 0);
     lv.axes_cart = lv.axes;
     lv.axes = hot(lv.axes, h[47] * 24, true);
     lv.naxes = (int)h[47];
     lv.faces_cart = lv.faces;
     lv.faces = hot(lv.faces, (u32)lv.nfaces * sizeof(q_face), false);
-    lv.cells = hot(lv.cells, h[11] * sizeof(q_cell), false);
+    lv.cells = HOT_D(lv.cells, h[11] * sizeof(q_cell), false, 0);
     lv.lights_cart = lv.lights;
     lv.lights = hot(lv.lights, h[13] * 2, false);
-    lv.brushes = hot_spare(lv.brushes, (u32)lv.nbrushes * sizeof(q_brush), false, LW_RESERVE);
-    lv.brushsides = hot_spare(lv.brushsides, h[29] * sizeof(q_brushside), false, LW_RESERVE);
-    lv.leafbrushes = hot_spare(lv.leafbrushes, h[31] * 2, false, LW_RESERVE);
+    lv.brushes = HOT_D(lv.brushes, (u32)lv.nbrushes * sizeof(q_brush), false, LW_RESERVE);
+    lv.brushsides = HOT_D(lv.brushsides, h[29] * sizeof(q_brushside), false, LW_RESERVE);
+    lv.leafbrushes = HOT_D(lv.leafbrushes, h[31] * 2, false, LW_RESERVE);
+    level_tail(h, (u32)size);
     brush_bounds();
     /* the portals (the renderer's flow reads them every frame): low work RAM if there's room */
     lv.portals = hot_spare(lv.portals, (u32)lv.nportals * sizeof(q_portal), false, LW_RESERVE);

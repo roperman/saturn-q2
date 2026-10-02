@@ -123,7 +123,8 @@ static void         counts_at_end(void)
 }
 
 #ifdef LEVEL_TEST
-u32                 lt_hw[4][4], lt_nhw;
+u32                 lt_hw[4][4], lt_nhw, lt_fl[4];
+int                 r_level_flags(void), view_nslots(void);
 #endif
 #ifdef FIGHT_BENCH
 /* (OPT=-DFIGHT_BENCH: START + R stands you in the round room, god mode on,
@@ -825,6 +826,13 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
 
         level_free(&lt_hw[lt_nhw & 3][0], &lt_hw[lt_nhw & 3][1], &lt_hw[lt_nhw & 3][2]);      /* (what's left, each level) */
         lt_hw[lt_nhw & 3][3] = models_cold;
+        lt_fl[lt_nhw & 3] = (u32)(r_level_flags() | view_nslots() << 2 | models[MDL_GUNNER].loaded << 4
+                                  | ((u32)g_edicts >> 24 == 0x02) << 5 | ((u32)g_shorts >> 24 == 0x02) << 6);
+        {
+            extern u32 level_back;
+
+            lt_hw[lt_nhw & 3][3] = level_back;  /* (in place of COLD: models_cold's always been 0) */
+        }
         ++lt_nhw;
     }
 #endif
@@ -936,6 +944,13 @@ void                main(void)
 
         level_free(&lt_hw[0][0], &lt_hw[0][1], &lt_hw[0][2]);
         lt_hw[0][3] = models_cold;
+        lt_fl[0] = (u32)(r_level_flags() | view_nslots() << 2 | models[MDL_GUNNER].loaded << 4
+                         | ((u32)g_edicts >> 24 == 0x02) << 5 | ((u32)g_shorts >> 24 == 0x02) << 6);
+        {
+            extern u32 level_back;
+
+            lt_hw[0][3] = level_back;
+        }
         ++lt_nhw;
     }
 #endif
@@ -1925,8 +1940,9 @@ void                main(void)
             int k;
 
             for (k = 0; k < 3; ++k)
-                vdp_printf(8, 30 + k * 9, RGB(255, 255, 120), "HW %d LW %d CA %d COLD %d", lt_hw[k][0], lt_hw[k][1],
-                           lt_hw[k][2], lt_hw[k][3]);
+                vdp_printf(8, 30 + k * 9, RGB(255, 255, 120), "W%d K%d G%d N%d E%d HW%d LW%d CA%d B%dK", lt_fl[k] & 1,
+                           lt_fl[k] >> 1 & 1, lt_fl[k] >> 2 & 3, lt_fl[k] >> 4 & 1, lt_fl[k] >> 5 & 1 | (lt_fl[k] >> 6 & 1) << 1, lt_hw[k][0],
+                           lt_hw[k][1], lt_hw[k][2], lt_hw[k][3] >> 10);
         }
 #endif
 #if defined(LEVEL_TEST) && defined(FACE_CHECK)

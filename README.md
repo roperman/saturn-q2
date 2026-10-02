@@ -40,8 +40,8 @@ Two numbers from that log (Mednafen, PAL):
 
 | | first measured | now |
 |---|---|---|
-| the fight benchmark: 20 s in a room of monsters, the game running | 82 ms a frame (12 fps) | 40.4 ms (25 fps) |
-| the static benchmark: six busy views, frame times summed | 481 ms | 227 ms |
+| the fight benchmark: 20 s in a room of monsters, the game running | 82 ms a frame (12 fps) | 39.8 ms (25 fps) |
+| the static benchmark: six busy views, frame times summed | 481 ms | 226 ms |
 
 Both draw more now than they did then: the gun in your hands, for one,
 and, since the levels got all their entities (there was room for only 64,
@@ -108,6 +108,23 @@ Then:
 The first build bakes all three levels, which takes a few minutes: working
 out which faces each part of a level can see is slow, and cached in `obj/`
 after. `MAP=demo2 ./build.sh` starts the game on another level.
+
+### Settings
+
+The trade-offs between looks, latency and speed are build settings, in
+[`src/settings.h`](src/settings.h), each with what it was measured to cost
+or save. Change them there, or give them to the build:
+
+    OPT="-DMODEL_FAR=250 -DNO_WATER" ./build.sh
+
+| setting | default | |
+|---|---|---|
+| `MODEL_FAR` | 400 | units: a monster further away is drawn with its coarse mesh (a third of the polygons) |
+| `LOD_Z` | 384 | units: a wall face wholly further away is drawn on a coarse grid, its textures half-resolution |
+| `TRANS_MODE` | 1 | translucent surfaces: 0 solid, 1 a mesh, 2 or 3 half-transparent (also in Options) |
+| `BRIGHT` | 0 | brightness, 0 to 4 (also in Options) |
+| `NO_WATER` | off | the water's waves off (also in Options) |
+| `NO_GAME_DURING_DRAW`, `NO_LIGHT_AHEAD`, `NO_PIPE` | off | each a little less latency for a slower frame |
 
 ## Running
 

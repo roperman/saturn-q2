@@ -2110,3 +2110,35 @@ glow on it at 150 and 200. (`COMPARE=far` alone: the benchmark's own views,
 tall.)
 
 Left at 400, the user's call.
+
+## 45. The build's trade-offs in one file; where the frame goes now
+
+**src/settings.h** has the settings that trade looks or latency for speed,
+each with what it was measured at: `MODEL_FAR`, `LOD_Z`, `TRANS_MODE`,
+`BRIGHT`, `NO_WATER`, `NO_GAME_DURING_DRAW`, `NO_LIGHT_AHEAD`, `NO_PIPE`
+(README: Settings). Edited there or given to the build
+(`OPT="-DMODEL_FAR=250" ./build.sh`). The game built from it is the same,
+byte for byte.
+
+**The NTSC fight now** (frame 36.7 ms, CPU 35.1; `OPT="-DFIGHT_BENCH
+-DSLAVE_PROF"`, a frame):
+
+| slave | ms | master | ms |
+|---|---|---|---|
+| cells_asm | 6.9 | the walk (walk_asm 5.6, cull 3.2) | 8.8 |
+| face_asm | 5.4 | cells_asm | 4.5 |
+| grid_face_asm | 5.2 | the traces (brushes_asm 2.4, leafs_asm 1.5, ...) | ~6.8 |
+| face_cells | 3.2 | grid_face_asm | 3.2 |
+| the models (commands 2.4, polygons 2.2, vertices 1.7, light 2.1, draw_model 1.0) | 9.4 | face_asm | 2.8 |
+| idle (slave_main) | 1.0 | face_cells | 1.7 |
+
+The walls are about half of both CPUs' time. The game's ~9.6 ms is in
+every frame, not every third (the monsters tick in groups, a group a
+frame): every frame carries it. face_asm's busiest places, on both CPUs,
+are just after its first reads of the face (low work RAM: two misses a
+face); the walk's, after its stack pushes and the writes that publish each
+face to the slave.
+
+**Not the fight's:** the walls' coarse grid nearer (`LOD_Z` 192: CPU 35.0
+ms, the same; this room's walls are big, few wholly beyond it), nor the
+monsters' (section 44).

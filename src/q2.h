@@ -8,6 +8,7 @@
 #ifndef Q2_H
 #define Q2_H
 
+#include "settings.h"                       /* (the trade-offs a build can change) */
 #include "sat.h"
 #include "vdp.h"
 

@@ -179,14 +179,8 @@ u32                 el_checks, el_diffs;
 #ifdef DL_CHECK
 u32                 dl_checks, dl_diffs;    /* (OPT=-DDL_CHECK: the corners' sums as well, compared) */
 #endif
-#ifndef LOD_Z
-#define LOD_Z           (384)               /* a face wholly beyond this uses its coarse grid (OPT=-DLOD_Z=...) */
-#endif
-s32                 r_lod_z = FIX(LOD_Z);
+s32                 r_lod_z = FIX(LOD_Z);   /* a face wholly beyond this uses its coarse grid (settings.h) */
 u32                 r_clock;                /* the game's time (16.16 seconds, main.c): the water's movement */
-#ifndef TRANS_MODE
-#define TRANS_MODE      (1)                 /* mesh: half-transparency costs VDP1 dear where there's a lot of it */
-#endif
 #ifdef NO_WATER
 bool                r_water = false;
 #else
@@ -194,9 +188,6 @@ bool                r_water = true;         /* water moves (waves, and a ripple 
 #endif
 int                 r_trans = TRANS_MODE;   /* translucent surfaces: 0 solid, 1 mesh, 2 half-transparent (VDP1),
                                                3 half-transparent, the water untextured (plain_water) */
-#ifndef BRIGHT
-#define BRIGHT          (0)                 /* (OPT=-DBRIGHT=n: start at another) */
-#endif
 int                 r_bright = BRIGHT;      /* the options' brightness: 0 as baked, to 4 (a gamma on every colour table) */
 
 /* a 5-bit channel through each brightness's curve (1 to 4: gamma 1.15, 1.3, 1.5, 1.75) */
@@ -231,10 +222,7 @@ static __attribute__((cold)) void luts_copy(u32 vram_ofs, const u16 *src, u32 n)
         for (i = 0; i < n; ++i)
             d[i] = r_gamma(src[i]);
 }
-#ifndef MODEL_FAR
-#define MODEL_FAR       (400)               /* a model beyond this (units) uses its coarse mesh */
-#endif
-int                 r_model_far = MODEL_FAR;
+int                 r_model_far = MODEL_FAR;   /* a model beyond this (units) uses its coarse mesh (settings.h) */
 static u16          cell_all[MAX_ROW];      /* the cells' numbers, for the C doing a whole row */
 #define UPQ             (256)               /* texture uploads a CPU can queue in a frame (then it copies them itself) */
 #ifdef NO_DMA_UPLOADS

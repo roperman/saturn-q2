@@ -2343,3 +2343,9 @@ The cost: its code is in low work RAM (built small) on every level, ~1.5 KB,
 and on Comm Center that's what tips its short entities' table onto the
 cart (LWRAM 18.6 KB left after). Comm Center's cart: 289 KB left. The
 fight (Outer Base, no berserkers) the same: NTSC 38.4 / 36.8 ms.
+
+(After: the berserker's code was in HWRAM, not low work RAM: build.sh's
+COLD only builds a file small; engine/link.ld names the files whose code
+goes to low work RAM, and m_berserk.o wasn't among them. With it there,
+784 bytes of HWRAM back, and Comm Center's gun's kept drawing fits in HWRAM
+again (no DMA a fight frame); its low work RAM 17.8 KB left.)

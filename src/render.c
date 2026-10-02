@@ -369,7 +369,8 @@ static s32          rcp_n, wscale;          /* 1/N (16.16); 65536 / N^2 (interpo
    RAM, and draw_model waits only if its own isn't done yet. Its results come
    in behind the CPU's cache, so draw_model forgets those lines first. */
 #define DSPM_MODELS     (32)
-#define DSPM_BLOCKS     (64)                /* 16 vertices each */
+#define DSPM_BLOCKS     (64)                /* 16 vertices each (a monster's 15: four) */
+#define DSPM_BIG        (100)               /* vertices: a model to the DSP before the small ones */
 #ifdef DSP_LIGHT
 #define DSPM_HEAD       (25)                /* (and its lighting's jobs: xformml.dsp) */
 #else
@@ -5232,10 +5233,10 @@ static void         models_to_dsp(void)
 #ifdef DSP_LIGHT
     int             nlj = 0;
 #endif
-#ifdef DSP_NEAR
     s16             order[MAX_ENTITIES];
-    u32             key[MAX_ENTITIES];
     int             no = 0, oi;
+#ifdef DSP_NEAR
+    u32             key[MAX_ENTITIES];
 #endif
 
     rs_mdsp = 0;
@@ -5287,14 +5288,32 @@ static void         models_to_dsp(void)
         key[k] = d2;
         order[k] = (s16)i;
     }
+#else
+    /* the big ones first (the monsters: the CPU's way is dear for them), then the small; only
+       those that may be on the screen (a sphere of 64 units against the view's sides, as
+       ents_light_dyn's: one drawn after all is the CPU's) */
+    for (k = 0; k < 2; ++k)
+        for (i = 0; i < nents; ++i)
+        {
+            const q_entity  *e = &ents[i];
+            s32             d0, d1, d2, vx, vy, vz;
+
+            if (ent_leaf[i] < 0 || leaf_vis[ent_leaf[i]] != visframe || !e->mdl || !k != (e->mdl->nverts >= DSPM_BIG))
+                continue;
+            d0 = e->origin[0] - cam.pos[0];
+            d1 = e->origin[1] - cam.pos[1];
+            d2 = e->origin[2] - cam.pos[2];
+            vx = fmul(d0, cam.right[0]) + fmul(d1, cam.right[1]) + fmul(d2, cam.right[2]);
+            vy = fmul(d0, cam.up[0]) + fmul(d1, cam.up[1]) + fmul(d2, cam.up[2]);
+            vz = fmul(d0, cam.fwd[0]) + fmul(d1, cam.fwd[1]) + fmul(d2, cam.fwd[2]);
+            if (vz < -FIX(64) || iabs(vx) - vz > FIX(91) || iabs(vy) - fmul(vz, FIX(0.7)) > FIX(79))
+                continue;
+            order[no++] = (s16)i;
+        }
+#endif
     for (oi = 0; oi < no; ++oi)
     {
         const q_entity  *e = &ents[i = order[oi]];
-#else
-    for (i = 0; i < nents; ++i)
-    {
-        const q_entity  *e = &ents[i];
-#endif
         const q_mdl     *m = e->mdl;
         model_xform     xf;
         s32             w1 = e->lerp, w0 = FIX(1) - w1;
@@ -5303,8 +5322,10 @@ static void         models_to_dsp(void)
         if (ent_leaf[i] < 0 || leaf_vis[ent_leaf[i]] != visframe || !m)
             continue;
         blocks = (imin(m->nverts, MAX_MVERTS) + 15) >> 4;
-        if (nm == DSPM_MODELS || nb + blocks > DSPM_BLOCKS)
+        if (nm == DSPM_MODELS)
             break;
+        if (nb + blocks > DSPM_BLOCKS)
+            continue;                       /* (no room: the CPU's; a smaller one may fit) */
         if (!model_xf(e, &xf))
             continue;
         for (k = 0; k < 3; ++k, st += 7)
@@ -5393,6 +5414,9 @@ static void         models_to_dsp(void)
 #endif
 }
 
+#ifdef SHADE_CHECK
+u32                 shade_checks, shade_diffs;
+#endif
 #ifdef MODEL_CHECK
 u32                 model_checks[4], model_diffs[3];   /* vertices, buckets (and quads by their other half), models' commands */
 #endif
@@ -5423,6 +5447,27 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     int             nvl = nv, vi;
     vdp_writer      *w = x->w;
     u32             t0 = frt_read();
+#ifdef SHADE_CHECK
+    {
+        /* (OPT=-DSHADE_CHECK: its light as this CPU reads it, and made again: the same? The slave
+           makes it after the master's gone on: model.c ents_shade) */
+        extern u32 shade_checks, shade_diffs;
+        u16 again[162];
+        int k;
+
+        if (e->g_litleaf >= 0)
+        {
+            model_shade(again, m->shade + e->g_yaw * 162, &lv.leaflight[e->g_litleaf * 4]);
+            ++shade_checks;
+            for (k = 0; k < 162; ++k)
+                if (again[k] != e->gbase[k])
+                {
+                    ++shade_diffs;
+                    break;
+                }
+        }
+    }
+#endif
 #ifdef ENTLIGHT_CHECK
     {
         /* (OPT=-DENTLIGHT_CHECK: its light made for the leaf it's in, turned as it is) */

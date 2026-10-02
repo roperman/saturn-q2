@@ -321,8 +321,9 @@ typedef struct
 }                   q_entity;
 _Static_assert(sizeof(q_entity) == 384, "q_entity: g_moved in the padding");
 
-#define MAX_ENTITIES    (96)                /* GAME_ENTS of the game's monsters, items, barrels in view; then projectiles */
 #define GAME_ENTS       (64)                /* (g_render_ents' render entities; fx.c's after them) */
+#define MAX_PROJ        (24)                /* rockets, grenades, bolts in flight (fx.c) */
+#define MAX_ENTITIES    (GAME_ENTS + MAX_PROJ)  /* the game's monsters, items, barrels in view; then projectiles */
 #include "q2models.h"
 #define VIEW_SLOTS      (2)                     /* the gun in your hands, and the next (src/view.c) */
 #define MDL_VIEW0       (MDL_COUNT)             /* ...in models[]: MDL_VIEW0 + slot */
@@ -348,7 +349,10 @@ void                r_portals_level(void);  /* (render.c) ...its portals' (after
 extern u32          r_full[3];              /* (render.c) frames each CPU's texture cache ran out; late uploads */
 void                ents_light(void);                       /* their base lighting, before drawing */
 bool                ents_pvs(void);                         /* (ents_light's: the PVS marked is the camera's?) */
-void                ents_light_pvs(bool pvs);               /* (ents_light, told that: main.c's slave) */
+void                ents_light_pvs(bool pvs);               /* (ents_light, told that) */
+void                ents_leaf(void);                        /* (ents_light_pvs's: their leaves; main.c's slave) */
+void                ents_shade(bool pvs);                   /* (...then their light, after PRE_DONE) */
+void                ents_shade_forget(void);                /* (the master, before it draws a model: what ents_shade changed) */
 
 /* hud.c */
 void                hud_init(void);                         /* before render_init: its pictures stay in VRAM */

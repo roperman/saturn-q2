@@ -307,26 +307,43 @@ void                ents_light_dyn(bool pvs)
 }
 #endif
 
-/* (pvs: ents_pvs's answer, the slave's told it: render_world may be marking a new PVS by then) */
-void                ents_light_pvs(bool pvs)
+/* each one's leaf: again only if it's moved (items stand still; render_world puts them in
+   their leaves by it) */
+void                ents_leaf(void)
 {
     int             i;
 
     for (i = 0; i < nents; ++i)
     {
         q_entity    *e = &ents[i];
-        int         leaf, ys;
-        const u16   *ll;
-        const u8    *sh;
 
         if (!e->live)
             continue;
         if (e->g_leaf < 0)
             e->g_litleaf = -1;              /* (new, or a new level: nothing lit yet) */
-        /* its leaf: again only if it's moved (items stand still; render_world uses it too) */
-        leaf = e->g_moved || e->g_leaf < 0 ? level_leaf(e->origin) : e->g_leaf;
-        e->g_leaf = leaf;
+        e->g_leaf = e->g_moved || e->g_leaf < 0 ? level_leaf(e->origin) : e->g_leaf;
         e->g_moved = false;
+    }
+}
+
+/* their light by normal, where the leaf they're in or how they're turned has changed (pvs:
+   ents_pvs's answer, the slave's told it: render_world may be marking a new PVS by then). The
+   slave's, after the master's gone on: before it draws a model, the master forgets its cache's
+   copies of the ends of their lights (ents_shade_forget), the lines it read them in with what
+   it did read */
+void                ents_shade(bool pvs)
+{
+    int             i;
+
+    for (i = 0; i < nents; ++i)
+    {
+        q_entity    *e = &ents[i];
+        int         leaf = e->g_leaf, ys;
+        const u16   *ll;
+        const u8    *sh;
+
+        if (!e->live)
+            continue;
         ys = (int)((u32)e->yaw >> 12) & 15;
         if (leaf == e->g_litleaf && ys == e->g_yaw)
             continue;
@@ -338,4 +355,22 @@ void                ents_light_pvs(bool pvs)
         sh = e->mdl->shade + ys * 162;
         model_shade(e->gbase, sh, ll);
     }
+}
+
+void                ents_shade_forget(void)
+{
+    int             i;
+
+    for (i = 0; i < MAX_ENTITIES; ++i)
+    {
+        *(volatile u32 *)(0x40000000 | ((u32)&ents[i].gbase[0] & 0x1FFFFFF0)) = 0;
+        *(volatile u32 *)(0x40000000 | ((u32)&ents[i].gbase[161] & 0x1FFFFFF0)) = 0;
+    }
+}
+
+/* (pvs: ents_pvs's answer) */
+void                ents_light_pvs(bool pvs)
+{
+    ents_leaf();
+    ents_shade(pvs);
 }

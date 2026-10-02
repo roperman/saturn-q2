@@ -229,6 +229,7 @@ static void         lit_wait(void)
     while (!LIT_DONE)
         ;
     ent_lit_forget();
+    ents_shade_forget();
     r_wall_forget();
 }
 
@@ -491,11 +492,12 @@ void                slave_main(void)
                 ;
             cache_purge();                      /* (the camera, just moved) */
             g_render_late(PRE_CAM > 1);
-            ents_light_pvs(PRE_CAM > 1);
+            ents_leaf();
             PRE_DONE = 1;
 #ifdef FIGHT_BENCH
             sl_t = frt_read();
 #endif
+            ents_shade(PRE_CAM > 1);            /* (the master's gone on: it waits for these only to draw) */
 #ifndef NO_LIGHT_AHEAD
             ents_light_dyn(PRE_CAM > 1);        /* (the master's gone on; the walk's only starting) */
 #endif

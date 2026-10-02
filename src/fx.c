@@ -10,7 +10,6 @@
 */
 #include "game.h"
 
-#define MAX_PROJ        (24)
 #define MAX_FLASHES     (8)
 #define MAX_SPARKS      (24)
 #define FX_ENT0         (GAME_ENTS)         /* the render entities after the game's */

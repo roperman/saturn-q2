@@ -1963,3 +1963,62 @@ and demo3, and on demo1 that room went to the monsters' records (1,584 bytes
 of them left on the cart, from 3,488); every level keeps what it had where
 it had it. Comm Center's short entities, with the code in low work RAM, are
 sized for the skill played rather than every skill (section 39).
+
+## 42. The monsters' drawing: their light after the hand-off, the DSP's list
+
+Where the slave's time goes in the NTSC fight (`OPT="-DFIGHT_BENCH -DSLAVE_PROF"`),
+the models: their commands 2.4 ms a frame, draw_model's C 2.4, the
+polygons 2.3, `model_shade` (a model's light by normal, made again when it
+changes leaf or turns a sixteenth) 1.2, the vertices 1.1, the dynamic lights
+1.0. The DSP does the vertices (xformm.dsp); the light's all the slave's, at
+the frame's start (the dynamic part on the DSP was section 27: not worth
+its HWRAM).
+
+**The light after the hand-off.** The master waited 1.06 ms a frame for the
+slave's first job (`pre_wait`): the entities' list, their leaves, then their
+light. render_world needs only the leaves (to put them in their leaves); the
+light's wanted only to draw a model, and the master waits for the slave's
+dynamic lights there already (`lit_wait`, after its walk). So `ents_leaf`
+before `PRE_DONE`, `ents_shade` after, then the dynamic lights. The lines of
+each model's light the master can have read with what it did read (its
+first and last) are forgotten in `lit_wait` (`ents_shade_forget`).
+`OPT=-DSHADE_CHECK`: each model drawn, its light as the drawing CPU reads it
+against it made again: 4,145 in the fight, none different (and none without
+the forgetting either: the walk turns the master's cache over first; it
+stays, cheap). The same light as before, made at the same point in the
+frame.
+
+| | NTSC frame / CPU | pictures up 3 fields | PAL CPU |
+|---|---|---|---|
+| before | 38.1 / 36.6 ms | 145 of 525 | 37.5 ms |
+| the light after the hand-off | 36.9 / 35.3 | 110 of 542 | 37.0 |
+
+**The DSP's list.** It takes 64 blocks of 16 vertices (12 KB of HWRAM): a
+soldier's or an infantry's 15, so four monsters; the rest go the CPU's way,
+in C, ~7 times the slave's time a monster (1.6 ms to the DSP's 0.2). With
+every entity in the levels, the list (every model in the PVS, in the
+entities' order) filled with items before the monsters. Now only those that
+may be on the screen (ents_light_dyn's sphere test: 7 drawn after all of
+3,700), the big ones (100 vertices or more) first, and one with no room
+left out rather than the rest. In the fight the C's draws went 1,354 -> 632,
+all of them monsters past the fourth; 80 blocks (a fifth) made no
+difference to the frame. The DSP's sums and the C's round a little
+differently, as for any model past the list's room before.
+
+| | NTSC frame / CPU | PAL CPU |
+|---|---|---|
+| the light after the hand-off | 36.9 / 35.3 | 37.0 |
+| and the DSP's list, monsters first | 37.0 / 35.4 | 36.8 |
+
+The static benchmark: CPU 1798 -> 1801, frames 2273 -> 2277 (noise).
+
+**HWRAM.** The renderer had 96 entities, 32 for the projectiles, but there
+are 24 at most (`MAX_PROJ`, now in q2.h): 88, 3 KB less. With it, demo1's
+monsters' records all fit (none on the cart, from 1,584 bytes), demo2 has
+2.5 KB more, and on demo3 the gun's kept drawing now fits in HWRAM, so the
+cart has room for both gun slots (its DSP walls still on; 256 bytes of
+HWRAM left).
+
+What's left of the monsters: past the fourth on screen each costs its C
+transform (~1.6 ms); in assembly that might be ~1 ms less each. More of the
+DSP's list would take HWRAM (2.9 KB a monster) or a smaller output from it.

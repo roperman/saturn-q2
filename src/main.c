@@ -1903,6 +1903,12 @@ void                main(void)
 
                 vdp_printf(8, 8, c, "LADDER F%d NEAR%d ON%d BAD%d", lc_frames, lc_near, lc_ladder, lc_bad);
             }
+#elif defined(BOX_CHECK)
+            {
+                extern u32 box_checks, box_ldiffs, box_diffs;
+
+                vdp_printf(8, 8, c, "BOX TRACES %d LEAVES DIFF %d DIFF %d", box_checks, box_ldiffs, box_diffs);
+            }
 #elif defined(CLIP_CHECK)
             {
                 extern u32 clip_checks, clip_diffs, clip_near, clip_near_diffs;

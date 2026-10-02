@@ -28,7 +28,8 @@ frame longer, but with over half of each level's entities missing
 (OVERNIGHT.md section 39). With all of them the fight's room has more
 monsters: 36.8 ms, 152 of 521 pictures a frame longer (PAL's 25 fps still
 held, 14 of 494); 36.5 ms and 142 of 526 since the traces' brush sides
-(section 40). The walls' dynamic lights are mostly the DSP's now
+(section 40), and the box traces in assembly (section 41) took a frame's
+traces from 7.4 to 6.4 ms. The walls' dynamic lights are mostly the DSP's now
 (section 34): what's left is the game's tick (11 ms a frame on average, ~30
 at its slowest), the slave's drawing (~33 ms, the monsters' 4.9 of it) and
 the half-transparent water and glass.

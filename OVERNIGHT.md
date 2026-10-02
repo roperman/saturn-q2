@@ -1908,3 +1908,58 @@ bytes, so half of them across two lines), its leaf's list, its mark (another
 array), and the sides past the box's. A record of 16 (box and mark in one
 line) would cost Installation's and Comm Center's boxes their place in
 HWRAM; not done.
+
+## 41. The box traces' leaves and brushes in assembly
+
+`src/tbox.s`: `leafs_asm` for `box_leafs_r` (the leaves a move's box
+touches) and `brushes_asm` for `leaf_brushes` with `clip_box_brush` and
+`test_box_brush` (each leaf's brushes, clipped, or tested where the box
+stands). The same results, bit for bit: the same leaves in the same order
+(child 0's before child 1's, a child 1 kept on a stack of 64 rather than a
+call made: the C does it if that runs out), the same brushes, the same
+sums. The start and end are added to the box's mins and maxs once a trace
+(adding's the same in any order, mod 2^32, so the sides' distances come out
+as the C's); slanted sides are the C's `fmul`, a product at a time; the
+fractions are the C's `frac_div`, on the divider. It writes the C's `tr`
+straight. Short moves, position tests, and the leaves of a long move's walk
+(`hull_check`) all use it; the C's loops are left for `OPT=-DNO_BOX_ASM`
+and to check against.
+
+`OPT=-DBOX_CHECK` runs the C's way after the assembly's on every short move
+and position test and compares the leaves and the trace: walking each level
+and warping to its monsters (17,846 traces) and the NTSC fight (8,921), none
+different. On the way it found one bug: a load of the constant 2 (`mov.l
+.Ltwo`) in a branch's delay slot. A PC-relative load there takes its
+address from the branch, not itself, so where the alignment fell it read
+the -2 beside it: a side whose entering fraction is clamped to 2 (the box
+wholly outside the brush that way) instead entered at -2, and a brush the
+box missed was hit (121 of 11,668 traces on demo1). No other assembly here
+has a PC-relative load in a slot.
+
+| a box trace in the fight (cycles) | C | assembly |
+|---|---|---|
+| its leaves | 4,354 | 3,665 |
+| its brushes | 6,457 | 4,977 |
+
+| the fight | C | assembly |
+|---|---|---|
+| NTSC: traces a frame | 7.4 ms | 6.4 |
+| NTSC: the game's tick, most | 28.2 ms | 24.9-25.1 |
+| NTSC: frame / CPU | 38.0 / 36.4 ms | 37.6-38.1 / 36.0-36.6 |
+| PAL: traces a frame | 9.3 ms | 8.0 |
+| PAL: frame / CPU; pictures up 3 fields | 40.0 / 38.1 ms; 4 | 39.8 / 37.5; 0 |
+
+(The two NTSC runs of the assembly differ by where the trace code and
+demo1's monsters' records sit, which sends the fight its own way.) A trace
+is still mostly waiting on low work RAM (a brush's box, its leaf's list, its
+mark, the brush, its sides), which the assembly can't shorten.
+
+The assembly is 1.4 KB of HWRAM, and its arguments 0.5 KB: that cost Comm
+Center the room it kept its brushes' boxes in (its cart then filled). So
+the traces' seldom-run C went to low work RAM (`cold`): `hull_check` (a
+long move), `box_leafs_r` and `line_check` (for when the assembly's stacks
+run out), `trace_init`. HWRAM is now 1.2 KB better off than before on demo2
+and demo3, and on demo1 that room went to the monsters' records (1,584 bytes
+of them left on the cart, from 3,488); every level keeps what it had where
+it had it. Comm Center's short entities, with the code in low work RAM, are
+sized for the skill played rather than every skill (section 39).

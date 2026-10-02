@@ -26,6 +26,45 @@ static bool         t_ispoint;
 static q_trace      tr;
 static u16          *brush_check, checkcount;
 static int          box_leafs[MAX_BOX_LEAFS], nbox_leafs;
+#if defined(NO_BOX_ASM) || defined(BOX_CHECK) || defined(CLIP_CHECK)
+# define BOX_C                              /* (the C's leaf_brushes, clip_box_brush: OPT=-DNO_BOX_ASM, or to check) */
+#endif
+#ifndef NO_BOX_ASM
+/* the leaves, and their brushes, in assembly (src/tbox.s): its offsets are its A_ */
+typedef struct
+{
+    s32             tbb[6];                 /* t_bb */
+    const s16       *bounds;
+    u16             *check;
+    u32             count;                  /* checkcount */
+    s32             mask;
+    q_trace         *tr;
+    const q_leaf    *leafs;
+    const u16       *leafbrushes;
+    const q_brush   *brushes;
+    const q_brushside *sides;
+    const q_plane   *planes;
+    const q_node    *nodes;
+    s32             ispoint;
+    int             *list;
+    s32             nlist, test;
+    s32             sl[3], sh[3], el[3], eh[3];     /* start + mins, start + maxs, end + mins, end + maxs */
+    s32             start[3], end[3], mins[3], maxs[3];
+    s32             c1[3], c2[3];           /* leafs_asm's box */
+    s32             stack[64];
+}                   box_args;
+_Static_assert(__builtin_offsetof(box_args, bounds) == 24 && __builtin_offsetof(box_args, tr) == 40
+               && __builtin_offsetof(box_args, planes) == 60 && __builtin_offsetof(box_args, test) == 80
+               && __builtin_offsetof(box_args, sl) == 84 && __builtin_offsetof(box_args, start) == 132
+               && __builtin_offsetof(box_args, mins) == 156 && __builtin_offsetof(box_args, c1) == 180
+               && __builtin_offsetof(box_args, stack) == 204, "src/tbox.s: box_args");
+_Static_assert(__builtin_offsetof(q_trace, startsolid) == 4 && __builtin_offsetof(q_trace, fraction) == 8
+               && __builtin_offsetof(q_trace, plane) == 24 && __builtin_offsetof(q_trace, contents) == 28
+               && __builtin_offsetof(q_trace, surf_flags) == 32, "src/tbox.s: q_trace");
+int                 leafs_asm(box_args *a, int num);
+void                brushes_asm(box_args *a);
+static box_args     ba;
+#endif
 #ifdef FIGHT_BENCH
 u32                 tr_count[8];            /* (the fight benchmark: brushes looked at, leaves, brushes clipped, sides, box traces, movers'; line traces' nodes, line traces) */
 u32                 tr_ticks[5];            /* gathering the leaves, clipping, the movers, the entities; line traces */
@@ -38,7 +77,7 @@ u32                 tr_ticks[5];            /* gathering the leaves, clipping, t
 # define TR_TICKS(i)    ((void)0)
 #endif
 
-void                trace_init(void)
+__attribute__((cold)) void trace_init(void)
 {
     brush_check = level_alloc_low((u32)lv.nbrushes * 2);  /* (read only for brushes whose box the trace's meets) */
     memset(brush_check, 0, (u32)lv.nbrushes * 2);
@@ -66,6 +105,7 @@ static s32          frac_div(s32 n, s32 d)
     return divu_result();
 }
 
+#ifdef BOX_C
 /* clipping a brush, a side at a time: how far into the move the box enters its solid (the
    latest entering side), and leaves it (the earliest leaving one) */
 typedef struct { s32 enter, leave; int side; bool getout, startout; } t_clip;
@@ -391,7 +431,10 @@ static void         leaf_brushes(int leafnum, bool test)
     }
 }
 
-static void         hull_check(int num, s32 p1f, s32 p2f, const s32 *p1, const s32 *p2)
+#endif
+
+/* a long move, down the tree along it (seldom: low work RAM) */
+static __attribute__((cold)) void hull_check(int num, s32 p1f, s32 p2f, const s32 *p1, const s32 *p2)
 {
     const q_node    *node;
     const q_plane   *pl;
@@ -402,7 +445,16 @@ static void         hull_check(int num, s32 p1f, s32 p2f, const s32 *p1, const s
         return;                             /* already hit something nearer */
     if (num < 0)
     {
+#ifndef NO_BOX_ASM
+        int leaf = -1 - num;
+
+        ba.list = &leaf;
+        ba.nlist = 1;
+        ba.test = 0;
+        brushes_asm(&ba);
+#else
         leaf_brushes(-1 - num, false);
+#endif
         return;
     }
     node = &lv.nodes[num];
@@ -461,8 +513,8 @@ static void         hull_check(int num, s32 p1f, s32 p2f, const s32 *p1, const s
     hull_check(node->child[side ^ 1], midf, p2f, mid, p2);
 }
 
-/* the leaves a box touches */
-static void         box_leafs_r(int num, const s32 *mins, const s32 *maxs)
+/* the leaves a box touches (leafs_asm's way: this when its stack runs out, or to check; low work RAM) */
+static __attribute__((cold)) void box_leafs_r(int num, const s32 *mins, const s32 *maxs)
 {
     while (num >= 0)
     {
@@ -501,6 +553,72 @@ static void         box_leafs_r(int num, const s32 *mins, const s32 *maxs)
     if (nbox_leafs < MAX_BOX_LEAFS)
         box_leafs[nbox_leafs++] = -1 - num;
 }
+
+/* the leaves the box c1 .. c2 touches, from node num: box_leafs, nbox_leafs (in assembly, unless
+   its stack runs out) */
+static void         box_leafs_get(int num, const s32 *c1, const s32 *c2)
+{
+#ifndef NO_BOX_ASM
+    int             k;
+
+    for (k = 0; k < 3; ++k)
+    {
+        ba.c1[k] = c1[k];
+        ba.c2[k] = c2[k];
+    }
+    ba.list = box_leafs;
+    if ((nbox_leafs = leafs_asm(&ba, num)) >= 0)
+        return;
+#endif
+    nbox_leafs = 0;
+    box_leafs_r(num, c1, c2);
+}
+
+/* their brushes: clipped (or, test, where the box stands), till the fraction's 0 */
+static void         box_brushes(bool test)
+{
+#ifndef NO_BOX_ASM
+    ba.list = box_leafs;
+    ba.nlist = nbox_leafs;
+    ba.test = test;
+    brushes_asm(&ba);
+#else
+    int             i;
+
+    for (i = 0; i < nbox_leafs && (test ? !tr.allsolid : tr.fraction); ++i)
+        leaf_brushes(box_leafs[i], test);
+#endif
+}
+
+#ifdef BOX_CHECK
+/* (OPT=-DBOX_CHECK: the C's way too, after the assembly's: the same leaves, the same trace?) */
+u32                 box_checks, box_ldiffs, box_diffs;
+
+static void         box_check(int num, const s32 *c1, const s32 *c2, bool test)
+{
+    q_trace         was = tr;
+    int             asm_leafs[MAX_BOX_LEAFS], n = nbox_leafs, i;
+
+    memcpy(asm_leafs, box_leafs, sizeof(asm_leafs));
+    memset(&tr, 0, sizeof(tr));
+    tr.fraction = FIX(1);
+    if (++checkcount == 0)
+    {
+        memset(brush_check, 0, (u32)lv.nbrushes * 2);
+        checkcount = 1;
+    }
+    nbox_leafs = 0;
+    box_leafs_r(num, c1, c2);
+    ++box_checks;
+    box_ldiffs += n != nbox_leafs || memcmp(asm_leafs, box_leafs, (u32)n * sizeof(int));
+    if (nbox_leafs < MAX_BOX_LEAFS || test)
+        for (i = 0; i < nbox_leafs && (test ? !tr.allsolid : tr.fraction); ++i)
+            leaf_brushes(box_leafs[i], test);
+    box_diffs += tr.fraction != was.fraction || tr.plane != was.plane || tr.surf_flags != was.surf_flags
+                 || tr.contents != was.contents || tr.startsolid != was.startsolid || tr.allsolid != was.allsolid;
+    tr = was;
+}
+#endif
 
 static q_trace      trace_box_once(const s32 *start, const s32 *end, const s32 *mins, const s32 *maxs, int headnode,
                                    int mask);
@@ -558,6 +676,34 @@ static q_trace      trace_box_once(const s32 *start, const s32 *end, const s32 *
         t_mins[i] = mins[i];
         t_maxs[i] = maxs[i];
     }
+    t_ispoint = !mins[0] && !mins[1] && !mins[2] && !maxs[0] && !maxs[1] && !maxs[2];
+#ifndef NO_BOX_ASM
+    for (i = 0; i < 6; ++i)
+        ba.tbb[i] = t_bb[i];
+    ba.bounds = lv.brushbounds;
+    ba.check = brush_check;
+    ba.count = checkcount;
+    ba.mask = mask;
+    ba.tr = &tr;
+    ba.leafs = lv.leafs;
+    ba.leafbrushes = lv.leafbrushes;
+    ba.brushes = lv.brushes;
+    ba.sides = lv.brushsides;
+    ba.planes = lv.planes;
+    ba.nodes = lv.nodes;
+    ba.ispoint = t_ispoint;
+    for (i = 0; i < 3; ++i)
+    {
+        ba.sl[i] = start[i] + mins[i];
+        ba.sh[i] = start[i] + maxs[i];
+        ba.el[i] = end[i] + mins[i];
+        ba.eh[i] = end[i] + maxs[i];
+        ba.start[i] = start[i];
+        ba.end[i] = end[i];
+        ba.mins[i] = mins[i];
+        ba.maxs[i] = maxs[i];
+    }
+#endif
     if (start[0] == end[0] && start[1] == end[1] && start[2] == end[2])
     {
         /* a position test */
@@ -568,16 +714,16 @@ static q_trace      trace_box_once(const s32 *start, const s32 *end, const s32 *
             c1[i] = start[i] + mins[i] - FIX(1);
             c2[i] = start[i] + maxs[i] + FIX(1);
         }
-        nbox_leafs = 0;
-        box_leafs_r(headnode, c1, c2);
-        for (i = 0; i < nbox_leafs && !tr.allsolid; ++i)
-            leaf_brushes(box_leafs[i], true);
+        box_leafs_get(headnode, c1, c2);
+        box_brushes(true);
+#ifdef BOX_CHECK
+        box_check(headnode, c1, c2, true);
+#endif
         for (i = 0; i < 3; ++i)
             tr.endpos[i] = start[i];
         return tr;
     }
     TR_COUNT(4, 1);
-    t_ispoint = !mins[0] && !mins[1] && !mins[2] && !maxs[0] && !maxs[1] && !maxs[2];
     if (iabs(end[0] - start[0]) <= SHORT_MOVE && iabs(end[1] - start[1]) <= SHORT_MOVE
         && iabs(end[2] - start[2]) <= SHORT_MOVE)
     {
@@ -594,14 +740,15 @@ static q_trace      trace_box_once(const s32 *start, const s32 *end, const s32 *
             c1[i] = imin(start[i], end[i]) + mins[i] - FIX(1);
             c2[i] = imax(start[i], end[i]) + maxs[i] + FIX(1);
         }
-        nbox_leafs = 0;
-        box_leafs_r(headnode, c1, c2);
+        box_leafs_get(headnode, c1, c2);
         TR_TICKS(0);
         if (nbox_leafs < MAX_BOX_LEAFS)
         {
-            for (i = 0; i < nbox_leafs && tr.fraction; ++i)
-                leaf_brushes(box_leafs[i], false);
+            box_brushes(false);
             TR_TICKS(1);
+#ifdef BOX_CHECK
+            box_check(headnode, c1, c2, false);
+#endif
 #ifdef TRACE_CHECK
             {
                 /* (OPT=-DTRACE_CHECK: the long way too, and count where they differ) */
@@ -660,8 +807,9 @@ static int          l_mask;
    at p2f); entered across plane pl (NULL at the start). Reaching a leaf
    that matches the mask is the hit, at p1. false: stopped (tr filled in).
    Down a side the line's wholly on, a loop (most nodes); where a plane cuts
-   it, a call for the near part, then the loop goes on with the far */
-static bool         line_check(int num, s32 p1f, s32 p2f, const s32 *p1_in, const s32 *p2, const q_plane *entered)
+   it, a call for the near part, then the loop goes on with the far. (Only
+   when line_asm's stack runs out: low work RAM) */
+static __attribute__((cold)) bool line_check(int num, s32 p1f, s32 p2f, const s32 *p1_in, const s32 *p2, const q_plane *entered)
 {
     s32             p1[3], mid[3], t1, t2, frac, midf;
     int             side, i;

@@ -242,7 +242,7 @@ void                ents_light_dyn(bool pvs)
 {
     int             i, k, n = 0, nn;
 
-    for (i = 0; i < nents; ++i)
+    for (i = 0; i < GAME_ENTS; ++i)
     {
         q_entity    *e = &ents[i];
         const q_mdl *m = e->mdl;
@@ -311,12 +311,14 @@ void                ents_light_dyn(bool pvs)
 #endif
 
 /* each one's leaf: again only if it's moved (items stand still; render_world puts them in
-   their leaves by it) */
+   their leaves by it). These three do the game's entities only, as the slave's first job runs
+   alongside the master's fx_render: the effects' (from GAME_ENTS) light themselves, theirs
+   wanting the dynamic lights from draw_model */
 void                ents_leaf(void)
 {
     int             i;
 
-    for (i = 0; i < nents; ++i)
+    for (i = 0; i < GAME_ENTS; ++i)
     {
         q_entity    *e = &ents[i];
 
@@ -338,7 +340,7 @@ void                ents_shade(bool pvs)
 {
     int             i;
 
-    for (i = 0; i < nents; ++i)
+    for (i = 0; i < GAME_ENTS; ++i)
     {
         q_entity    *e = &ents[i];
         int         leaf = e->g_leaf, ys;

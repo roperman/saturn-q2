@@ -14,13 +14,13 @@
 #define MAX_SPARKS      (24)
 #define FX_ENT0         (GAME_ENTS)         /* the render entities after the game's */
 
-enum { P_BOLT, P_ROCKET, P_GRENADE };
+enum { P_BOLT, P_ROCKET, P_GRENADE, P_GIB };
 
 typedef struct
 {
     s32             pos[3], vel[3], life;
     g_ent           *owner;
-    int             damage, radius_damage, kind, spin;
+    int             damage, radius_damage, kind, spin, mdl;   /* (mdl: a gib's) */
     bool            live, resting;
 }                   t_proj;
 
@@ -105,6 +105,10 @@ static t_proj       *new_proj(g_ent *owner, const s32 *start, const s32 *dir, s3
             p = &proj[i];
             break;
         }
+    if (!p && kind != P_GIB)
+        for (i = 0; i < MAX_PROJ; ++i)
+            if (proj[i].kind == P_GIB && (!p || proj[i].life < p->life))
+                p = &proj[i];               /* (none free: a shot before the gib nearest its end) */
     if (!p || len < 256)
         return NULL;
     memset(p, 0, sizeof(*p));
@@ -173,6 +177,23 @@ static void         explode(t_proj *p, g_ent *direct)
     p->live = false;
 }
 
+/* a gib (model mdl) from pos, flying at vel: it tumbles, lands, and goes after 5 to 10 seconds;
+   only in a free slot (a shot takes one back from it) */
+__attribute__((cold)) void fx_gib(int mdl, const s32 *pos, const s32 *vel)
+{
+    static const s32 up[3] = { 0, 0, FIX(1) };
+    t_proj          *p = new_proj(NULL, pos, up, FIX(1), P_GIB);
+    int             k;
+
+    if (!p)
+        return;
+    for (k = 0; k < 3; ++k)
+        p->vel[k] = vel[k];
+    p->mdl = mdl;
+    p->spin = (int)(rng() & 0xFFFF);
+    p->life = FIX(5) + fmul(frandom(), FIX(5));
+}
+
 /* Quake's ClipVelocity with a bounce (MOVETYPE_BOUNCE: 1.5) */
 static void         bounce(s32 *v, const s32 *n)
 {
@@ -192,6 +213,42 @@ static void         move_proj(t_proj *p, s32 dt)
     int             k;
 
     p->life -= dt;
+    if (p->kind == P_GIB)
+    {
+        if (p->life <= 0)
+        {
+            p->live = false;
+            return;
+        }
+        if (p->resting)
+            return;
+        p->vel[2] -= fmul(FIX(800), dt);
+        p->spin += (int)fmul(dt, 0x18000);
+        for (k = 0; k < 3; ++k)
+            end[k] = p->pos[k] + fmul(p->vel[k], dt);
+        t = trace_world(p->pos, zero, zero, end, CONTENTS_SOLID | CONTENTS_WINDOW);    /* (the world and the movers) */
+        for (k = 0; k < 3; ++k)
+            p->pos[k] = t.endpos[k];
+        if (t.fraction < FIX(1) && t.plane)
+        {
+            /* Quake's MOVETYPE_TOSS: on a floor it stops; off a wall it slides */
+            s32 back = fmul(p->vel[0], t.plane->n[0]) + fmul(p->vel[1], t.plane->n[1]) + fmul(p->vel[2], t.plane->n[2]);
+
+            if (t.plane->n[2] > FIX(0.7))
+            {
+                /* lying on the floor: lifted off it by about its own half-height (its middle on the
+                   plane would be in the leaf under it, drawn first, the floor over it) */
+                p->resting = true;
+                p->vel[0] = p->vel[1] = p->vel[2] = 0;
+                for (k = 0; k < 3; ++k)
+                    p->pos[k] += fmul(t.plane->n[k], FIX(4));
+            }
+            else
+                for (k = 0; k < 3; ++k)
+                    p->vel[k] -= fmul(t.plane->n[k], back);
+        }
+        return;
+    }
     if (p->kind == P_GRENADE)
     {
         if (p->life <= 0)
@@ -292,8 +349,8 @@ void                fx_update(s32 dt)
     {
         t_proj  *p = &proj[i];
 
-        if (!p->live || p->kind == P_GRENADE)
-            continue;
+        if (!p->live || p->kind == P_GRENADE || p->kind == P_GIB)
+            continue;                       /* (no light of their own) */
         if (r_ndlights < MAX_DLIGHTS)
         {
             q_dlight *l = &r_dlights[r_ndlights++];
@@ -381,7 +438,13 @@ void                fx_render(void)
         for (k = 0; k < 3; ++k)
             r->origin[k] = p->pos[k];
         r->g_moved = true;
-        if (p->kind == P_ROCKET)
+        if (p->kind == P_GIB)
+        {
+            r->mdl = &models[p->mdl];
+            r->yaw = (i * 0x2700 + (p->spin >> 1)) & 0xFFFF;
+            r->pitch = p->spin & 0xFFFF;
+        }
+        else if (p->kind == P_ROCKET)
         {
             s32 h[3];
 
@@ -402,6 +465,22 @@ void                fx_render(void)
         r->frame = r->oldframe = 0;
         r->lerp = 0;
         r->live = r->mdl->loaded;
+        r->g_lit = -2;                      /* (draw_model adds the dynamic lights near it itself) */
+        if (r->live)
+        {
+            /* its light by normal, for its leaf and its yaw (the slave's ents_shade does only the
+               game's entities: these were drawn black) */
+            int l = level_leaf(r->origin), ys = (int)(((u32)r->yaw >> 12) & 15);
+
+            r->g_leaf = (s16)l;
+            r->g_moved = false;
+            if (l != r->g_litleaf || ys != r->g_yaw)
+            {
+                model_shade(r->gbase, r->mdl->shade + ys * 162, &lv.leaflight[l * 4]);
+                r->g_litleaf = (s16)l;
+                r->g_yaw = ys;
+            }
+        }
         ++n;
     }
     for (; n < MAX_ENTITIES; ++n)

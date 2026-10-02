@@ -2404,3 +2404,57 @@ in ambush as the map has it, and once shot it comes round and kills you in
 seconds (rockets). The level tour: all three load, the DSP walls and two
 gun slots on each (`T` on the line: the tank's model). The fight (Outer
 Base) the same: NTSC 38.3 / 36.7 ms.
+
+Stood in front of it (NTSC, the stats overlay): 21 to 27 fps while it
+stands, 19.8 while it fights; the CPUs' 34 to 45 ms a frame, the models'
+part 9 to 11 ms of it (the tank's 430 polygons the most of any model). A
+medium mesh between the whole and the coarse one, for the middle
+distance, would be the way to win some back if it matters.
+
+## 56. Gibs
+
+Quake's ThrowGib and ThrowHead: a monster killed with its health at or
+under its `gib_health` (the soldier -30, infantry -40, berserker -60,
+gunner -70, tank -200), or a body shot again until it is, goes to pieces
+rather than dying (g_main.c `g_gib`). The pieces are each monster's own in
+Quake's m_*.c: the soldier 3 meat, a chest and a head; the infantry,
+gunner and berserker 4 meat, 2 bones and a head; the tank a meat, a chest,
+4 bits of metal and the gear for a head. Each starts somewhere in its box
+(the head from where the head was), at Quake's VelocityForDamage speed
+(0.7 of it under 50 damage, 1.2 over), with the splat (misc/udeath, in
+every level's bank).
+
+They're fx.c projectiles (`P_GIB`, from the same 24 slots as rockets and
+grenades): they tumble, fall at Quake's 800, slide off walls, stop on a
+floor (lifted 4 units off it so they're drawn in the room's leaf, not the
+floor's), and go after 5 to 10 seconds (Quake's 10 to 20: the slots are
+few); a rocket or grenade with no free slot takes the gib nearest its end.
+The models (tools/models.txt `gib_*`): one frame each, so on the cart, not
+in HWRAM; the three every level needs (meat, bone, head) and the chest
+cost 51 KB of cart on Outer Base and Comm Center, Installation's tank adds
+metal and gear (63 KB). The code's cold: 608 bytes of low work RAM.
+
+Two things on the way:
+
+- The effects' models (rockets, grenades, now gibs) were never lit: the
+  slave's ents_shade does the game's entities, and theirs were drawn with
+  whatever light their slot last had (black, for a gib). fx_render lights
+  them itself now, for their leaf and yaw, as ents_shade would.
+- Resting gibs vanished. With two CPUs the slave's first job
+  (g_render_ents) set `nents` back to the game's 64 while the master's
+  fx_render was setting it to all 88: whichever wrote last won, and when
+  the slave did, nothing from fx.c was put in its leaf that frame (gibs
+  in the air happened to win the race; lying still, they lost it). Rockets
+  and grenades could flicker out the same way. Now only fx_render sets it,
+  and the slave's three loops (ents_leaf, ents_shade, ents_light_dyn) go
+  to the game's 64 by name.
+
+Tried: soldiers and infantry on Outer Base, the tank on Installation,
+berserkers on Comm Center (rockets, `WARP_ONLY`): pieces fly, land, lie lit
+on the floor and go. The level tour: all three load, the DSP walls and two
+gun slots each; low work RAM 106.4 / 7.1 / 18.5 KB left, the cart ~860 /
+~248 / ~227 KB. The fight (no gibs in it: its player doesn't shoot) NTSC
+38.7 / 37.1 ms, 160 of 517 a frame late (38.3 / 36.7 and ~152 before);
+built with the gibs left out it's 38.5 / 36.9, so ~0.2 ms is the code's
+new layout and the rest the gunners' grenades now drawn every frame. PAL
+40.3 / 38.5 ms, 12 of 496 late.

@@ -53,8 +53,10 @@ and over half of each level's never came), more monsters and items.
   exits between them. Your health, armour and weapons carry over, and
   there's the level-complete screen and the three skill levels.
 - Monsters with Quake 2's own AI, ported from its game code: soldiers
-  (light, standard, SS), infantry, and the gunner (on Installation). They
-  see and hear you, chase you, shoot, flinch and die.
+  (light, standard, SS), infantry, the gunner (Installation and Comm
+  Center), the berserker (Comm Center) and the tank (Installation). They
+  see and hear you, chase you, shoot, flinch and die, and a hard enough hit
+  (or a body shot again) leaves them in pieces, as Quake's gibs.
 - Weapons: blaster, shotgun, super shotgun, machinegun, chaingun, grenade
   launcher, rocket launcher. Quake's damage and fire rates, radius damage,
   and the weapon drawn in your hands.

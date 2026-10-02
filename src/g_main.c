@@ -253,10 +253,63 @@ s32                 player_flash;           /* the red flash when you're hit, 0.
 int                 kills, total_monsters;
 bool                level_complete;
 
+/* Quake's ThrowGib and ThrowHead: the monster in pieces (each one's, as its m_*.c had them), each
+   from somewhere in its box at VelocityForDamage's speed, and the body gone */
+static __attribute__((cold)) void g_gib(g_ent *self, int damage)
+{
+    static const s8 sets[][6] = {
+        /* meat, bone, chest, metal, gear, head */
+        { 3, 0, 1, 0, 0, 1 },               /* the soldiers */
+        { 4, 2, 0, 0, 0, 1 },               /* the infantry, the gunner, the berserker */
+        { 1, 0, 1, 4, 1, 0 },               /* the tank (the gear its head) */
+    };
+    static const u8 mdl[6] = { MDL_GIB_MEAT, MDL_GIB_BONE, MDL_GIB_CHEST, MDL_GIB_METAL, MDL_GIB_GEAR, MDL_GIB_HEAD };
+    const s8        *set = sets[self->mdl == &models[MDL_SOLDIER] ? 0 : self->mdl == &models[MDL_TANK] ? 2 : 1];
+    s32             scale = damage < 50 ? FIX(0.7) : FIX(1.2);
+    int             g, n, k;
+
+    s_play(SND_GIB, self->origin, ATTN_NORM);
+    for (g = 0; g < 6; ++g)
+        for (n = 0; n < set[g]; ++n)
+        {
+            s32 p[3], v[3];
+
+            for (k = 0; k < 3; ++k)
+                p[k] = self->origin[k] + self->mins[k] + fmul(self->maxs[k] - self->mins[k], frandom());
+            if (g == 5)
+            {
+                p[0] = self->origin[0];         /* (the head: from where its head was) */
+                p[1] = self->origin[1];
+                p[2] = self->origin[2] + self->maxs[2] - FIX(8);
+            }
+            v[0] = fmul(fmul(crandom(), FIX(100)), scale);
+            v[1] = fmul(fmul(crandom(), FIX(100)), scale);
+            v[2] = fmul(FIX(200) + fmul(frandom(), FIX(100)), scale);
+            if (models[mdl[g]].loaded)
+                fx_gib(mdl[g], p, v);
+        }
+    self->dead = true;
+    self->solid = false;
+    self->takedamage = false;
+    self->move = NULL;
+    self->kind = EK_FREE;                   /* (its render entity goes: g_render_ents) */
+}
+
 void                g_damage(g_ent *targ, g_ent *attacker, int damage, const s32 *point)
 {
-    if (!targ || targ->kind == EK_FREE || targ->dead || damage <= 0 || targ->inactive)
+    if (!targ || targ->kind == EK_FREE || damage <= 0 || targ->inactive)
         return;
+    if (targ->dead)
+    {
+        /* a body: enough more and it's in pieces (Quake's: a corpse takes damage) */
+        if (targ->kind == EK_MONSTER && targ->gib_health < 0)
+        {
+            targ->health -= damage;
+            if (targ->health <= targ->gib_health)
+                g_gib(targ, damage);
+        }
+        return;
+    }
     if (targ->kind == EK_PLAYER)
     {
         static s32 pain_time;               /* (a pain sound at most every 0.7 s, as Quake) */
@@ -286,6 +339,11 @@ void                g_damage(g_ent *targ, g_ent *attacker, int damage, const s32
         {
             ++kills;
             G_UseTargets(targ, attacker);   /* monster_death_use */
+            if (targ->health <= targ->gib_health)
+            {
+                g_gib(targ, damage);        /* (in pieces, not a death) */
+                return;
+            }
         }
         targ->die(targ, attacker, damage, point);
         return;
@@ -1071,7 +1129,6 @@ void                g_render_ents(void)
         else if (want || s >= 0)            /* (the rest: not read) */
             render_ent(G_SHORT_ENT(i), d, want, 0, spin);
     }
-    nents = GAME_ENTS;
 }
 
 /* (once the camera's moved) pvs: the PVS marked is the camera's; if not, every one kept */

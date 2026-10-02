@@ -4,7 +4,7 @@
 ** you and swings: the spike (an upward stab, 15 to 20) or the club (5 to
 ** 10); it has nothing for a distance (Quake's has no attack, only melee).
 ** Left out to fit: its fidget and idle sound, walk and search sound (as the
-** gunner's), and the gibs.
+** gunner's). (Its gibs: g_main.c's g_gib.)
 */
 #include "game.h"
 

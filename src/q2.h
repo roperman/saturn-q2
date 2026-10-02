@@ -271,6 +271,7 @@ void                fx_spark(const s32 *p);
 void                fx_explosion(const s32 *p);
 void                fx_grenade(struct g_ent_s *owner, const s32 *start, const s32 *dir, int damage, s32 speed);
 void                fx_rocket(struct g_ent_s *owner, const s32 *start, const s32 *dir, int damage, int radius_damage);
+void                fx_gib(int mdl, const s32 *pos, const s32 *vel);   /* a piece of a monster, flying */
 void                fx_render(void);                       /* rockets and grenades into the renderer's entities */
 void                fx_update(s32 dt);                      /* moves things, then fills the lights and sprites */
 void                fx_reset(void);                         /* a new level: nothing in flight */
@@ -334,7 +335,7 @@ void                models_load_all(void);                  /* tools/models.txt'
 void                g_models_needed(bool *need);            /* (g_items.c) which of them */
 void                models_hot(void);                       /* the monsters' polygons into HWRAM (last at start-up) */
 extern q_entity     ents[MAX_ENTITIES];
-extern int          nents;
+extern int          nents;                  /* (fx_render's, the master's: the game's and then the effects') */
 bool                model_load(q_mdl *m, const char *file);
 int                 model_anim(const q_mdl *m, const char *name);
 void                model_shade(u16 *out, const u8 *sh, const u16 *ll);    /* 162 normals' Gouraud: a light, a yaw's shading */

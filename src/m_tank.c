@@ -5,7 +5,7 @@
 ** on hard it fires again while it can see you. Loaded with the levels that
 ** have one (Installation's: build.sh build_overlays). Left out to fit: its
 ** walk (it runs as it walks), the stomp it does on you when you're dead,
-** its idle and death thud sounds, and the gibs.
+** its idle and death thud sounds. (Its gibs: g_main.c's g_gib.)
 */
 #include "game.h"
 

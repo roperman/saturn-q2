@@ -9,6 +9,12 @@ tank      TANK.MDL     models/monsters/tank/tris.md2      skin,pain  stand:stand
 barrel    BARREL.MDL   models/objects/barrels/tris.md2    skin  -  sharedlut
 rocket    ROCKET.MDL   models/objects/rocket/tris.md2     skin  -  sharedlut
 grenade   GRENADE.MDL  models/objects/grenade/tris.md2    skin  -  sharedlut
+gib_meat  G_MEAT.MDL   models/objects/gibs/sm_meat/tris.md2   skin  -  sharedlut
+gib_bone  G_BONE.MDL   models/objects/gibs/bone/tris.md2      skin  -  sharedlut
+gib_head  G_HEAD.MDL   models/objects/gibs/head2/tris.md2     skin  -  sharedlut
+gib_chest G_CHEST.MDL  models/objects/gibs/chest/tris.md2     skin  -  sharedlut
+gib_metal G_METAL.MDL  models/objects/gibs/sm_metal/tris.md2  skin  -  sharedlut
+gib_gear  G_GEAR.MDL   models/objects/gibs/gear/tris.md2      skin  -  sharedlut
 stimpack  I_STIM.MDL   models/items/healing/stimpack/tris.md2  skin  -  sharedlut
 health    I_HEALTH.MDL models/items/healing/medium/tris.md2    skin  -  sharedlut
 healthl   I_HEALTL.MDL models/items/healing/large/tris.md2     skin  -  sharedlut

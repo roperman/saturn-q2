@@ -65,6 +65,7 @@ SOUNDS = [
     ("ricochet1", "world/ric1", 0.3, 70),
     ("ricochet2", "world/ric2", 0.3, 70),
     ("ricochet3", "world/ric3", 0.3, 70),
+    ("gib", "misc/udeath", 0.6, 110),
     ("sol_sight", "soldier/SOLSGHT1", 0.8, 110),
     ("sol_pain1", "soldier/SOLPAIN1", 0.6, 110),
     ("sol_pain2", "soldier/SOLPAIN2", 0.6, 110),

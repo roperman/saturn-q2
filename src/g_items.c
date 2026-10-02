@@ -71,6 +71,7 @@ void                g_models_needed(bool *need)
     for (i = 0; i < MDL_COUNT; ++i)
         need[i] = false;
     need[MDL_ROCKET] = need[MDL_GRENADE] = true;    /* (yours, any level) */
+    need[MDL_GIB_MEAT] = need[MDL_GIB_BONE] = need[MDL_GIB_HEAD] = true;     /* (the monsters in pieces) */
     for (i = 0; i < lv.nerecs; ++i, ++r)
     {
         const g_item *it = item_of(r->cls);
@@ -78,7 +79,7 @@ void                g_models_needed(bool *need)
         if (it)
             need[it->model] = true;
         else if (r->cls == C_MONSTER_SOLDIER || r->cls == C_MONSTER_SOLDIER_LIGHT || r->cls == C_MONSTER_SOLDIER_SS)
-            need[MDL_SOLDIER] = true;
+            need[MDL_SOLDIER] = need[MDL_GIB_CHEST] = true;
         else if (r->cls == C_MONSTER_INFANTRY)
             need[MDL_INFANTRY] = true;
         else if (r->cls == C_MONSTER_GUNNER)
@@ -86,7 +87,7 @@ void                g_models_needed(bool *need)
         else if (r->cls == C_MONSTER_BERSERK)
             need[MDL_BERSERK] = true;
         else if (r->cls == C_MONSTER_TANK)
-            need[MDL_TANK] = true;
+            need[MDL_TANK] = need[MDL_GIB_CHEST] = need[MDL_GIB_METAL] = need[MDL_GIB_GEAR] = true;
         else if (r->cls == C_MISC_EXPLOBOX)
             need[MDL_BARREL] = true;
     }

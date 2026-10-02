@@ -2374,3 +2374,33 @@ HWRAM (2.3 KB); now only where they're needed. Outer Base gets both back;
 Comm Center has them both, in its LWRAM instead (14.6 KB left). Comm
 Center's berserkers and gunners and Installation's gunners as before
 (tried there: they come and hit). The fight the same (NTSC 38.4 / 36.8 ms).
+
+(Then: the code runs where it's read, on the cart, not copied into low work
+RAM. With the tank's on Installation the gunner's and the tank's took 9 KB
+of its low work RAM and pushed its entities' tables onto the cart; the
+tables are read far more often than a monster's think runs, and a cart
+miss costs about what a low work RAM one does (75 cycles to 59). So the
+monsters' code on the cart, moved in place, and the tables back in LWRAM.)
+
+## 55. The tank (Installation's)
+
+`src/m_tank.c`, loaded with the levels that have one (section 54): Quake
+2's m_tank.c. Near, its machinegun swept across you (19 shots, from 40
+degrees one side to 40 the other) or three blaster bolts; further off,
+those or three rockets; on hard it fires again while it can see you, and
+it isn't put off by pain while firing. Left out: its walk (it runs as it
+walks), its stomp on you once you're dead, its idle and death-thud sounds,
+the gibs. TANK.MDL: 211 of its 294 frames, two skins, a far mesh: 457 KB on
+the cart (Installation has 311 KB left after it); its sounds (sight, pain,
+death, step, the three guns) in Installation's bank: 472 of 480 KB.
+
+Its 405 vertices and 430 polygons are more than the renderer's room for a
+model was (the gunner's 336 and 384): now 416 and 432, ~3.2 KB more HWRAM on
+every level (each CPU's vertex arrays, and the gun's kept drawing, sized
+by them), which puts Comm Center's gun's kept drawing back on the cart.
+
+Tried (`MAP=demo2 OPT="-DNEW_GAME_DEMO=2 -DWARP_ONLY=MDL_TANK"`): it stands
+in ambush as the map has it, and once shot it comes round and kills you in
+seconds (rockets). The level tour: all three load, the DSP walls and two
+gun slots on each (`T` on the line: the tank's model). The fight (Outer
+Base) the same: NTSC 38.3 / 36.7 ms.

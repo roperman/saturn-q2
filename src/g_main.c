@@ -478,10 +478,11 @@ enum { G_NONE, G_FULL, G_ITEM, G_TRIG, G_POINT, G_POOLS };
 
 static __attribute__((cold)) int          g_pool(int c)
 {
-    if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_BERSERK)
+    if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_TANK)
         return (c == C_MONSTER_INFANTRY && !models[MDL_INFANTRY].loaded)
                || (c == C_MONSTER_GUNNER && !models[MDL_GUNNER].loaded)
-               || (c == C_MONSTER_BERSERK && !models[MDL_BERSERK].loaded) ? G_NONE : G_FULL;
+               || (c == C_MONSTER_BERSERK && !models[MDL_BERSERK].loaded)
+               || (c == C_MONSTER_TANK && !models[MDL_TANK].loaded) ? G_NONE : G_FULL;
     if (c == C_MISC_EXPLOBOX)
         return models[MDL_BARREL].loaded ? G_FULL : G_NONE;
     if (c == C_FUNC_EXPLOSIVE)
@@ -533,16 +534,17 @@ static __attribute__((cold)) void         *g_room(u32 bytes, bool cart)
 }
 
 /* The monsters only some levels have: their code on the CD (build.sh build_overlays), read
-   into low work RAM by the levels that have them, after the models (a model loaded with no
-   code: not loaded after all, its monsters left out). The file: "Q2OV", the base it was linked
-   at, the image's size, how many words to move by where it lands; the image (its spawn's
-   address first); those words' offsets. Read onto the cart (whole sectors), the image copied */
+   onto the cart by the levels that have them, after the models (a model loaded with no code:
+   not loaded after all, its monsters left out), and run from there: the cart's misses cost
+   about what low work RAM's do, and low work RAM's wanted for the entities' tables, read far
+   more often. The file: "Q2OV", the base it was linked at, the image's size, how many words to
+   move by where it lands; the image (its spawn's address first); those words' offsets */
 static void         (*ovl_spawn[MDL_COUNT])(g_ent *self);
 
 __attribute__((cold)) void g_overlays_load(void)
 {
     static const struct { int mdl; const char *file; } ovl[] = {
-        { MDL_GUNNER, "GUNNER.OVL" }, { MDL_BERSERK, "BERSERK.OVL" },
+        { MDL_GUNNER, "GUNNER.OVL" }, { MDL_BERSERK, "BERSERK.OVL" }, { MDL_TANK, "TANK.OVL" },
     };
     unsigned        i;
 
@@ -565,9 +567,8 @@ __attribute__((cold)) void g_overlays_load(void)
         base = h[1];
         size = h[2];
         n = h[3];
-        img = level_alloc_low(size);
-        memcpy(img, h + 4, size);
-        rel = (const u32 *)((const u8 *)(h + 4) + size);
+        img = (u8 *)(h + 4);                /* (where it landed on the cart: moved in place) */
+        rel = (const u32 *)(img + size);
         for (k = 0; k < n; ++k)
             *(u32 *)(img + rel[k]) += (u32)img - base;
         ovl_spawn[m] = *(void (**)(g_ent *))img;
@@ -697,11 +698,12 @@ __attribute__((cold)) void g_init(void)
         e->count = r->count;
         e->model = r->model;
         e->kind = EK_POINT;
-        if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_BERSERK)
+        if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_TANK)
         {
-            if (c == C_MONSTER_INFANTRY || c == C_MONSTER_GUNNER || c == C_MONSTER_BERSERK)
+            if (c != C_MONSTER_SOLDIER_LIGHT && c != C_MONSTER_SOLDIER && c != C_MONSTER_SOLDIER_SS)
             {
-                int m = c == C_MONSTER_INFANTRY ? MDL_INFANTRY : c == C_MONSTER_GUNNER ? MDL_GUNNER : MDL_BERSERK;
+                int m = c == C_MONSTER_INFANTRY ? MDL_INFANTRY : c == C_MONSTER_GUNNER ? MDL_GUNNER
+                        : c == C_MONSTER_BERSERK ? MDL_BERSERK : MDL_TANK;
 
                 if (!models[m].loaded)
                 {

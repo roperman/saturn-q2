@@ -841,7 +841,7 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
         level_free(&lt_hw[lt_nhw & 3][0], &lt_hw[lt_nhw & 3][1], &lt_hw[lt_nhw & 3][2]);      /* (what's left, each level) */
         lt_hw[lt_nhw & 3][3] = models_cold;
         lt_fl[lt_nhw & 3] = (u32)(r_level_flags() | view_nslots() << 2 | models[MDL_GUNNER].loaded << 4
-                                  | models[MDL_BERSERK].loaded << 7 | lt_count(MDL_BERSERK) << 8
+                                  | models[MDL_BERSERK].loaded << 7 | lt_count(MDL_BERSERK) << 8 | models[MDL_TANK].loaded << 12
                                   | ((u32)g_edicts >> 24 == 0x02) << 5 | ((u32)g_shorts >> 24 == 0x02) << 6);
         {
             extern u32 level_back;
@@ -961,7 +961,7 @@ void                main(void)
         level_free(&lt_hw[0][0], &lt_hw[0][1], &lt_hw[0][2]);
         lt_hw[0][3] = models_cold;
         lt_fl[0] = (u32)(r_level_flags() | view_nslots() << 2 | models[MDL_GUNNER].loaded << 4
-                         | models[MDL_BERSERK].loaded << 7 | lt_count(MDL_BERSERK) << 8
+                         | models[MDL_BERSERK].loaded << 7 | lt_count(MDL_BERSERK) << 8 | models[MDL_TANK].loaded << 12
                          | ((u32)g_edicts >> 24 == 0x02) << 5 | ((u32)g_shorts >> 24 == 0x02) << 6);
         {
             extern u32 level_back;
@@ -1093,8 +1093,13 @@ void                main(void)
 
 #if !defined(GUNNER_TEST) && !defined(SLOT_CHECK)
             if (a == MA_NEW_GAME && !same(cur_map, "DEMO1.MAP"))
+#if defined(NEW_GAME_DEMO3) || defined(NEW_GAME_DEMO)
+                /* (OPT=-DNEW_GAME_DEMO=2 or 3, with MAP= the same: a test, a new game on that level) */
 #ifdef NEW_GAME_DEMO3
-                load_level("demo3", NULL, false);       /* (OPT=-DNEW_GAME_DEMO3: a test, a new game on Comm Center) */
+                load_level("demo3", NULL, false);
+#else
+                load_level(NEW_GAME_DEMO == 2 ? "demo2" : "demo3", NULL, false);
+#endif
 #else
                 load_level("demo1", NULL, false);       /* a new game's from the first level */
 #endif
@@ -1961,9 +1966,10 @@ void                main(void)
             int k;
 
             for (k = 0; k < 3; ++k)
-                vdp_printf(8, 30 + k * 9, RGB(255, 255, 120), "W%d K%d G%d N%d%d%d E%d HW%d LW%d CA%d", lt_fl[k] & 1,
-                           lt_fl[k] >> 1 & 1, lt_fl[k] >> 2 & 3, lt_fl[k] >> 4 & 1, lt_fl[k] >> 7 & 1, lt_fl[k] >> 8,
-                           lt_fl[k] >> 5 & 1 | (lt_fl[k] >> 6 & 1) << 1, lt_hw[k][0], lt_hw[k][1], lt_hw[k][2]);
+                vdp_printf(8, 30 + k * 9, RGB(255, 255, 120), "W%d K%d G%d N%d%d%dT%d E%d HW%d LW%d CA%d", lt_fl[k] & 1,
+                           lt_fl[k] >> 1 & 1, lt_fl[k] >> 2 & 3, lt_fl[k] >> 4 & 1, lt_fl[k] >> 7 & 1, lt_fl[k] >> 8 & 15,
+                           lt_fl[k] >> 12 & 1,
+                           (lt_fl[k] >> 5 & 1) | (lt_fl[k] >> 6 & 1) << 1, lt_hw[k][0], lt_hw[k][1], lt_hw[k][2]);
         }
 #endif
 #if defined(LEVEL_TEST) && defined(FACE_CHECK)

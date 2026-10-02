@@ -70,8 +70,8 @@ and over half of each level's never came), more monsters and items.
 - A title menu with options, including brightness (for a PC screen, say),
   and Quake 2's console background behind the loading screens.
 
-Not yet: the other monsters (flyers, the tank and parasites, so Installation
-and Comm Center are quieter than Quake's), flickering lights, saving, and
+Not yet: the other monsters (flyers and parasites, so Installation and Comm
+Center are quieter than Quake's), flickering lights, saving, and
 full-resolution textures. [PLAN.md](PLAN.md) has what's next.
 
 ## Speed

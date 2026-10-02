@@ -286,6 +286,7 @@ void                SP_monster_infantry(g_ent *self);
 /* m_gunner.c */
 void                SP_monster_gunner(g_ent *self);         /* (loaded per level: g_overlays_load) */
 void                SP_monster_berserk(g_ent *self);
+void                SP_monster_tank(g_ent *self);
 void                g_overlays_load(void);                  /* (a level's start, after the models) */
 
 /* g_target.c: triggers, relays, timers, targets, barrels */

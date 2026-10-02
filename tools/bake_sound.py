@@ -39,6 +39,7 @@ MONSTER_SOUNDS = {
     "inf_": ("monster_infantry",),
     "gun_": ("monster_gunner",),
     "ber_": ("monster_berserk",),
+    "tnk_": ("monster_tank",),
 }
 # monsters a level has that are left out anyway (none now: the cart has room, OVERNIGHT.md 50)
 LEFT_OUT = {}
@@ -90,6 +91,13 @@ SOUNDS = [
     ("ber_pain", "berserk/berpain2", 0.6, 110),
     ("ber_death", "berserk/berdeth2", 1.2, 115),
     ("ber_punch", "berserk/attack", 0.5, 110),
+    ("tnk_sight", "tank/sight1", 0.8, 110),
+    ("tnk_pain", "tank/tnkpain2", 0.5, 110),
+    ("tnk_death", "tank/death", 1.0, 115),
+    ("tnk_step", "tank/step", 0.25, 90),
+    ("tnk_blaster", "tank/tnkatck3", 0.4, 110),
+    ("tnk_mg", "tank/tnkatk2a", 0.15, 110),
+    ("tnk_rocket", "tank/tnkatck1", 0.5, 115),
     ("player_pain25", "player/male/pain25_1", 0.6, 120),
     ("player_pain50", "player/male/pain50_1", 0.7, 120),
     ("player_pain75", "player/male/pain75_1", 0.6, 120),

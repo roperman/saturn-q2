@@ -54,10 +54,16 @@ bool                model_parse(q_mdl *m, const u8 *b)
     m->nfpolys = (int)h32[11];
     if (m->nfpolys)
     {
-        const u16 *u = (const u16 *)(m->fpolys + m->nfpolys);   /* a count, then the vertices */
+        /* a count, then the vertices it uses: the first so many (tools/bake_md2.py), which is all
+           draw_model takes; an older bake's aren't: no far mesh then */
+        const u16 *u = (const u16 *)(m->fpolys + m->nfpolys);
+        int k;
 
         m->nfverts = u[0];
-        m->fverts = u + 1;
+        for (k = 0; k < m->nfverts && u[1 + k] == k; ++k)
+            ;
+        if (k < m->nfverts)
+            m->nfpolys = 0;
     }
     m->frame_bytes = 24 + (u32)m->nverts * 4;
     /* the frames are read every time it's drawn: into fast RAM if they fit */
@@ -133,10 +139,7 @@ void                models_hot(void)
         m->polys = hot(m->polys, (u32)m->npolys * sizeof(q_mpoly));
         m->tex = hot(m->tex, (u32)m->ntex * sizeof(q_mtex));
         if (m->nfpolys)
-        {
             m->fpolys = hot(m->fpolys, (u32)m->nfpolys * sizeof(q_mpoly));
-            m->fverts = hot(m->fverts, (u32)m->nfverts * 2);
-        }
     }
 }
 

@@ -5,17 +5,18 @@
 ; v0, v1: the vertex in the two frames being blended (MD2's packed bytes x y z
 ; n, as xformp.dsp unpacks them); A0, A1: each frame's matrix, already scaled
 ; by its share of the blend, so the blend's done here too. For every model
-; the host writes a header of 24 words:
+; the host writes a header of 25 words:
 ;
 ;   t0 a00 a01 a02 b00 b01 b02   t1 a10 ...   t2 a20 ...   (3 rows of 7)
-;   vaddr0  vaddr1  blocks                                  (addresses >> 2)
+;   vaddr0  vaddr1  blocks  out                             (addresses >> 2)
 ;
-; and the results go out block by block: 16 x', 16 y', 16 z' (16.16). After
+; and the results go out block by block from out (work RAM-H, or the cart
+; when that's full): 16 x', 16 y', 16 z' (16.16). After
 ; each model it adds one to a count in work RAM, so a CPU needing a model
 ; only waits for that one. int * 16.16 lands in the low 32 bits (ALL).
 ;
 ; Data RAM:
-;   RAM0[0..23]   the model's header (vaddr0, vaddr1 and blocks counted on)
+;   RAM0[0..24]   the model's header (vaddr0, vaddr1 and blocks counted on)
 ;   RAM0[32]      the next header's address >> 2
 ;   RAM0[33]      where the next block goes >> 2
 ;   RAM0[34]      models left (>= 1)
@@ -30,7 +31,8 @@
 ; that makes it (the manual's AD2 MOV ALU,A), so each op and its move share one.
 
 BLOCK   = 16
-HEAD    = 24
+HEAD    = 25
+H_OUT   = 24
 P_NEXT  = 32
 P_OUT   = 33
 P_LEFT  = 34
@@ -66,7 +68,11 @@ w_head: jmp t0,w_head
         mov P_NEXT,ct0
         mov m0,a
         mov HEAD,pl
-        add  mov all,mc0                ; the next header's 24 words on
+        add  mov all,mc0                ; the next header's 25 words on
+        mov H_OUT,ct0
+        mov m0,a  mov 0,pl
+        mov P_OUT,ct0
+        or  mov all,mc0                 ; where its blocks go
 
 nextb:  mov 21,ct0
         mov m0,ra0

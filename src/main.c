@@ -152,6 +152,9 @@ static u32          fight_pre[8], fight_pref[8], fight_pt;  /* (the master befor
 # define FT(k)          (fight_t[k] = frt_read())
 static u32          fight_tt[5];                /* a box trace's parts, 0.1 us; a line trace's */
 static u32          fight_gun;                  /* the gun in your hands (us) */
+#ifdef MF_PROF
+static u32          fight_mf[12];               /* (render.c's mf_t, mf_v, mf_m as the fight ended) */
+#endif
 static u32          fight_vph[4];               /* ...its vertices, sort, commands, kept (render.c view_ph) */
 static u32          fight_r[14];
 #ifdef R_PROFILE
@@ -757,6 +760,7 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
         g_player->health = health;
     }
     view_level_init();                      /* (the gun you hold: after the above) */
+    r_dspm_level();
 #ifdef LEVEL_TEST
     {
         extern u32 models_cold;
@@ -866,6 +870,7 @@ void                main(void)
     r_portals_level();                      /* (and the portals' flow: what's left of that) */
     r_wall_level();
     view_level_init();
+    r_dspm_level();
     loading_back(false);
 #ifdef LEVEL_TEST
     {
@@ -1665,6 +1670,17 @@ void                main(void)
 #endif
 
             vdp_printf(8, 96, RGB(255, 220, 120), "FIGHT: %d FRAMES", fight_n);
+#ifdef MF_PROF
+            {
+                const u32 *mf_t = fight_mf, *mf_v = fight_mf + 4, *mf_m = fight_mf + 8;
+                int k;
+
+                for (k = 0; k < 4; ++k)
+                    vdp_printf(8 + (k & 1) * 160, 80 + (k >> 1) * 8, RGB(255, 160, 255), "%c%c%d %dV %dM",
+                               k < 2 ? 'D' : 'C', k & 1 ? 'F' : 'W', frt_to_us(mf_t[k]) / n, mf_v[k] / n,
+                               mf_m[k] * 10 / n);
+            }
+#endif
 #ifdef DSP_SWAP_TEST
             vdp_printf(8, 80, RGB(255, 255, 120), "SWAPS %d BAD %d BUSY %d", swap_n[0], swap_n[1], swap_n[2]);
 #endif
@@ -2043,6 +2059,15 @@ void                main(void)
                     memset(tr_count, 0, sizeof(tr_count));
                     memset(tr_ticks, 0, sizeof(tr_ticks));
                 }
+#ifdef MF_PROF
+                {
+                    extern u32 mf_t[4], mf_v[4], mf_m[4];
+
+                    memset(mf_t, 0, sizeof(mf_t));
+                    memset(mf_v, 0, sizeof(mf_v));
+                    memset(mf_m, 0, sizeof(mf_m));
+                }
+#endif
             }
             else if (fight_frames > FIGHT_SKIP)
             {
@@ -2167,6 +2192,15 @@ void                main(void)
                     }
                     fight_frames = -1;
                     fight_done = true;
+#ifdef MF_PROF
+                    {
+                        extern u32 mf_t[4], mf_v[4], mf_m[4];
+
+                        memcpy(fight_mf, mf_t, sizeof(mf_t));      /* (as the fight ended) */
+                        memcpy(fight_mf + 4, mf_v, sizeof(mf_v));
+                        memcpy(fight_mf + 8, mf_m, sizeof(mf_m));
+                    }
+#endif
 #ifdef SLAVE_PROF
                     PROF_ON = 0;
 #endif

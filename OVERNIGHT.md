@@ -2022,3 +2022,59 @@ HWRAM left).
 What's left of the monsters: past the fourth on screen each costs its C
 transform (~1.6 ms); in assembly that might be ~1 ms less each. More of the
 DSP's list would take HWRAM (2.9 KB a monster) or a smaller output from it.
+
+## 43. The far monsters' vertices first; the DSP's list where a level leaves room
+
+The end of section 42 was wrong about where the time went. Timed by way
+(`OPT="-DFIGHT_BENCH -DMF_PROF"`: each model's vertices, from after its
+light to its polygons, by the DSP's or the CPU's way, the whole mesh or the
+far one), PAL fight, a vertex:
+
+| way | before |
+|---|---|
+| the DSP's, the whole mesh (mverts_asm) | 6.5 us |
+| the DSP's, the far mesh (a C loop, project()) | 11.6 us |
+| the CPU's (all of them far, as it happens) | 17.8 us |
+
+Every monster that went the CPU's way was a far one (beyond 400 units: the
+coarse mesh, a third of the polygons), and the far mesh's vertices were
+scattered through the model: the DSP still did all of them (a soldier's 15
+blocks for 45 used), and both ways then picked theirs out one by one, each
+a cache line of the frame on the cart (75 cycles) and C's project().
+
+**The DSP's results on the cart** (blocks past HWRAM's 64 there, an address
+a model in the DSP's header) were no good: the CPU reading them back from
+the cart, a far vertex's x, y and z three lines apart, cost more than it
+saved (16 us a vertex; PAL CPU 37.2 -> 37.1). Gone.
+
+**The far mesh's vertices first.** tools/bake_md2.py now numbers the
+vertices the far mesh uses first (the polygons and frames renumbered to
+match), so a far model is its first nfverts vertices, as a whole one is all
+of them: the soldier's 45 of 227, the infantry's 67 of 240, the gunner's 41
+of 329, so 3, 5 and 3 of the DSP's blocks rather than 15, 15 and 21, and
+drawn by mverts_asm (the C loop and the vertex lists, and their HWRAM, are
+gone). Old bake against new: every polygon's corners the same bytes in
+every frame, and the textures, colour tables, shading and normals the same;
+a model whose list isn't 0, 1, 2 ... (an older bake) has no far mesh.
+
+**More of the list where a level leaves HWRAM.** The DSP's header has a
+word more, where the model's blocks go (xformm.dsp), and after the gun's
+slots (nothing takes HWRAM after them) `r_dspm_level` takes what's left
+for more blocks, up to 96: Installation 19 (a near monster more), Comm
+Center 96, demo3 5 (a far one). With the list cut to 16 blocks (everything
+in the level's more), the fight was the same: CPU 36.6 ms, none the CPU's,
+the monsters drawn right.
+
+**The CPU's way in assembly: not done.** With the above, no monster in the
+fight goes the CPU's way. A crowd made by cutting the list to 16 blocks and
+no more (3.9 models a frame the CPU's, at 14 us a vertex to the DSP's 6.3):
+PAL CPU 36.6 -> 36.9 ms. An assembly version would win back ~0.2 ms of that,
+and only in a crowd.
+
+| | NTSC frame / CPU | pictures up 3 fields | PAL CPU | static CPU / frames |
+|---|---|---|---|---|
+| section 42 | 37.0 / 35.4 ms | 113 of 541 | 36.8 ms | 1801 / 2277 |
+| far vertices first, more blocks | 36.7 / 35.1 | 104 of 545 | 36.5 | 1765 / 2257 |
+
+HWRAM left after it all: demo1 96 bytes, demo2 14,608, demo3 32 (the cart
+as before: 212,992, 98,304, 2,048; DSP walls on).

@@ -369,15 +369,14 @@ static s32          rcp_n, wscale;          /* 1/N (16.16); 65536 / N^2 (interpo
    RAM, and draw_model waits only if its own isn't done yet. Its results come
    in behind the CPU's cache, so draw_model forgets those lines first. */
 #define DSPM_MODELS     (32)
-#define DSPM_BLOCKS     (64)                /* 16 vertices each (a monster's 15: four) */
+#define DSPM_BLOCKS     (64)                /* 16 vertices each (a monster's 15, far 3 to 5: four near) */
+#define DSPM_MORE       (96)                /* more where a level leaves HWRAM (r_dspm_level) */
 #define DSPM_BIG        (100)               /* vertices: a model to the DSP before the small ones */
-#ifdef DSP_LIGHT
-#define DSPM_HEAD       (25)                /* (and its lighting's jobs: xformml.dsp) */
-#else
-#define DSPM_HEAD       (24)
-#endif
+#define DSPM_HEAD       (25)                /* (the last word: where its blocks go; xformml.dsp's, its lighting's jobs) */
 static u32          dspm_stream[DSPM_MODELS * DSPM_HEAD] __attribute__((aligned(16)));
 static s32          dspm_out[DSPM_BLOCKS * 48] __attribute__((aligned(16)));
+static s32          *dspm_more;             /* (blocks DSPM_BLOCKS on) */
+static int          dspm_nmore;
 static u32          dspm_count __attribute__((aligned(16)));
 #ifdef DSP_LIGHT
 /* (OPT=-DDSP_LIGHT) the models' lighting on the DSP too (xformml.dsp, each model's before
@@ -394,6 +393,34 @@ static s8           ent_lj0[MAX_ENTITIES], ent_ljn[MAX_ENTITIES];   /* each enti
 u32                 dspl_checks, dspl_diffs;    /* (OPT="-DDSP_LIGHT -DDSPL_CHECK": its weights against the C's) */
 #endif
 static s16          ent_dsp[MAX_ENTITIES], ent_blk[MAX_ENTITIES];  /* its place in the DSP's list (or -1), its first block */
+
+/* a block's results: the first DSPM_BLOCKS', then the level's more */
+static inline s32   *dspm_blk(int b)
+{
+    return b < DSPM_BLOCKS ? dspm_out + b * 48 : dspm_more + (b - DSPM_BLOCKS) * 48;
+}
+
+/* room for a model's blocks (n): its first block, or -1 (a model's all in one or the other) */
+static int          dspm_place(int n, int *nb, int *nc)
+{
+    int             b;
+
+    if (*nb + n <= DSPM_BLOCKS)
+    {
+        b = *nb;
+        *nb += n;
+        return b;
+    }
+#ifndef DSP_LIGHT
+    if (*nc + n <= dspm_nmore)
+    {
+        b = DSPM_BLOCKS + *nc;
+        *nc += n;
+        return b;
+    }
+#endif
+    return -1;
+}
 bool                r_use_dsp, r_dsp_ok;
 static s32          *axis_view;             /* the axes in view space: du and its frame, dv and its (draw_face) */
 
@@ -453,6 +480,8 @@ static void         dsp_selftest(void)
         st[2] = 1;
 #ifdef DSP_LIGHT
         st[3] = 0;                          /* (no lighting) */
+#else
+        st[3] = ((u32)dspm_out & 0x07FFFFFF) >> 2;
 #endif
         dsp_models(dspm_stream, dspm_out, 1, &dspm_count);
         for (t = 0; t < 2000000 && dsp_busy(); ++t)
@@ -4190,6 +4219,8 @@ static int          view_to_dsp(u32 *st, int nm, int nb)
     st[23] = (u32)blocks;
 #ifdef DSP_LIGHT
     st[24] = 0;                             /* (lit as kept) */
+#else
+    st[24] = ((u32)dspm_blk(nb) & 0x07FFFFFF) >> 2;
 #endif
     vd.m = m;
     vd.f0 = f0i;
@@ -4229,6 +4260,18 @@ void                r_view_level(void)
     chk_kgc = level_alloc_low(OVL_CHECK * 8);
     chk_ux = level_alloc_low(MAX_MVERTS * 4);
 #endif
+}
+
+/* a new level, the gun's slots had (main.c, after view_level_init: nothing takes HWRAM after
+   them): more of the models' DSP blocks in what it's left (Installation's: one monster near
+   more; Comm Center's: many; demo3's: a far one) */
+__attribute__((cold)) void r_dspm_level(void)
+{
+    u32             hw, lw, ca;
+
+    level_free(&hw, &lw, &ca);
+    dspm_nmore = imin(DSPM_MORE, (int)(hw / 192));
+    dspm_more = dspm_nmore ? (s32 *)level_alloc((u32)dspm_nmore * 192) : NULL;
 }
 
 /* the gun, over the world (VDP1's overlay list, drawn after it): its polygons facing you,
@@ -4469,7 +4512,7 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
     {
         /* the DSP's (view_to_dsp): wait for them if they're not there, forget what the cache
            had there, and onto the screen as a monster's; the normals from the frames */
-        const s32   *out = dspm_out + vd.blk * 48;
+        const s32   *out = dspm_blk(vd.blk);
         const u8    *pn = va.pa + va.nofs;
         mverts_args ma;
 
@@ -5219,6 +5262,15 @@ static bool         model_xf(const q_entity *e, model_xform *o)
              || T[1] - FIX(48) > fmul(T[2] + FIX(48), ky) || T[1] + FIX(48) < -fmul(T[2] + FIX(48), ky));
 }
 
+/* far away: the coarse mesh (its polygons, and only the first nfverts vertices: models_to_dsp
+   and draw_model both ask) */
+static inline bool  model_far(const q_entity *e)
+{
+    s32             dx = (e->origin[0] - cam.pos[0]) >> 16, dy = (e->origin[1] - cam.pos[1]) >> 16;
+
+    return e->mdl->nfpolys && dx * dx + dy * dy > r_model_far * r_model_far;
+}
+
 /* the frame's models for the DSP: those in leaves the view can see, and not
    all off the screen, weighted for their blends; started at once */
 static int          rs_mdsp;                /* (stats: models the DSP was given this frame) */
@@ -5226,7 +5278,7 @@ static int          rs_mdsp;                /* (stats: models the DSP was given 
 static void         models_to_dsp(void)
 {
     u32             *st = dspm_stream;
-    int             i, k, nm = 0, nb = 0;
+    int             i, k, nm = 0, nb = 0, nc = 0;
 #ifdef DSP_WALLS
     bool            walls;
 #endif
@@ -5317,17 +5369,21 @@ static void         models_to_dsp(void)
         const q_mdl     *m = e->mdl;
         model_xform     xf;
         s32             w1 = e->lerp, w0 = FIX(1) - w1;
-        int             blocks;
+        int             blocks, b, nb0 = nb, nc0 = nc;
 
         if (ent_leaf[i] < 0 || leaf_vis[ent_leaf[i]] != visframe || !m)
             continue;
-        blocks = (imin(m->nverts, MAX_MVERTS) + 15) >> 4;
+        blocks = (imin(model_far(e) ? m->nfverts : m->nverts, MAX_MVERTS) + 15) >> 4;
         if (nm == DSPM_MODELS)
             break;
-        if (nb + blocks > DSPM_BLOCKS)
+        if ((b = dspm_place(blocks, &nb, &nc)) < 0)
             continue;                       /* (no room: the CPU's; a smaller one may fit) */
         if (!model_xf(e, &xf))
+        {
+            nb = nb0;                       /* (all off the screen: its room back) */
+            nc = nc0;
             continue;
+        }
         for (k = 0; k < 3; ++k, st += 7)
         {
             st[0] = (u32)(fmul(xf.C0[k], w0) + fmul(xf.C1[k], w1));
@@ -5337,11 +5393,13 @@ static void         models_to_dsp(void)
         st[0] = ((u32)(m->frames + (u32)e->oldframe * m->frame_bytes + 24) & 0x07FFFFFF) >> 2;
         st[1] = ((u32)(m->frames + (u32)e->frame * m->frame_bytes + 24) & 0x07FFFFFF) >> 2;
         st[2] = (u32)blocks;
+#ifndef DSP_LIGHT
+        st[3] = ((u32)dspm_blk(b) & 0x07FFFFFF) >> 2;
+#endif
         st += DSPM_HEAD - 21;
         ent_dsp[i] = (s16)nm++;
         ++rs_mdsp;
-        ent_blk[i] = (s16)nb;
-        nb += blocks;
+        ent_blk[i] = (s16)b;
 #ifdef DSP_LIGHT
         {
             /* its lighting: a job for each dynamic light near it (draw_model's test and
@@ -5417,6 +5475,9 @@ static void         models_to_dsp(void)
 #ifdef SHADE_CHECK
 u32                 shade_checks, shade_diffs;
 #endif
+#ifdef MF_PROF
+u32                 mf_t[4], mf_v[4], mf_m[4];
+#endif
 #ifdef MODEL_CHECK
 u32                 model_checks[4], model_diffs[3];   /* vertices, buckets (and quads by their other half), models' commands */
 #endif
@@ -5443,8 +5504,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     int             bi;                     /* (the C command passes) */
 #endif
     const q_mpoly   *polys = m->polys;
-    const u16       *vlist = NULL;          /* far: only the vertices the coarse mesh uses */
-    int             nvl = nv, vi;
+    int             vi;
     vdp_writer      *w = x->w;
     u32             t0 = frt_read();
 #ifdef SHADE_CHECK
@@ -5482,17 +5542,13 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         return;
     ++x->st.models;
     x->st.mcpu += ent_dsp[ei] < 0;
+    if (model_far(e))
     {
-        /* far: the mesh merged on a coarse grid (a third of the polygons), if it has one */
-        s32 dx = (e->origin[0] - cam.pos[0]) >> 16, dy = (e->origin[1] - cam.pos[1]) >> 16;
-
-        if (m->nfpolys && dx * dx + dy * dy > r_model_far * r_model_far)
-        {
-            polys = m->fpolys;
-            np = imin(m->nfpolys, MAX_MPOLYS);
-            vlist = m->fverts;
-            nvl = m->nfverts;
-        }
+        /* far: the mesh merged on a coarse grid (a third of the polygons), its vertices the
+           first so many (tools/bake_md2.py) */
+        polys = m->fpolys;
+        np = imin(m->nfpolys, MAX_MPOLYS);
+        nv = imin(m->nfverts, MAX_MVERTS);
     }
     /* its light by normal: the base (ents_light), plus any dynamic lights
        near it, stronger on the side facing them */
@@ -5589,11 +5645,14 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     /* the vertices: on the DSP (both frames, 16 at a time, straight into view space), the CPU just
        blends and projects; or all on the CPU */
     x->st.t_mlight += (frt_read() - t0) & 0xFFFF;
+#ifdef MF_PROF
+    u32 mf0 = frt_read();
+#endif
     if (ent_dsp[ei] >= 0)
     {
         /* on the DSP (models_to_dsp): wait if it's not there yet, have the cache
            forget what it had where the DSP wrote, and read them, blended already */
-        const s32   *out = dspm_out + ent_blk[ei] * 48;
+        const s32   *out = dspm_blk(ent_blk[ei]);
         u32         a, end = (u32)(out + ((nv + 15) >> 4) * 48);
 
         u32         tw = frt_read();
@@ -5605,11 +5664,11 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             *(volatile u32 *)(0x40000000 | (a & 0x1FFFFFFF)) = 0;      /* the cache's associative purge */
 #ifdef COMPARE_MODELS
         if (r_model_ref)
-        for (vi = 0; vi < nvl; ++vi)
+        for (vi = 0; vi < nv; ++vi)
         {
             const s32   *o;
 
-            i = vlist ? vlist[vi] : vi;
+            i = vi;
             o = out + (i >> 4) * 48 + (i & 15);
             s32         vx = o[0], vy = o[16], vz = o[32];
             u8          oc = 0;
@@ -5635,10 +5694,9 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         }
         else
 #endif
-        if (!vlist)
         {
-            /* the whole mesh: in assembly (src/mdraw.s), then each vertex's
-               light by its normal (its index is in the frame, on the cart) */
+            /* in assembly (src/mdraw.s), then each vertex's light by its normal (its index is
+               in the frame, on the cart) */
             mverts_args a;
 
             a.out = out;
@@ -5702,43 +5760,14 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             x->st.t_mnorm += (frt_read() - ta) & 0xFFFF;
 #endif
         }
-        else for (vi = 0; vi < nvl; ++vi)
-        {
-            /* the far mesh: only the vertices it uses */
-            const s32   *o;
-
-            i = vlist[vi];
-            o = out + (i >> 4) * 48 + (i & 15);
-            s32         vx = o[0], vy = o[16], vz = o[32];
-            u8          oc = 0;
-
-            x->mz[i] = vz;
-            x->mg[i] = gt[vn[i * 4 + 3] < 162 ? vn[i * 4 + 3] : 0];
-            if (vz < NEAR_Z)
-                oc = OC_NEAR;
-            else
-            {
-                u32 xy = project(x, vx, vy, vz);
-                s32 sx = XY_X(xy), sy = XY_Y(xy);
-
-                x->mxy[i] = xy;
-                if (sx < 0) oc |= OC_LEFT;
-                else if (sx >= SCREEN_W) oc |= OC_RIGHT;
-                if (sy < 0) oc |= OC_TOP;
-                else if (sy >= SCREEN_H) oc |= OC_BOTTOM;
-                if (vz < zmin) zmin = vz;
-                if (vz > zmax) zmax = vz;
-            }
-            x->moc[i] = oc;
-        }
     }
-    else for (vi = 0; vi < nvl; ++vi)
+    else for (vi = 0; vi < nv; ++vi)
     {
         s32 p[3], vx, vy, vz;
         u8  oc = 0;
         const u8 *q0, *q1;
 
-        i = vlist ? vlist[vi] : vi;
+        i = vi;
         q0 = v0 + i * 4;
         q1 = v1 + i * 4;
 
@@ -5775,6 +5804,18 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         x->moc[i] = oc;
     }
     x->st.t_mverts += (frt_read() - t0) & 0xFFFF;
+#ifdef MF_PROF
+    {
+        /* (OPT="-DFIGHT_BENCH -DMF_PROF": the vertices' time by way: the DSP's whole mesh, its far
+           mesh, the CPU's whole, its far) */
+        extern u32 mf_t[4], mf_v[4], mf_m[4];
+        int k = (ent_dsp[ei] < 0) * 2 + (polys != m->polys);
+
+        mf_t[k] += (frt_read() - mf0) & 0xFFFF;
+        mf_v[k] += (u32)nv;
+        ++mf_m[k];
+    }
+#endif
     /* the polygons facing us, by depth */
     for (b = 0; b < MBUCKETS; ++b)
         x->mhead[b] = -1;

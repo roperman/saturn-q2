@@ -206,6 +206,15 @@ def main():
     # after the full one's (--lod=cells across its size; 0: none)
     lod_cells = int(opts.get("lod") or 0)
     lpolys = make_polys(Decimated(m, lod_cells)) if lod_cells else []
+    # the vertices it uses first (src/render.c: far, only the first nfverts are worked out, as a
+    # whole mesh is): the polygons and frames renumbered to match
+    vorder = list(range(m.nverts))
+    if lpolys:
+        used = sorted({v for xyz, _ in lpolys for v in xyz})
+        vorder = used + sorted(set(range(m.nverts)) - set(used))
+        renum = {v: i for i, v in enumerate(vorder)}
+        polys = [([renum[v] for v in xyz], st) for xyz, st in polys]
+        lpolys = [([renum[v] for v in xyz], st) for xyz, st in lpolys]
     npolys = len(polys)
     polys = polys + lpolys
     # texture sizes: the polygon's extent in the skin, rounded (width a multiple of 8)
@@ -281,8 +290,8 @@ def main():
     for f in frames:
         _, s, t, verts = m.frames[f]
         fdata += struct.pack(">6i", *[int(round(x * 65536)) for x in s + t])
-        for v in verts:
-            fdata += bytes(v)
+        for v in vorder:
+            fdata += bytes(verts[v])
     # shading: light from above and in front, turned with the model's yaw in 16 steps
     norms = anorms()
     shade = bytearray()
@@ -300,8 +309,9 @@ def main():
     ldata = b"".join(struct.pack(">4HHH", *xyz, npolys + i, 1 if xyz[2] == xyz[3] else 0)
                      for i, (xyz, st) in enumerate(lpolys))
     if lpolys:
-        # and the vertices it uses (a count, then them): only those need working out
+        # and the vertices it uses (a count, then them: 0, 1, ... now, the first)
         used = sorted({v for xyz, _ in lpolys for v in xyz})
+        assert used == list(range(len(used)))
         ldata += struct.pack(">%dH" % (len(used) + 1), len(used), *used)
     adata = b"".join(struct.pack(">12sHH", n.encode()[:12], a, c) for n, a, c in anim_recs)
 

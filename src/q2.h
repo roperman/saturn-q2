@@ -282,8 +282,7 @@ typedef struct
 {
     int             nverts, npolys, nframes, nanims, nskins, ntex;
     const q_mpoly   *polys, *fpolys;        /* (fpolys: the mesh merged on a coarse grid, for far away) */
-    int             nfpolys, nfverts;
-    const u16       *fverts;                /* the vertices fpolys use */
+    int             nfpolys, nfverts;       /* (fpolys use the first nfverts vertices) */
     const q_mtex    *tex;
     const u8        *texdata;               /* nskins blocks of per_skin bytes */
     const u16       *luts;                  /* colour tables of 16: nluts; or nskins x nluts (no lutmap) */
@@ -345,6 +344,7 @@ const q_mdl         *view_frame(int *f0, int *f1, s32 *lerp);   /* what to draw 
 void                r_view_slot(int slot);  /* (render.c) a slot's new gun: its old textures forgotten */
 void                r_view_luts(int slot);  /* (render.c) the gun to be drawn: its colour tables up */
 void                r_view_level(void);     /* (render.c) a new level (the gun's) */
+void                r_dspm_level(void);     /* (render.c) ...the models' DSP blocks in the HWRAM left (after the gun's) */
 void                r_portals_level(void);  /* (render.c) ...its portals' (after the models and traces) */
 extern u32          r_full[3];              /* (render.c) frames each CPU's texture cache ran out; late uploads */
 void                ents_light(void);                       /* their base lighting, before drawing */

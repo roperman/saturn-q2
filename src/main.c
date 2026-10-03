@@ -124,6 +124,74 @@ __attribute__((section(".lwdata"))) static char bt_names[BT_N][24] = {   /* (not
 };
 __attribute__((section(".lwdata"))) u32 bt_frame = 0;
 __attribute__((section(".lwdata"))) static char bt_dsp[48] = { 0 };     /* (the DSP's self-test line, kept) */
+static __attribute__((cold)) void bt_fmt(char *out, const char *f, ...);
+void                dsp_init_models(void);
+__attribute__((section(".lwdata"))) static char bt_dma[3][48] = { { 0 } };  /* (the DSP's DMA test, kept: reads,
+                                                                               writes to high work RAM, to the cart) */
+
+/* (at boot) how the DSP's DMA steps its address on this machine: four words read into its RAM, and
+   four written out, with add modes 1 and 2, from and to high work RAM (H) and the cart (C). Each
+   word's low hex digit: reads should give 0123, writes 1234 then E (the memory as it was) */
+static __attribute__((cold)) void bt_dma_test(void)
+{
+    u32             hw[8] __attribute__((aligned(16)));
+    volatile u32    *cart = (volatile u32 *)0x227FFF80, *h = (volatile u32 *)UNCACHED(hw);
+    char            *o;
+    int             pass, k, m, t;
+
+    REG16(0x257EFFFE) = 1;                  /* (the cart on, as level.c's cart_init) */
+    REG32(0x25FE00B0) = 0x23301FF0;
+    REG32(0x25FE00B8) = 0x00000013;
+    for (pass = 0; pass < 4; ++pass)
+    {
+        bool        wr = pass >= 2, onc = pass & 1;
+        volatile u32 *mem = onc ? cart : h;
+        u32         a = ((u32)(onc ? 0x027FFF80 : (u32)hw) & 0x07FFFFFF) >> 2;
+
+        char *line = bt_dma[pass < 2 ? 0 : pass - 1];
+
+        if (pass != 1)
+            bt_fmt(line, "%s", wr ? "DSP WR " : "DSP RD ");
+        o = line + strlen_(line);
+        for (m = 1; m <= 2; ++m)
+        {
+            u32 prog[6];
+
+            for (k = 0; k < 8; ++k)
+                mem[k] = wr ? 0xEEEEEEEE : 0xA0000000 | (u32)k;
+            prog[0] = (wr ? 0x9C000000 : 0x98000000) | a;      /* MVI a, WA0 / RA0 */
+            prog[1] = 0x00001C00;                               /* MOV 0, CT0 */
+            prog[2] = 0xC0000000 | (u32)m << 15 | (wr ? 1u << 12 : 0) | 4;    /* DMA, 4 words, add m */
+            prog[3] = 0xD0000000 | 0x68u << 19 | 3;             /* JMP T0, 3 (the DMA going) */
+            prog[4] = 0;
+            prog[5] = 0xF0000000;                               /* END */
+            DSP_PPAF = 0;
+            DSP_PPAF = 1u << 15;
+            for (k = 0; k < 6; ++k)
+                DSP_PPD = prog[k];
+            DSP_PDA = 0;
+            for (k = 0; k < 4; ++k)
+                DSP_PDD = wr ? 0xB0000000 | (u32)(k + 1) : 0x55555555;
+            DSP_PPAF = (1u << 16) | (1u << 15);
+            for (t = 0; t < 1000000 && (DSP_PPAF & (1u << 16)); ++t)
+                ;
+            *o++ = onc ? 'C' : 'H';
+            *o++ = (char)('0' + m);
+            *o++ = t >= 1000000 ? '!' : ' ';
+            if (wr)
+                for (k = 0; k < 8; ++k)
+                    *o++ = "0123456789ABCDEF"[mem[k] & 15];
+            else
+            {
+                DSP_PDA = 0;
+                for (k = 0; k < 4; ++k)
+                    *o++ = "0123456789ABCDEF"[DSP_PDD & 15];
+            }
+            *o++ = ' ';
+        }
+        *o = 0;
+    }
+}
 
 static __attribute__((cold)) void bt_fmt(char *out, const char *f, ...)
 {
@@ -1149,6 +1217,8 @@ void                main(void)
     {
         extern s32 dsp_test[8];
         extern bool r_dsp_ok;
+        bt_dma_test();
+        dsp_init_models();                  /* (its program back after the test's) */
         bt_fmt(bt_dsp, "DSP %s %d %d %d %d/%d %d %d %d", r_dsp_ok ? "OK" : "BAD", dsp_test[0], dsp_test[1],
                dsp_test[2], dsp_test[3], dsp_test[4], dsp_test[5], dsp_test[6], dsp_test[7]);
         bt_line(186, bt_dsp);               /* (expected: 1 106 211 316 twice: from HWRAM, from the cart) */
@@ -1181,8 +1251,15 @@ void                main(void)
     {
         char buf[48];
 
+        int k;
+
         memcpy(buf, bt_dsp, sizeof(buf));
         bt_line(186, buf);                  /* (again: the layer's just been cleared) */
+        for (k = 0; k < 3; ++k)
+        {
+            memcpy(buf, bt_dma[k], sizeof(buf));
+            bt_line(116 + k * 10, buf);
+        }
     }
 #endif
 #ifdef LEVEL_TEST

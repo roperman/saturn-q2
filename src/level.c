@@ -23,6 +23,9 @@
 
 q_level             lv;
 int                 cart_mb;
+__attribute__((section(".lwdata"))) u32 level_try[2][5] = { { 0 } };   /* (each try at the level:
+                                               cd_diag's four, the cart's first word; in low work RAM) */
+__attribute__((section(".lwdata"))) int level_tries = 0;
 extern u8           _bss_end[];         /* the linker's __bss_end (C names get an underscore) */
 extern u8           _lwtext_end[];      /* the end of the code kept in low work RAM (engine/link.ld) */
 
@@ -261,6 +264,59 @@ void                *level_alloc(u32 bytes)
     return p;
 }
 
+/* (the load failed) the cart's RAM: patterns written and read back at a few places, through the
+   uncached addresses; out: 0 if all good, else the address, what was written, what was read */
+__attribute__((cold)) void level_ram_test(u32 *out)
+{
+    static const u32 at[4] = { 0, 0x100000, 0x200000, 0x3FFFF0 };
+    int             i;
+
+    out[0] = out[1] = out[2] = 0;
+    for (i = 0; i < 4; ++i)
+    {
+        volatile u32    *p32 = (volatile u32 *)(0x22400000 + at[i]);
+        volatile u16    *p16 = (volatile u16 *)(0x22400008 + at[i]);
+        volatile u8     *p8 = (volatile u8 *)(0x2240000C + at[i]);
+        u32             v;
+
+        *p32 = 0x12345678 ^ at[i];
+        *p16 = 0xA55A;
+        *p8 = 0x3C;
+        if ((v = *p32) != (0x12345678 ^ at[i]))
+        {
+            out[0] = 0x02400000 + at[i]; out[1] = 0x12345678 ^ at[i]; out[2] = v;
+            return;
+        }
+        if ((v = *p16) != 0xA55A)
+        {
+            out[0] = 0x02400008 + at[i]; out[1] = 0xA55A; out[2] = v;
+            return;
+        }
+        if ((v = *p8) != 0x3C)
+        {
+            out[0] = 0x0240000C + at[i]; out[1] = 0x3C; out[2] = v;
+            return;
+        }
+    }
+}
+
+/* (the load failed) sector k of the file read again, alone, into low work RAM, and compared with
+   what the load left on the cart: -1 the same, -2 not read, else the first byte that differs */
+__attribute__((cold)) int level_sector_check(const char *name, u32 k, u32 *head)
+{
+    u32             lba, size, i;
+    u8              *buf = (u8 *)(((u32)_lwtext_end + 15) & ~15u);     /* (nothing's there yet) */
+    const volatile u8 *cart = (const volatile u8 *)(0x22400000 + k * 2048);
+
+    if (!cd_find(name, &lba, &size) || k * 2048 >= size || !cd_read_sectors(lba + k, 1, buf))
+        return -2;
+    *head = (u32)buf[0] << 24 | (u32)buf[1] << 16 | (u32)buf[2] << 8 | buf[3];
+    for (i = 0; i < 2048; ++i)
+        if (buf[i] != cart[i])
+            return (int)i;
+    return -1;
+}
+
 static int          cart_init(void)
 {
     u8              id = CART_ID;
@@ -282,8 +338,28 @@ bool                level_load(const char *name)
     cart_mb = cart_init();
     if (cart_mb < 4 || !cd_init())
         return false;
-    size = cd_load(name, CART_BASE, CART_SIZE);
-    if (size < 128 || memcmp(b, "Q2SL", 4))
+    /* the level onto the cart in one read; if that fails, again in runs of 16 sectors, and every read
+       after it the same (safe mode). (SAROO, an SD card drive for the Saturn, wouldn't load it with
+       32 sectors a transfer: engine/cd.c's cd_max_get) */
+    for (level_tries = 0; level_tries < 2; ++level_tries)
+    {
+        cd_diag[0] = cd_diag[1] = cd_diag[2] = cd_diag[3] = 0;
+        size = cd_load(name, CART_BASE, CART_SIZE);
+        memcpy(level_try[level_tries], cd_diag, 16);
+#if defined(LOAD_FAIL_TEST) || defined(LOAD_SAFE_TEST)
+        /* (tests: OPT=-DLOAD_SAFE_TEST spoils the first try, -DLOAD_FAIL_TEST both) */
+# ifdef LOAD_SAFE_TEST
+        if (level_tries == 0)
+# endif
+            *(volatile u8 *)b = 0;             /* (through the cache: it writes through, and a line
+                                                   memcmp read stays as written) */
+#endif
+        level_try[level_tries][4] = *(const volatile u32 *)((u32)b | 0x20000000);
+        if (size >= 128 && !memcmp(b, "Q2SL", 4))
+            break;
+        cd_max_play = 16;                   /* (safe mode: short plays too) */
+    }
+    if (level_tries == 2)
         return false;
     h = (const u32 *)(b + 12);
     lv.T = ((const u16 *)b)[4];

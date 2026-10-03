@@ -87,6 +87,75 @@ static __attribute__((cold)) void         message(const char *a, const char *b)
     }
 }
 
+/* The first level wouldn't load: what each try got (src/level.c level_load), the file on the disc,
+   two of its sectors read again alone and compared with the cart, and the cart's RAM tested, on
+   the screen for good (a photo of it says where it failed) */
+static __attribute__((cold, noreturn)) void load_failed(const char *file)
+{
+    static const char *why[5] = { "-", "PLAY REFUSED", "NO SECTORS CAME", "GET REFUSED", "NO DATA READY" };
+    u32             lba = 0, size = 0, ram[3], h0 = 0, h1 = 0;
+    bool            found = cd_find(file, &lba, &size);
+    int             s0 = level_sector_check(file, 0, &h0), s1 = level_sector_check(file, 600, &h1), i, t;
+
+    level_ram_test(ram);
+    loading_back(true);
+    for (;;)
+        for (i = 0; i < 2; ++i)
+        {
+            int y = 24;
+
+            vdp_begin();
+            vdp_printf(16, y, RGB(255, 200, 120), "%s WON'T LOAD", file);
+            y += 16;
+            vdp_printf(16, y, RGB(220, 220, 220), "CART ID %02X  RAM %s", (u32)REG8(0x24FFFFFF),
+                       ram[0] ? "BAD" : "OK");
+            y += 10;
+            if (ram[0])
+            {
+                vdp_printf(16, y, RGB(255, 120, 120), "AT %08X WROTE %08X READ %08X", ram[0], ram[1], ram[2]);
+                y += 10;
+            }
+            if (found)
+                vdp_printf(16, y, RGB(220, 220, 220), "FILE LBA %d SIZE %d", lba, size);
+            else
+                vdp_printf(16, y, RGB(255, 120, 120), "FILE NOT FOUND ON THE DISC");
+            y += 14;
+            for (t = 0; t < 2; ++t)
+            {
+                const u32 *d = level_try[t];
+
+                if (d[1])
+                    vdp_printf(16, y, RGB(220, 220, 220), "TRY %d %s: %d OF %d SECTORS", t + 1, t ? "SAFE" : "ALL",
+                               d[0], d[1]);
+                else
+                    vdp_printf(16, y, RGB(220, 220, 220), "TRY %d %s: READ, NO CD ERROR", t + 1, t ? "SAFE" : "ALL");
+                y += 10;
+                vdp_printf(24, y, RGB(180, 180, 180), "%s ST %08X START %08X", why[d[2] < 5 ? d[2] : 0], d[3], d[4]);
+                y += 12;
+            }
+            vdp_printf(16, y, RGB(220, 220, 220), "SECTOR 0: %s %08X",
+                       s0 == -1 ? "SAME" : s0 == -2 ? "NOT READ" : "DIFFERS", h0);
+            y += 10;
+            if (s0 >= 0)
+            {
+                vdp_printf(24, y, RGB(180, 180, 180), "FIRST AT BYTE %d", s0);
+                y += 10;
+            }
+            vdp_printf(16, y, RGB(220, 220, 220), "SECTOR 600: %s %08X",
+                       s1 == -1 ? "SAME" : s1 == -2 ? "NOT READ" : "DIFFERS", h1);
+            y += 10;
+            if (s1 >= 0)
+            {
+                vdp_printf(24, y, RGB(180, 180, 180), "FIRST AT BYTE %d", s1);
+                y += 10;
+            }
+            y += 8;
+            vdp_printf(16, y, RGB(255, 255, 160), "(EXPECTED START 5132534C = Q2SL)");
+            vdp_printf(16, y + 10, RGB(255, 255, 160), "PLEASE PHOTOGRAPH THIS SCREEN");
+            vdp_submit();
+        }
+}
+
 static bool         slave_ok, start_used;
 static u32          at_end[13];             /* (the benchmarks) the texture cache's counts at the end: r_full, vdp_peak, r_wset */
 
@@ -936,9 +1005,13 @@ void                main(void)
     bench_views = bench_sky;
 #endif
     if (!level_load(MAP_FILE))
-        for (;;)
-            message(cart_mb < 4 ? "THIS NEEDS THE 4MB RAM CART" : MAP_FILE " WON'T LOAD", NULL);
-    message("QUAKE II", "LOADING THE MODELS");
+    {
+        if (cart_mb < 4)
+            for (;;)
+                message("THIS NEEDS THE 4MB RAM CART", NULL);
+        load_failed(MAP_FILE);
+    }
+    message("QUAKE II", level_tries ? "LOADING THE MODELS (SHORT READS)" : "LOADING THE MODELS");
     models_load_all();
     g_overlays_load();                      /* (the code of the monsters it has: after their models) */
     message("QUAKE II", "LOADING THE SOUNDS");

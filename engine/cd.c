@@ -43,6 +43,17 @@
 static bool         ready;
 static u32          root_lba, root_size;
 static u16          res[4];
+/* (in low work RAM with this file's code, engine/link.ld's .lwtext: high work RAM's the levels') */
+#define LWDATA          __attribute__((section(".lwdata")))
+LWDATA u32          cd_max_play = 0;        /* sectors a "play" at most (0: a read in one); 16 if the long
+                                               reads failed (src/level.c's safe mode) */
+LWDATA u32          cd_max_get = 1;         /* sectors a data transfer at most (up to CHUNK): one, as SAROO (an
+                                               SD card drive) refills its data port a sector at a time from an
+                                               interrupt, and what's read past it in a longer transfer can be
+                                               junk; a transfer's first sector it has ready before it says so */
+LWDATA u32          cd_diag[4] = { 0 };     /* the last read that failed: sectors done, of how many, what stopped
+                                               it (1 play refused, 2 no sectors came, 3 get refused, 4 no data
+                                               ready), the status then (CR1 << 16 | CR4) */
 
 static void         irq_off(u32 *sr)
 {
@@ -131,20 +142,27 @@ static int          sectors_waiting(void)
     return res[3];
 }
 
-/* read `count` sectors from `lba` into dst (2-byte aligned) */
-bool                cd_read_sectors(u32 lba, u32 count, void *dst)
+static bool         failed(u32 done, u32 count, u32 step)
+{
+    cd_diag[0] = done;
+    cd_diag[1] = count;
+    cd_diag[2] = step;
+    cd_diag[3] = (u32)res[0] << 16 | res[3];
+    return false;
+}
+
+/* read `count` sectors from `lba` into dst (2-byte aligned): one "play" of them */
+static bool         read_run(u32 lba, u32 count, void *dst, u32 before, u32 total)
 {
     u16             *out = (u16 *)dst;
     u32             fad = lba + 150, done = 0, i, n;
 
-    if (!ready || count == 0)
-        return false;
     command(0x4800, 0, 0, 0, ESEL);             /* reset selector 0 */
     wait_hirq(ESEL);
     command(0x3000, 0, 0 << 8, 0, ESEL);        /* drive -> filter 0 -> partition 0 */
     CD_HIRQ = (u16)~(PEND | CSCT);
     if (!command((u16)(0x1080 | (fad >> 16)), (u16)fad, (u16)(0x80 | (count >> 16)), (u16)count, 0))
-        return false;                           /* "play" the range, FAD addressing */
+        return failed(before, total, 1);        /* "play" the range, FAD addressing */
     while (done < count)
     {
         int waiting = 0;
@@ -152,19 +170,37 @@ bool                cd_read_sectors(u32 lba, u32 count, void *dst)
         for (i = 0; i < TIMEOUT && (waiting = sectors_waiting()) == 0; ++i)
             ;
         if (waiting <= 0)
-            return false;
+            return failed(before + done, total, 2);
         n = (u32)waiting;
-        if (n > CHUNK)
-            n = CHUNK;
+        if (n > cd_max_get)
+            n = cd_max_get;
         if (n > count - done)
             n = count - done;
         if (!command(0x6300, 0, 0 << 8, (u16)n, EHST))  /* Get then Delete Sector Data */
-            return false;
+            return failed(before + done, total, 3);
         if (!wait_hirq(DRDY))
-            return false;
+            return failed(before + done, total, 4);
         for (i = 0; i < n * SECTOR / 2; ++i)
             *out++ = CD_DTR;
         end_transfer();
+        done += n;
+    }
+    return true;
+}
+
+bool                cd_read_sectors(u32 lba, u32 count, void *dst)
+{
+    u32             done = 0, n;
+
+    if (!ready || count == 0)
+        return false;
+    while (done < count)
+    {
+        n = count - done;
+        if (cd_max_play && n > cd_max_play)
+            n = cd_max_play;
+        if (!read_run(lba + done, n, (u8 *)dst + done * SECTOR, done, count))
+            return false;
         done += n;
     }
     return true;
@@ -198,11 +234,11 @@ bool                cd_async_start(u32 lba, u32 count, void *dst)
     return true;
 }
 
-/* 1 finished, 0 still going, -1 failed; moves at most max_sectors */
+/* 1 finished, 0 still going, -1 failed; moves at most max_sectors (in transfers of cd_max_get) */
 int                 cd_async_poll(int max_sectors)
 {
     int             waiting;
-    u32             n, i;
+    u32             n, i, moved = 0;
     u16             *out;
 
     if (!rd.busy)
@@ -210,22 +246,29 @@ int                 cd_async_poll(int max_sectors)
     waiting = sectors_waiting();
     if (waiting <= 0)
         return 0;                               /* the drive's still seeking or reading */
-    n = (u32)waiting;
-    if (n > (u32)max_sectors)
-        n = (u32)max_sectors;
-    if (n > rd.count - rd.done)
-        n = rd.count - rd.done;
-    if (!command(0x6300, 0, 0 << 8, (u16)n, EHST) || !wait_hirq(DRDY))
+    while (waiting > 0 && moved < (u32)max_sectors && rd.done < rd.count)
     {
-        rd.busy = false;
-        return -1;
+        n = (u32)waiting;
+        if (n > (u32)max_sectors - moved)
+            n = (u32)max_sectors - moved;
+        if (n > cd_max_get)
+            n = cd_max_get;
+        if (n > rd.count - rd.done)
+            n = rd.count - rd.done;
+        if (!command(0x6300, 0, 0 << 8, (u16)n, EHST) || !wait_hirq(DRDY))
+        {
+            rd.busy = false;
+            return -1;
+        }
+        out = rd.out;
+        for (i = 0; i < n * SECTOR / 2; ++i)
+            *out++ = CD_DTR;
+        rd.out = out;
+        end_transfer();
+        rd.done += n;
+        moved += n;
+        waiting -= (int)n;
     }
-    out = rd.out;
-    for (i = 0; i < n * SECTOR / 2; ++i)
-        *out++ = CD_DTR;
-    rd.out = out;
-    end_transfer();
-    rd.done += n;
     if (rd.done < rd.count)
         return 0;
     rd.busy = false;

@@ -174,6 +174,10 @@ typedef struct
 
 extern q_level      lv;
 extern int          cart_mb;
+extern u32          level_try[2][5];
+extern int          level_tries;
+void                level_ram_test(u32 *out);
+int                 level_sector_check(const char *name, u32 k, u32 *head);
 
 /* level.c */
 bool                level_load(const char *name);          /* onto the RAM cart */

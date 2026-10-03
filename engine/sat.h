@@ -180,6 +180,8 @@ void                snd_sfx_later(int id, int vol, int pan, int us);    /* ...st
 void                snd_music_volume(int v);            /* 0-15 */
 bool                cd_init(void);
 bool                cd_read_sectors(u32 lba, u32 count, void *dst);
+extern u32          cd_max_play, cd_max_get, cd_diag[4];    /* (cd.c: reads' run and transfer lengths; the
+                                                               last failure) */
 bool                cd_find(const char *name, u32 *lba, u32 *size);
 int                 cd_load(const char *name, void *dst, u32 max);  /* size or -1; max: whole sectors */
 bool                cd_async_start(u32 lba, u32 count, void *dst);  /* a read in the background ... */

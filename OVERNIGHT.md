@@ -2925,3 +2925,36 @@ the wings hit). And the flyer's `gib_health` of 0 sent any killing blow
 down `g_damage`'s gib branch (meat and bones) instead of its explosion:
 now -1000, so it always explodes, as Quake's. The tour loads all three
 (HWRAM 64/80/144 bytes left); the NTSC fight 37.7/36.2, as before.
+
+## 64. On a real Saturn: SAROO, and the CD reads
+
+First run on hardware (Roper's Saturn, a SAROO SD-card drive with its
+4 MB cart turned on): both the latest and the first build stopped at
+"DEMO1.MAP WON'T LOAD". The cart was there (else "needs the 4 MB cart"),
+and the console picture behind the message had been read off the disc,
+but blue speckle all over where Mednafen shows a clean dark-brown logo:
+the data was going wrong after the first sector of a transfer.
+
+SAROO's source (github.com/tpunix/SAROO, Firm_MCU/Saturn/saturn_cdc.c)
+emulates the CD block's data port with a FIFO its microcontroller fills
+a sector at a time from an interrupt: a transfer's first sector is there
+before it raises "data ready", the rest as the host drains it. Our reader
+took up to 32 sectors a transfer in a tight loop. Now `cd_max_get` (1)
+sectors a transfer, by default, every read (the gun's background reads
+loop them, 4 a frame as before): each transfer's sector is one SAROO had
+ready. Mednafen: the title in ~40 s, weapons switch as before.
+
+And a fallback: if the level still won't load, `level_load` tries again
+with every "play" of 16 sectors at most (`cd_max_play`), and every read
+after it the same; the models' loading screen then says "(SHORT READS)".
+If that fails too, a report screen instead of the bare message: the cart's
+ID and a RAM test of it, the file's place on the disc, each try's sectors
+read and the CD command that stopped it with its status, what landed at
+the cart's start, and two of the file's sectors read again alone and
+compared with the cart. `OPT=-DLOAD_SAFE_TEST` spoils the first try (the
+game loads in safe mode), `-DLOAD_FAIL_TEST` both (the report). The new
+variables are in low work RAM (a `.lwdata` section in engine/link.ld): high
+work RAM's 48/64/176 bytes left; the tour loads all three.
+
+`tools/mkbin.py` makes the BIN/CUE SAROO wants; `DISC_ID` gives the disc
+its own product number for SAROO's per-game settings.

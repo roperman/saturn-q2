@@ -32,6 +32,7 @@ SECTIONS
         __lwtext_start = .;
         *level.o(.text) *menu.o(.text) *cd.o(.text) *g_target.o(.text) *cycles.o(.text)
         *(.text.unlikely .text.unlikely.*)
+        *(.lwdata)                          /* (data kept out of high work RAM: __attribute__((section(".lwdata")))) */
         . = ALIGN(16);
         __lwtext_end = .;
     } > LWRAM AT > HWRAM

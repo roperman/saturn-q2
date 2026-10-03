@@ -13,7 +13,11 @@
 ! than after it; only what's live across the near child's walk saved (node,
 ! side, mask and PR), the far child a jump; the box tests unrolled with the
 ! mask bits as immediates; the plane's side with MAC.L straight from the
-! plane and the camera. Only r0-r7 (and r8 r9 in a face loop, saved) are used.
+! plane and the camera; a node's faces tested a byte (8 faces) at a time. A
+! leaf's box isn't tried: its faces come by its nodes, and the box guarded
+! only what's in it, which culls itself (and a model poking into the view
+! from a leaf whose box is out of it was lost). r8-r12 are the walk's
+! scratch, saved once by the wrapper, not in every node.
 
         .text
         .align  2
@@ -126,6 +130,24 @@ cull:
         sett
 
 _walk_asm:
+        mov.l   r8,@-r15
+        mov.l   r9,@-r15
+        mov.l   r10,@-r15
+        mov.l   r11,@-r15
+        mov.l   r12,@-r15
+        sts.l   pr,@-r15
+        bsr     .Lwalk
+        nop
+        lds.l   @r15+,pr
+        mov.l   @r15+,r12
+        mov.l   @r15+,r11
+        mov.l   @r15+,r10
+        mov.l   @r15+,r9
+        mov.l   @r15+,r8
+        rts
+        nop
+
+.Lwalk:
         cmp/pz  r4
         bt      0f
         bra     .Lleaf
@@ -198,14 +220,16 @@ _walk_asm:
         mov.l   r4,@-r15
         mov.l   r3,@-r15
         mov.l   r5,@-r15
-        bsr     _walk_asm
+        bsr     .Lwalk
         mov     r7,r4
         mov.l   @r15+,r5
         mov.l   @r15+,r3
         mov.l   @r15+,r4
         lds.l   @r15+,pr
 4:
-        ! its faces: those the cluster can see, on the camera's side
+        ! its faces: those the cluster can see, on the camera's side. A byte (8 faces) at a
+        ! time: vis & (side ? back : ~back), the first byte cut below the first face and the
+        ! last above the last, then each bit left listed (most bytes have none)
         mov.w   @(8,r4),r0
         extu.w  r0,r2                   ! how many
         tst     r2,r2
@@ -214,32 +238,50 @@ _walk_asm:
         extu.w  r0,r1                   ! the first
         mov.l   r4,@-r15
         mov.l   r5,@-r15
-        mov.l   r8,@-r15
-        mov.l   r9,@-r15
+        add     r1,r2                   ! one past the last
+        mov     r1,r0
+        and     #7,r0
+        mov     r0,r7
+        mova    .Llom,r0
+        mov.b   @(r0,r7),r10
+        extu.b  r10,r10                 ! the first byte's cut: the faces before the first off
+        mov     r1,r0
+        shlr2   r0
+        shlr    r0
+        mov     r0,r1                   ! the byte
         mov.l   @(W_FVIS,r6),r4
         mov.l   @(W_FBACK,r6),r5
 5:      mov     r1,r0
-        and     #7,r0
-        mov.l   @(W_BITM,r6),r7
-        mov.b   @(r0,r7),r7
-        extu.b  r7,r7                   ! its bit
-        mov     r1,r0
-        shlr2   r0
-        shlr    r0                      ! its byte
-        mov.b   @(r0,r5),r8             ! on its plane's back?
-        mov.b   @(r0,r4),r0             ! can the cluster see it?
-        tst     r7,r0
-        bt      7f
-        and     r7,r8
-        tst     r8,r8
-        movt    r8                      ! on the front
-        cmp/eq  r3,r8                   ! facing away (front and the camera behind, or back and in front)
-        bt      7f
+        mov.b   @(r0,r5),r11            ! on their planes' backs
+        mov.b   @(r0,r4),r0             ! those the cluster can see
+        tst     r3,r3
+        bf      51f
+        not     r11,r11                 ! the camera in front: the fronts
+51:     and     r11,r0
+        and     r10,r0
+        extu.b  r0,r11                  ! the byte's candidates
+        mov     #-1,r10                 ! (the next byte isn't cut below)
+        mov     r1,r12
+        shll2   r12
+        shll    r12                     ! the byte's first face
+        mov     r2,r0
+        sub     r12,r0                  ! faces to the end from it
+        mov     #8,r7
+        cmp/ge  r7,r0
+        bt      52f
+        mov     r0,r7
+        mova    .Lhim,r0
+        mov.b   @(r0,r7),r0
+        and     r0,r11                  ! the last byte: the faces past the last off
+52:     tst     r11,r11
+        bt      55f                     ! none (left) in this byte
+        shlr    r11
+        bf      54f                     ! not this one
         mov.l   @(W_NLIST,r6),r7        ! listed
         mov.l   @r7,r0
         mov.w   .Lmaxvis,r8
         cmp/hs  r8,r0
-        bt      7f
+        bt      54f
         mov.l   @(W_LMODEL,r6),r8
         mov     #0,r9
         mov.b   r9,@(r0,r8)             ! (the world)
@@ -247,16 +289,19 @@ _walk_asm:
         mov     r0,r9
         add     r9,r9
         add     r9,r8
-        mov.w   r1,@r8
+        mov.w   r12,@r8
         add     #1,r0
         mov.l   r0,@r7
         mov.l   @(W_PUB,r6),r7
         mov.l   r0,@r7                  ! for the slave, drawing already
-7:      add     #1,r1
-        dt      r2
+54:     bra     52b
+        add     #1,r12
+55:     add     #1,r1                   ! the next byte, if its first face is before the end
+        mov     r1,r0
+        shll2   r0
+        shll    r0
+        cmp/hs  r2,r0
         bf      5b
-        mov.l   @r15+,r9
-        mov.l   @r15+,r8
         mov.l   @r15+,r5
         mov.l   @r15+,r4
 6:
@@ -268,35 +313,16 @@ _walk_asm:
         mov.w   @(r0,r4),r7
         INPVS   r7
         bf      .Lret
-        bra     _walk_asm
+        bra     .Lwalk
         mov     r7,r4
 .Lret:
         rts
         nop
 
 .Lleaf:
-        ! the leaf: leafs + l * 28
+        ! the leaf: anything in it (entities, sprites, brush models)? Then the C: extra(leaf,
+        ! mask). (Its box isn't tried: see above)
         not     r4,r0
-        mov     r0,r1
-        shll2   r1
-        mov     r1,r2
-        add     r1,r1
-        add     r1,r2
-        add     r1,r1
-        add     r2,r1
-        mov.l   @(W_LEAFS,r6),r2
-        add     r2,r1
-        add     #4,r1                   ! its box
-        tst     r5,r5
-        bt      1f
-        sts.l   pr,@-r15
-        mov.l   r0,@-r15
-        bsr     cull
-        nop
-        mov.l   @r15+,r0
-        lds.l   @r15+,pr
-        bt      .Lret
-1:      ! anything in it? (entities, sprites, brush models: the C)
         mov     r0,r4                   ! (the leaf, for the C)
         add     r0,r0
         mov     r6,r7
@@ -322,6 +348,9 @@ _walk_asm:
         rts
         nop
 
-        .align  1
+        .align  2
 .Lmaxvis:
         .short  2048                    ! MAX_VIS
+        .short  0
+.Llom:  .byte   0xFF, 0xFE, 0xFC, 0xF8, 0xF0, 0xE0, 0xC0, 0x80     ! a byte's faces from the nth on
+.Lhim:  .byte   0x00, 0x01, 0x03, 0x07, 0x0F, 0x1F, 0x3F, 0x7F     ! its first n

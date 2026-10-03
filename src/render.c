@@ -5165,13 +5165,11 @@ static void         walk(int n, u8 mask)
 
     if (n < 0)
     {
+        /* (its box isn't tried: its faces come by its nodes, and what's in it culls itself,
+           which a model poking into the view from a leaf whose box is out of it needs) */
         PROF(++wk_leaves);
-        const q_leaf *leaf = &lv.leafs[-(n + 1)];
-        const u16    *m;
-
-        if (leaf_vis[-(n + 1)] != visframe || (mask && cull_box(leaf->mins, leaf->maxs, &mask)))
+        if (leaf_vis[-(n + 1)] != visframe)
             return;
-        (void)m;
         walk_leaf_extra(-(n + 1), mask);
         return;
     }

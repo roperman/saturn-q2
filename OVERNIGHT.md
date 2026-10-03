@@ -2582,3 +2582,52 @@ levels load as before (HWRAM 128 / 160 / 48 bytes left).
 - Not Quake's, left: G_UseTargets runs on every monster death (Quake's
   monster_death_use returns without a target); a triggered spawn ignores
   the ambush flag.
+
+## 58. The DSP, and the last of the identical-output wins
+
+Roper asked what's left for speed, and whether the DSP could take more.
+
+**The DSP: no.** What it does well here is lag-tolerant work: the walls'
+dynamic lights run on last frame's face list (section 34), the models'
+vertices start as the frame does and are waited for only as each is
+reached. A face's grid points can't lag: they need this frame's camera and
+this frame's face list, which exists only as the walk publishes it, and
+the slave draws the front faces the moment it does. The DSP would have to
+keep ahead of the slave within the frame, and it's busy with the models'
+job (9.9 ms, 67 models in the fight) for exactly the first ~10 ms when the
+front faces are wanted; at several DMAs a face it wouldn't keep up with
+the master's back half later either. Its DMA reaches the DSP area, the
+A-bus (cart), the B-bus and work RAM-H (ST-097 fig. 2.3): not low work
+RAM, where the faces, cells and lights are. Even done perfectly the ceiling
+is the grids' ~1.7 ms of CPU a frame (half that of frame). Section 4's
+`xformf.dsp` (the face setup on the DSP: no faster) agrees, and nothing
+else lag-tolerant is left for it: the slave's 2.6 ms of model lighting
+fills a window it would otherwise idle in (`SLAVE US: FIRST` 142 us: it
+waits that long for the first face).
+
+**Tried and measured:**
+
+- `LOD_Z` 256 and 192 (the coarse grids nearer): no gain at all (static
+  CPU 181.3 / 180.8 against 181.0, the fight identical) for up to 8,800
+  pixels changed in a view. The far faces that have a coarse grid are few.
+  Left at 384.
+- The walk's box test inline in the node (only nodes test their box since
+  section 57): walk 45.2 -> 44.6 ms over the six views; kept.
+- Each face's cells and lights as one run in low work RAM, built as the
+  level loads (the readers taking offsets): no gain (static CPU 180.6 ->
+  180.3, the fight identical). The two lumps are already in face order, so
+  two sequential streams fill the same lines as one interleaved one; it
+  cost 1.7-3.8 KB of LWRAM a level and lost the cells' cart reclaim on
+  Installation. In the stash (`git stash list`), not kept.
+- Each frame's normal indices as a run after its vertices (cart, which
+  Roper allowed): the fight's normals part 0.5 -> 0.3 ms, CPU 36.6 -> 36.5;
+  static 180.3 -> 179.3. Kept: +180 KB of cart on Installation (68 KB
+  left), +48 on Outer Base.
+
+Where it stands: the fight NTSC 38.0 / 36.5 ms, 141 of 527 pictures a
+frame late (section 56's 38.7 / 37.1, 160 of 517); the static benchmark
+179.3 ms of CPU over its six views (185.6). The identical-output ideas
+from the review are used up; what's left of a face's ~2,500 cycles is the
+setup (~1,000, `src/face.s`, not yet broken down by part), the grid and
+the cells, and the game's tick (10 ms on the master during the draw, 26
+at its worst, which is where the late pictures come from).

@@ -139,6 +139,7 @@ void                vdp_frame(int x0, int y0, int x1, int y1, u16 color);
 void                vdp_sprite(const vdp_tex *t, int x, int y, bool half_transparent);
 void                vdp_text(int x, int y, u16 color, const char *s);
 void                vdp_printf(int x, int y, u16 color, const char *f, ...);
+extern void         (*vdp_stall_hook)(const u32 *r);   /* (a test: vdp_submit stuck waiting for the swap) */
 u16                 vdp_text_colr(u16 color);           /* text in the scene: colr for a glyph sprite */
 u16                 vdp_glyph(int ch);                  /* ...and its srca (8x8, 4bpp; size 0x0108) */
 

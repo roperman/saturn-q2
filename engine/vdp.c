@@ -89,6 +89,9 @@ static void         (*list_hook)(void);
 #define SWAP_LINE       (216)           /* 8 lines before the vblank */
 static bool         pipelined;
 static volatile int queued = -1;        /* the list waiting for its swap, or -1 */
+void                (*vdp_stall_hook)(const u32 *r);    /* (a test: vdp_submit waiting long for the swap; r: EDSR,
+                                                       COPR, LOPR, MODR, DSTA, fields, the command COPR points at (8
+                                                       words)) */
 static volatile u32 queued_frame;
 static volatile bool hook_due;
 static u32          frames_sent;
@@ -719,6 +722,23 @@ int                 vdp_submit(void)
             {
                 ++waited;
                 wait_vblank_out();
+                if (vdp_stall_hook && waited % 25 == 0)
+                {
+                    /* (half a second and more: what VDP1, the DMA and the swap's interrupt are doing) */
+                    u32 r[14];
+                    u32 copr = REG16(0x25D00014);
+                    int k;
+
+                    r[0] = VDP1_EDSR;
+                    r[1] = copr;
+                    r[2] = REG16(0x25D00012);
+                    r[3] = REG16(0x25D00016);
+                    r[4] = SCU_DSTA;
+                    r[5] = (u32)fields;
+                    for (k = 0; k < 8; ++k)
+                        r[6 + k] = ((volatile u32 *)(VDP1_VRAM + copr * 8))[k];
+                    vdp_stall_hook(r);
+                }
             }
         vdp_us_wait = frt_to_us((frt_read() - t) & 0xFFFF);
     }

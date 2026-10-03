@@ -123,6 +123,7 @@ __attribute__((section(".lwdata"))) static char bt_names[BT_N][24] = {   /* (not
     [54] = "DRAW FRONT", [55] = "DRAWN, SIGNALLED", [56] = "NEXT MOVE", [57] = "WAIT DSP MODEL",
 };
 __attribute__((section(".lwdata"))) u32 bt_frame = 0;
+__attribute__((section(".lwdata"))) static char bt_dsp[48] = { 0 };     /* (the DSP's self-test line, kept) */
 
 static __attribute__((cold)) void bt_fmt(char *out, const char *f, ...)
 {
@@ -133,15 +134,38 @@ static __attribute__((cold)) void bt_fmt(char *out, const char *f, ...)
     va_end(ap);
 }
 
+static __attribute__((cold)) void bt_line(int y, char *buf);
+
 __attribute__((cold)) void btrace(int cpu, int step)
 {
-    volatile u16    *cram = (volatile u16 *)0x25F00000;
     char            buf[48];
-    int             i, row, k, y = 196 + cpu * 10;
     u32             f = *(volatile u32 *)UNCACHED(&bt_frame);
 
     bt_fmt(buf, "%s F%05d %02d %s", cpu ? "SLAVE " : "MASTER", f, step,
-             step >= 0 && step < BT_N ? bt_names[step] : "?");
+           step >= 0 && step < BT_N ? bt_names[step] : "?");
+    bt_line(196 + cpu * 10, buf);
+}
+
+/* (vdp_submit stuck waiting for the swap) VDP1's state on two lines above the trace: its end flags,
+   the command it's on and the last, its mode, the SCU DMA's status, the swap interrupt's fields
+   since the last swap; then the command it's on (control, link, size, the corners) */
+static __attribute__((cold)) void bt_stall(const u32 *r)
+{
+    char            buf[48];
+
+    bt_fmt(buf, "VDP1 E%X C%04X L%04X M%X D%X F%d", r[0], r[1], r[2], r[3], r[4], r[5]);
+    bt_line(156, buf);
+    bt_fmt(buf, "CMD %08X %08X %08X", r[6], r[7], r[8]);
+    bt_line(166, buf);
+    bt_fmt(buf, "XY %08X %08X %08X %08X", r[9], r[10], r[11], r[12]);
+    bt_line(176, buf);
+}
+
+static __attribute__((cold)) void bt_line(int y, char *buf)
+{
+    volatile u16    *cram = (volatile u16 *)0x25F00000;
+    int             i, row, k;
+
     cram[0x200 + 254] = 0x0000;             /* (the layer's black and white) */
     cram[0x200 + 255] = 0x7FFF;
     REG16(VDP2_REG + 0xF8) = 0x0701;        /* PRINA: NBG1 over VDP1 (sprites 6), NBG0 1 */
@@ -1121,6 +1145,16 @@ void                main(void)
     hud_init();
     BT(0, 32);
     render_init();
+#ifdef BOOT_TRACE
+    {
+        extern s32 dsp_test[8];
+        extern bool r_dsp_ok;
+        bt_fmt(bt_dsp, "DSP %s %d %d %d %d/%d %d %d %d", r_dsp_ok ? "OK" : "BAD", dsp_test[0], dsp_test[1],
+               dsp_test[2], dsp_test[3], dsp_test[4], dsp_test[5], dsp_test[6], dsp_test[7]);
+        bt_line(186, bt_dsp);               /* (expected: 1 106 211 316 twice: from HWRAM, from the cart) */
+        vdp_stall_hook = bt_stall;
+    }
+#endif
     BT(0, 33);
     trace_init();
     BT(0, 34);
@@ -1143,6 +1177,14 @@ void                main(void)
     r_dspm_level();
     loading_back(false);
     BT(0, 43);
+#ifdef BOOT_TRACE
+    {
+        char buf[48];
+
+        memcpy(buf, bt_dsp, sizeof(buf));
+        bt_line(186, buf);                  /* (again: the layer's just been cleared) */
+    }
+#endif
 #ifdef LEVEL_TEST
     {
         extern u32 models_cold;

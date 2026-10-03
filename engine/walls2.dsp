@@ -37,7 +37,7 @@ W_BLK   = 42                            ; the blocks >> 2
 W_OUT   = 43                            ; the lit lights >> 2
 W_LT    = 44                            ; the lights >> 2
 W_LTW   = 45                            ; their words
-W_C7FFF = 56                            ; 0x7FFF
+W_MKP   = 56                            ; the texture maker's block >> 2 (engine/make.dsp; 0: none)
 W_P0    = 57                            ; the models' program (xformm.dsp) >> 2
 LT      = 0                             ; RAM1
 R       = 32
@@ -102,8 +102,7 @@ w2:     jmp t0,w2
         mov H+4,ct0
         mov m0,a  mov 1,pl
         sub  mov all,lop
-        mov W_C7FFF,ct0
-        mov m0,p
+        mvi $7FFF,pl
         mov 0,ct2
         mov lpw,top
         mov mc2,a  mov 0,ct3
@@ -300,9 +299,16 @@ w5:     jmp t0,w5
         sub  mov all,mc0                ; a face fewer
         jmp nz,job
         nop
-        mov W_P0,ct0
+        mov W_MKP,ct0                   ; all lit: the texture maker, if the host has one
+        mov m0,a  mov 0,pl
+        or
+        jmp z,back
         mov m0,ra0
-        jmp load                        ; all lit: the models' program back (it stops at its 255)
+        jmp load
+        nop
+back:   mov W_P0,ct0
+        mov m0,ra0
+        jmp load                        ; the models' program back (it stops at its 255)
         nop
 
         .org 253

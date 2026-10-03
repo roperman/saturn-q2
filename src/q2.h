@@ -375,6 +375,9 @@ typedef struct
     int             faces, cells, culled, near, uploads, nocache, dropped, leaf, cluster, nodes, proj, gverts, seen;
     int             made, made_now;         /* textures made as uploaded (tex_make); those copied at once (the ring full) */
     u32             made_us;                /* ...the making's time */
+    int             made_dsp, made_rest;    /* ...those listed for the DSP (engine/make.dsp); of them, made by the CPU at
+                                               the frame's end as the DSP hadn't */
+    u32             mk_us;                  /* ...that end's time: waiting for the DSP, then making the rest */
     int             models, mpolys, nfast, nslow, nexact, pieces, faces_out, cells_all, cells_384, cells_512, muploads, mcpu, mdsp, ns_dl, ns_crop, ns_exact, g_same, g_flat, occ_faces, occ_cells, occ_occluders, ns_small;
     u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys, t_mwait, t_masm, t_mnorm;
     u32             us_rwpre, t_dltest, t_dlsum;    /* (FIGHT_BENCH: render_world to the slave's signal; the world's dynamic lights) */

@@ -9,7 +9,7 @@ mkdir -p "$OUT"
 snaps() {
     OPT="-DBENCH_HOLD $CMP_EXTRA" ./build.sh >/dev/null || exit 1
     tools/emu.sh start game.cue >/dev/null
-    sleep 40
+    sleep ${BOOT:-40}
     w=$(xdotool search --class mednafen | tail -1)
     xdotool windowactivate --sync "$w"
     tools/tap.sh Return

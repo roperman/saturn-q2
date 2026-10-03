@@ -44,13 +44,14 @@ rm -f cd/SOUND.BIN
 [ -f cd/DEMO3.SND ] && [ -f obj/gen/sound_ids.h ] && [ cd/DEMO3.SND -nt tools/bake_sound.py ] \
     || python3 tools/bake_sound.py data/pak0.pak cd obj/gen/sound_ids.h
 # the walls' dynamic lights' three DSP programs (engine/walls1.dsp, walls2.dsp, then the models'
-# back after them, then walls0.dsp): one file, read into the cart each level, where the DSP loads
-# them from itself
+# back after them, then walls0.dsp) and the texture maker's (engine/make.dsp): one file, read into
+# the cart each level, where the DSP loads them from itself
 python3 tools/dspasm.py engine/walls0.dsp obj/gen/walls0.h walls0_prog obj/walls0.bin >/dev/null
 python3 tools/dspasm.py engine/walls1.dsp obj/gen/walls1.h walls1_prog obj/walls1.bin >/dev/null
 python3 tools/dspasm.py engine/walls2.dsp obj/gen/walls2.h walls2_prog obj/walls2.bin >/dev/null
 python3 tools/dspasm.py engine/xformm.dsp obj/xformm_b.h xformm_prog obj/xformm.bin >/dev/null
-cat obj/walls1.bin obj/walls2.bin obj/xformm.bin obj/walls0.bin > cd/WALLS.BIN
+python3 tools/dspasm.py engine/make.dsp obj/gen/make.h make_prog obj/make.bin >/dev/null
+cat obj/walls1.bin obj/walls2.bin obj/xformm.bin obj/walls0.bin obj/make.bin > cd/WALLS.BIN
 # the models (tools/models.txt): whichever are out of date
 python3 tools/bake_models.py data/pak0.pak cd
 # the monsters only some levels have: their code on the CD, each linked against game.elf, loaded by

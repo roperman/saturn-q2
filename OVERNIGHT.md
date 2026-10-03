@@ -2751,3 +2751,89 @@ Next, the masked variants (part 2): a mask of 32 bytes a variant instead
 of its pixels, applied to the tile as it's uploaded; ~450 KB a level
 more, but variants are most of the uploads, so a fast turn in a busy spot
 (60 uploads in a frame) could cost a 2-3 ms hitch to measure first.
+
+## 61. Textures made as they're uploaded, 2: the masked variants
+
+A cell cut by its face's polygon edge, or narrower than its tile, had
+its own copy of the tile's pixels with the uncovered texels transparent:
+thousands a level, most of the texture data (Outer Base: 695 KB of
+"tiles" for 90 KB of tiles). The bake keeps a mask instead (16 rows of
+16 bits, 32 bytes, shared where alike: 2,300-6,000 a level) and the
+record says the tile (its colour table's number, through a table of each
+tile's offset), the crop and the mask; `tex_make` makes the texels a row
+at a time (a 16-entry table turns four mask bits into nibble masks). The
+tile and the crop are the same pixels in VRAM: six views pixel-identical
+(the compare needs `tools/bake_map.py` in its stash list when the bake
+changed, and a boot wait of 55-75 s, or the chord fires before the level
+loads and compares nothing).
+
+Texture data 794/556/704 -> 89/135/115 KB, plus the masks 186/72/121 KB:
+the level files 2767/2521/2841 -> 2252/2176/2377 KB; Installation's cart
+free 227 -> ~546 KB, Comm Center's ~700. All three load (HWRAM 48/160/80
+bytes left, LWRAM ~107/5.4/17 KB). The cost is the making, on the CPU
+that uploads: ~100-125 us a texture (reading the tile and writing the
+ring on the cart, mostly), nothing in the fight (an upload a frame) but
+2-7 ms on the heaviest frames of a fast spin in a busy room (40-70 made
+in one frame). Hence the next section.
+
+## 62. The textures made by the DSP (engine/make.dsp)
+
+The DSP has most of the frame free after the models' job (and the walls'
+in a fight), so the making moved there: a fourth program in
+`cd/WALLS.BIN`, which the models' program (no walls) or walls2.dsp (walls)
+ends by loading, and which loads the models' program back when the host
+says the frame's done. Each CPU lists what it wants made as `tex_load`
+finds it (`mk_job`: 12 words on the cart, everything worked out by the
+host so the DSP does no arithmetic on them: the tile, the mask, the ring
+slot, the crop's first tile word, its words a row, and for a crop of 8
+texels starting inside a word the shift counts and mask that make the
+row's word from the tile's two), and bumps its count; the program polls
+the two counts (200 cycles between polls, not to hog the cart's bus),
+DMAs the tile (32 words) and mask (8) in, makes the 32 words out (a row:
+the mask's 16 bits, the two words, each word two table lookups for its
+eight texels' nibble masks, ANDed; the second lookup's value comes from
+the same entry's high half, ALH, so there's one table) and DMAs them to
+the slot. The transposed tile (a gather of nibbles) stays the CPU's. At
+the frame's end, both CPUs done, the master writes the end flag and waits
+for the maker's state word to say it has finished the job it was on (not
+for the DSP: the program reload after is ~140 us the CPU needn't sit
+through), then makes the rest itself from the lists: those listed in the
+last few hundred microseconds, or all of them if the models' and walls'
+jobs kept the maker from starting at all (then it quits as soon as it
+does). With neither models nor walls the DSP is started at the models'
+program's end, which just loads the maker.
+
+The DSP's RAM: walls2.dsp has words 0-39 of RAM0 to itself (its table of
+lights-per-mask runs to 39) and the host's walls parameters are 40-63, all
+used, so the maker's one word is the one that held the constant 0x7FFF
+(now an MVI in walls2.dsp): the block's address, a copy of the program
+first and the counts, table and lists after it. The models' program's
+address (word 57) must be in the DSP's RAM before any frame, which only
+the walls' job used to write: `r_wall_level` writes the walls' parameters
+once at the level's start (the first run hung at the loading screen on
+exactly that: the maker loaded "the models' program" from address 0, the
+BIOS).
+
+`tools/make_sim.py` runs the program in the simulator on random tiles,
+masks and crops against a Python `tex_make`, with the end flag raised
+early as a frame's end would: 1,250-1,400 cycles a crop (~90-100 us at
+the SCU's clock; the quartered kind the same, its DMAs being most of it).
+The first run on the Saturn had small patches wrong at polygon edges:
+the simulator's reference had the same slip as the host (the mask's rows
+are the crop's, not the tile's); fixed, six views pixel-identical.
+
+Measured (OPT=-DSTATS, the line now `MK made D listed-to-the-DSP R
+made-by-the-CPU-at-the-end made-us+end-us`), a spin and a walk from Outer
+Base's start: frames with nothing to finish cost 14-28 us at the end (the
+end flag, the maker's poll pause, its state word); frames listing 3-9
+textures cost ~17 us a texture to list (12 words to the cart) and
+120-460 us at the end, when the maker was mid-job (its job finished, ~100
+us) and/or had 1-3 left for the CPU; the crops that went the CPU's way
+before were 100-125 us each. The transposed kind, still the CPU's, shows
+at ~300 us each; rare (391 a level), but the next to move if it matters.
+Fights unchanged: NTSC 37.5/36.0 ms (was 37.4/35.9), PAL 39.8/37.1 (the
+same).
+The level tour: all three load and complete with the maker on (the walls'
+programs on each; the block takes 7 KB of the cart: Installation 524 KB
+free, Comm Center ~690; HWRAM 176/48/160 bytes left, LWRAM 107/7.8/16.9
+KB).

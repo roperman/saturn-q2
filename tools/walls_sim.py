@@ -178,7 +178,7 @@ def run_chain(lv, level_bytes, faces, ls, walls_bin, trace=None, seed=1, odd=Fal
     # RAM0[40..63]: engine/dsp.h's dsp_walls_p
     params = [len(faces), 0, sh(at["blocks"]), sh(at["out"]), sh(at["lt"]), 32 if nl == 3 else 8 * nl, nl - 1,
               sh(CART + lv.axes_off), sh(CART + lv.lights_off), lv.N, 65536 // lv.N, sh(PROGS + 3072),
-              sh(PROGS + 1024), 0, sh(CART + lv.planes_off), sh(PROGS), 0x7FFF, sh(PROGS + 2048), sh(at["list"]),
+              sh(PROGS + 1024), 0, sh(CART + lv.planes_off), sh(PROGS), 0, sh(PROGS + 2048), sh(at["list"]),
               len(faces), sh(CART + lv.faces_off), int(odd), sh(at["acc"]), sh(at["lt0"])]
     d = DSP(mem)
     d.trace = trace

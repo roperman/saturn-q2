@@ -53,7 +53,7 @@ void                dsp_init_models(void)
     for (i = 0; i < XFORMML_PROG_LEN; ++i)
         DSP_PPD = xformml_prog[i];          /* (the lighting after: xformml.dsp) */
 #else
-    for (i = 0; i <= XFORMM_PROG_MDONE; ++i)
+    for (i = 0; i <= XFORMM_PROG_MEND; ++i)
         DSP_PPD = xformm_prog[i];
     DSP_PPAF = (1u << 15) | XFORMM_PROG_LOAD;   /* (and its loader at the end: the walls' programs') */
     for (i = XFORMM_PROG_LOAD; i < XFORMM_PROG_LEN; ++i)
@@ -106,6 +106,22 @@ void                dsp_walls_start(void)
 {
     walls_set = false;
     DSP_PPAF = (1u << 16) | (1u << 15) | XFORMM_PROG_WALLS;
+}
+
+/* (the DSP stopped, the models' program in it) the maker alone: from the models' program's end,
+   which loads it */
+void                dsp_maker_start(void)
+{
+    DSP_PPAF = (1u << 16) | (1u << 15) | XFORMM_PROG_MDONE;
+}
+
+/* (the DSP stopped) the texture maker's block (its program first), which the models' and the
+   walls' programs end by loading, if it's there (RAM0[56]: dsp_walls_p's mkprog, which the
+   walls' parameters set again each job) */
+void                dsp_maker_params(const void *block)
+{
+    DSP_PDA = 56;
+    DSP_PDD = block ? ((u32)block & 0x07FFFFFF) >> 2 : 0;
 }
 #endif
 

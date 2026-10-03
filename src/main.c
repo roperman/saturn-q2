@@ -2159,8 +2159,8 @@ void                main(void)
                        10000000 / (us_frame ? us_frame : 1) % 10, us_cpu / 1000, waited);
 #endif
             vdp_printf(8, 18, c, "FACES %d CELLS %d CULL %d NEAR %d", rs.faces, rs.cells, rs.culled, rs.near);
-            vdp_printf(8, 28, c, "UPLOADS %d MK%d/%d %dUS FULL %d DROP %d G%d", rs.uploads, rs.made, rs.made_now,
-                       rs.made_us, rs.nocache, rs.dropped, vdp_gover);
+            vdp_printf(8, 28, c, "UPLOADS %d MK%d D%d R%d %dUS+%d FULL %d DROP %d G%d", rs.uploads, rs.made, rs.made_dsp,
+                       rs.made_rest, rs.made_us, rs.mk_us, rs.nocache, rs.dropped, vdp_gover);
             vdp_printf(8, 38, c, "WALK %d MASTER %d SLAVE %d OUT %d %d", rs.nodes / 1000, rs.t_face / 1000,
                        rs.t_grid / 1000, r_full[0], r_full[1]);
 #ifdef TEX_WSET

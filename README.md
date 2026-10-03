@@ -193,7 +193,11 @@ At run time (`src/render.c`, and SH-2 assembly in `src/*.s`):
   Cells crossing the near plane are cut in C.
 - **Textures**: a cache of tile slots in VDP1's VRAM, split between the
   CPUs, filled from the cart; a slot is reused only once VDP1 has drawn the
-  frames that used it.
+  frames that used it. The level holds each 16 x 16 tile once: a texture
+  that's a tile cropped to a face's polygon (a mask of 32 bytes), turned on
+  its side or split in four for the near plane is made as it's uploaded,
+  most of them by the SCU DSP in the time it has after the models and the
+  walls (`engine/make.dsp`), the rest by the CPU.
 - **Models**: Quake 2's MD2s (`tools/bake_md2.py`), each triangle pair a
   quad with its piece of the skin pre-warped into a little texture. The SCU
   DSP blends and transforms the vertices while the CPUs do other things;

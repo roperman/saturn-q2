@@ -39,7 +39,9 @@ typedef struct
     u32             progf, prog2;           /* walls0.dsp, walls2.dsp (256 words each) */
     u32             faces2;                 /* (walls2.dsp's count) */
     u32             planes;                 /* the cart's copy of the level's planes */
-    u32             prog1, c7fff;           /* walls1.dsp; 0x7FFF */
+    u32             prog1, mkprog;          /* walls1.dsp; the texture maker's block (engine/make.dsp: a copy of
+                                               its program, then its counts and lists; 0 none), which walls2.dsp
+                                               and xformm.dsp end by loading */
     u32             prog0;                  /* the models' (xformm.dsp), back after them */
     u32             list, list_n;           /* the whole faces drawn: their indices, two to a word; how many */
     u32             faces_cart;             /* the cart's copy of the level's faces */
@@ -50,6 +52,10 @@ typedef struct
 } dsp_walls_p;
 void                dsp_walls_params(const dsp_walls_p *p);
 void                dsp_walls_start(void);  /* (the walls alone: no models) */
+/* the texture maker (engine/make.dsp, after the walls' or the models' job): its block (its
+   program first; NULL: none, the models' job just ends): RAM0[56], dsp_walls_p's mkprog */
+void                dsp_maker_params(const void *block);
+void                dsp_maker_start(void);  /* (the maker alone: no models, no walls) */
 void                dsp_walls_word(u32 w);  /* (dsp_walls_p's half) */
 void                dsp_init_faces(void);               /* (a test) faces' grids into view space (xformf.dsp) */
 void                dsp_faces(const u32 *jobs, int n, volatile u32 *count, const s32 *axes, const s32 *rows9,

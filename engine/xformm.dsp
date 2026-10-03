@@ -40,6 +40,7 @@ P_CADDR = 35
 P_COUNT = 36
 W_NJ    = 40                            ; (the walls' job: faces, and its first program >> 2)
 W_P1    = 51
+W_MKP   = 56                            ; the texture maker's block >> 2 (engine/make.dsp; 0: none)
 
 ; a row of the results: t + a . v0 + b . v1, six products a vertex
 .macro rowpass base
@@ -167,7 +168,14 @@ walls:  mov W_P1,ct0                    ; (the host starts here for the walls al
         mov m0,ra0
         jmp load
         nop
-mdone:  end
+mdone:  mov W_MKP,ct0                   ; no walls: the texture maker, if the host has one
+        mov m0,a  mov 0,pl
+        or
+        jmp z,mend
+        mov m0,ra0
+        jmp load
+        nop
+mend:   end
 
         .org 253
 load:   dma d0,prg,256                  ; (the next program: RA0)

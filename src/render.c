@@ -902,6 +902,7 @@ static void         mk_finish(void)
     b[2] = 1;
     if (b[5])
     {
+        BT(0, 22);
         while (b[5] != 2)
             ;
         done[0] = (int)b[3];
@@ -4750,6 +4751,8 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         const u8    *pn = va.pa + va.nofs;
         mverts_args ma;
 
+        if (*(volatile u32 *)UNCACHED(&dspm_count) <= (u32)vd.dsp)
+            BT(0, 25);
         while (*(volatile u32 *)UNCACHED(&dspm_count) <= (u32)vd.dsp)
             ;
         cache_forget(out, (u32)((nv + 15) >> 4) * 192);
@@ -5670,6 +5673,7 @@ static void         models_to_dsp(void)
         dw_stat[5] += frt_to_us((frt_read() - t) & 0xFFFF);
     }
 #endif
+    BT(0, 12);
     dsp_wait();                             /* (last frame's list, if a model it had wasn't drawn) */
     if (mk_block)
         for (k = 0; k < MK_HEAD; ++k)
@@ -6042,6 +6046,8 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
 
         u32         tw = frt_read();
 
+        if (*(volatile u32 *)UNCACHED(&dspm_count) <= (u32)ent_dsp[ei])
+            BT(x == &ctx[1], x == &ctx[1] ? 57 : 24);
         while (*(volatile u32 *)UNCACHED(&dspm_count) <= (u32)ent_dsp[ei])
             ;
         x->st.t_mwait += (frt_read() - tw) & 0xFFFF;
@@ -6931,7 +6937,9 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
     }
     PROF(rs.us_pre = frt_to_us((frt_read() - t0) & 0xFFFF));
     /* the models' vertices: the DSP starts on them now; the gun's records on their way */
+    BT(0, 11);
     models_to_dsp();
+    BT(0, 13);
     view_fetch_start(w0);
     PROF(rs.us_mdsp = frt_to_us((frt_read() - t0) & 0xFFFF) - rs.us_pre);
     /* the slave starts on the list as the walk fills it */
@@ -6957,6 +6965,7 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
     if (r_walk_asm)
     {
         walk_setup();
+        BT(0, 14);
         walk_asm(0, 15, &wctx);             /* all four side planes to try */
     }
     else
@@ -7013,13 +7022,18 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
     /* ("faster fights", on unless OPT=-DNO_GAME_DURING_DRAW: the game's tick here,
        on the master, while the slave draws from the front of the list; the master
        then draws from the back until they meet, so the slave takes more of it) */
+    BT(0, 26);
     if (r_during)
         r_during();
     view_leaf = leaf;
+    BT(0, 16);
     draw_master();
+    BT(0, 17);
     if (r_two_cpus)
         wait_signal();
+    BT(0, 18);
     mk_finish();                            /* (the DSP's textures: done, or made now) */
+    BT(0, 23);
     /* both done: the textures they queued into VRAM (the slave's queue read
        uncached: it wrote it), before VDP1 can draw them (after the swap); the
        late ones kept, at the front, for r_late_uploads */

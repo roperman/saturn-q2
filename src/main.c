@@ -17,6 +17,9 @@
 **   START + R      the benchmark: fixed views, then a table of times
 */
 #include "game.h"
+#ifdef BOOT_TRACE
+#include <stdarg.h>
+#endif
 
 #ifndef MAP_FILE
 # define MAP_FILE       "DEMO1.MAP"             /* (build.sh: MAP=demo2 ./build.sh for another) */
@@ -55,10 +58,21 @@ static __attribute__((cold)) void         loading_back(bool on)
         return;
     if (!on)
     {
+#ifdef BOOT_TRACE
+        u32 *v;
+
+        for (v = (u32 *)VDP2_VRAM; v < (u32 *)(VDP2_VRAM + 0x20000); ++v)
+            *v = 0;                         /* (the trace's layer: kept, seen through) */
+#else
         vdp2_bgon(0, 0x0002);
+#endif
         return;
     }
+#ifdef BOOT_TRACE
+    for (i = 1; i < 254; ++i)
+#else
     for (i = 1; i < 255; ++i)
+#endif
         cram[0x200 + i] = r_gamma(pal[i]);
     REG16(VDP2_REG + 0x28) = 0x1200;        /* CHCTLA: NBG1 a 512 x 256 bitmap, 256 colours (NBG0 as the sky has it) */
     REG16(VDP2_REG + 0x2C) = 0;             /* BMPNA */
@@ -86,6 +100,73 @@ static __attribute__((cold)) void         message(const char *a, const char *b)
         vdp_submit();
     }
 }
+
+#ifdef BOOT_TRACE
+/* (OPT=-DBOOT_TRACE, for a hang on a real Saturn that the emulator doesn't show) each CPU's step,
+   by number and name, drawn the moment it's reached straight into VDP2's NBG1 bitmap (the loading
+   screens' layer, left on over the game and cleared to see through): unlike VDP1's frames it shows
+   at once, whatever's stuck, so a hang leaves on the screen where each CPU stopped. The names, the
+   frame count and this code live in low work RAM (high work RAM's full) */
+#define BT_N            (64)
+__attribute__((section(".lwdata"))) static char bt_names[BT_N][24] = {   /* (not const: .lwdata is writable) */
+    [1] = "FRAME", [2] = "WAIT SLAVE'S MOVE", [3] = "GOT SLAVE'S MOVE", [4] = "WAIT SLAVE'S LIGHT",
+    [5] = "SLAVE'S LIST STARTED", [6] = "MOVERS AND PMOVE", [7] = "VIEW SKY EFFECTS", [8] = "ENTITIES",
+    [9] = "VDP BEGIN", [10] = "RENDER WORLD", [11] = "MODELS TO DSP", [12] = "WAIT DSP IDLE",
+    [13] = "DSP STARTED", [14] = "WALK", [15] = "GAME STEP", [16] = "DRAW MASTER",
+    [17] = "WAIT SLAVE'S DRAWING", [18] = "TEXTURE MAKER END", [19] = "STATUS BAR", [20] = "SUBMIT",
+    [21] = "SUBMITTED", [22] = "WAIT MAKER STATE", [23] = "UPLOADS", [24] = "WAIT DSP MODEL",
+    [25] = "WAIT DSP GUN", [26] = "WALK DONE", [27] = "MENU INPUT", [28] = "GAME STEP DONE",
+    [30] = "SOUNDS", [31] = "HUD INIT", [32] = "RENDER INIT", [33] = "TRACE INIT", [34] = "MOVERS INIT",
+    [35] = "G INIT", [36] = "SKY INIT", [37] = "MODELS HOT", [38] = "TRACE HOT", [39] = "PORTALS",
+    [40] = "WALL LEVEL", [41] = "VIEW LEVEL", [42] = "DSPM LEVEL", [43] = "LOADED",
+    [50] = "WAIT SIGNAL", [51] = "LIST JOB", [52] = "WAIT CAMERA", [53] = "SHADE AND LIGHT",
+    [54] = "DRAW FRONT", [55] = "DRAWN, SIGNALLED", [56] = "NEXT MOVE", [57] = "WAIT DSP MODEL",
+};
+__attribute__((section(".lwdata"))) u32 bt_frame = 0;
+
+static __attribute__((cold)) void bt_fmt(char *out, const char *f, ...)
+{
+    va_list         ap;
+
+    va_start(ap, f);
+    vfmt(out, f, ap);
+    va_end(ap);
+}
+
+__attribute__((cold)) void btrace(int cpu, int step)
+{
+    volatile u16    *cram = (volatile u16 *)0x25F00000;
+    char            buf[48];
+    int             i, row, k, y = 196 + cpu * 10;
+    u32             f = *(volatile u32 *)UNCACHED(&bt_frame);
+
+    bt_fmt(buf, "%s F%05d %02d %s", cpu ? "SLAVE " : "MASTER", f, step,
+             step >= 0 && step < BT_N ? bt_names[step] : "?");
+    cram[0x200 + 254] = 0x0000;             /* (the layer's black and white) */
+    cram[0x200 + 255] = 0x7FFF;
+    REG16(VDP2_REG + 0xF8) = 0x0701;        /* PRINA: NBG1 over VDP1 (sprites 6), NBG0 1 */
+    vdp2_bgon(0x0002, 0);
+    for (row = -1; row < 9; ++row)
+    {
+        volatile u16 *d = (volatile u16 *)(VDP2_VRAM + (u32)(y + row) * 512 + 4);
+
+        for (i = 0; i < 39; ++i)
+        {
+            const volatile u8 *g = (const volatile u8 *)(0x25C00000 + ((u32)vdp_glyph(buf[i] ? buf[i] : ' ') << 3));
+            bool end = !buf[i];
+
+            for (k = 0; k < 4; ++k)
+            {
+                u8 v = row < 0 || row > 7 || end ? 0 : g[row * 4 + k];
+
+                *d++ = (u16)((v >> 4 ? 0xFF00 : 0xFE00) | (v & 15 ? 0xFF : 0xFE));
+            }
+            if (end)
+                buf[i + 1] = 0;
+        }
+    }
+}
+#endif
 
 /* The first level wouldn't load: what each try got (src/level.c level_load), the file on the disc,
    two of its sectors read again alone and compared with the cart, and the cart's RAM tested, on
@@ -619,17 +700,21 @@ void                slave_main(void)
     signal_master();                            /* hello */
     for (;;)
     {
+        BT(1, 50);
         wait_signal();
         cache_purge();                          /* the master's list, camera and frame */
         if (PRE_JOB)
         {
+            BT(1, 51);
             PRE_JOB = 0;
 #ifdef FIGHT_BENCH
             sl_end = (frt_read() - sl_endt) & 0xFFFF;     /* (last frame's drawing done to this job) */
 #endif
             g_render_ents();
+            BT(1, 52);
             while (!PRE_CAM)
                 ;
+            BT(1, 53);
             cache_purge();                      /* (the camera, just moved) */
             g_render_late(PRE_CAM > 1);
             ents_leaf();
@@ -647,14 +732,19 @@ void                slave_main(void)
             LIT_DONE = 1;
             continue;
         }
+        BT(1, 54);
         render_slave();
 #ifdef FIGHT_BENCH
         sl_endt = frt_read();
 #endif
         signal_master();
+        BT(1, 55);
 #ifndef NO_PREMOVE
         if (PM_REQ)
+        {
+            BT(1, 56);
             premove();                          /* (the next frame's move, while the master finishes) */
+        }
 #endif
 #ifdef WALLS_AHEAD
         r_wall_ahead();                         /* (a test: the next frame's walls, while the master finishes) */
@@ -820,11 +910,13 @@ static void         game_step(void)
 #endif
     u32             tg = frt_read();
 
+    BT(0, 15);
     s_lag(level.acc);                       /* (the shot's moment: the last tick's, which allowed it) */
     g_player_fire(pad_now & PAD_B && !(pad_now & PAD_START), cam.pos, cam.yaw, cam.pitch);
     g_frame(game_dt);
     s_queue_flush();                        /* (a mover the game set going) */
     us_game = frt_to_us((frt_read() - tg) & 0xFFFF);
+    BT(0, 28);
 }
 
 static char         cur_map[16] = MAP_FILE; /* the level loaded ("DEMO1.MAP") */
@@ -985,6 +1077,13 @@ void                main(void)
     int             waited = 0;
     bool            paused = false;
 
+#ifdef JUNK_RAM
+    {
+        extern void junk_fill(void);
+
+        junk_fill();                        /* (OPT=-DJUNK_RAM: memory as a Saturn's is at power-on) */
+    }
+#endif
     frt_init();
 #ifndef NO_SLAVE
     slave_start();
@@ -1015,21 +1114,35 @@ void                main(void)
     models_load_all();
     g_overlays_load();                      /* (the code of the monsters it has: after their models) */
     message("QUAKE II", "LOADING THE SOUNDS");
+    BT(0, 30);
     s_init(cur_map);
     vram_base = vdp_tex_mark();
+    BT(0, 31);
     hud_init();
+    BT(0, 32);
     render_init();
+    BT(0, 33);
     trace_init();
+    BT(0, 34);
     movers_init();
+    BT(0, 35);
     g_init();
+    BT(0, 36);
     render_sky_init(MAP_FILE);
+    BT(0, 37);
     models_hot();
+    BT(0, 38);
     level_trace_hot();                      /* (after the models: what HWRAM's left) */
+    BT(0, 39);
     r_portals_level();                      /* (and the portals' flow: what's left of that) */
+    BT(0, 40);
     r_wall_level();
+    BT(0, 41);
     view_level_init();
+    BT(0, 42);
     r_dspm_level();
     loading_back(false);
+    BT(0, 43);
 #ifdef LEVEL_TEST
     {
         extern u32 models_cold;
@@ -1108,6 +1221,10 @@ void                main(void)
         int         turn = (int)fmul(dt, 0x6000);   /* 135 degrees a second */
 
         FT(0);
+#ifdef BOOT_TRACE
+        ++*(volatile u32 *)UNCACHED(&bt_frame);
+#endif
+        BT(0, 1);
 
 #ifdef SOUND_TEST
         {
@@ -1132,8 +1249,10 @@ void                main(void)
             u32 tw = frt_read();
 #endif
 
+            BT(0, 2);
             while (!PM_DONE)
                 ;
+            BT(0, 3);
 #ifdef FIGHT_BENCH
             pm_t[2] = (frt_read() - tw) & 0xFFFF;
 #endif
@@ -1586,12 +1705,14 @@ void                main(void)
         {
             PRE_CAM = 1;                        /* (a frame that didn't draw: the last one's first job) */
             pre_wait();
+            BT(0, 4);
             while (!LIT_DONE)
                 ;
         }
         lights_lag();                           /* (last frame's lights, for the models': model.c) */
         if (pre_slave)
         {
+            BT(0, 4);
             while (!LIT_DONE)
                 ;                               /* (the last job all done: its "done" not taken for this one's) */
             PRE_CAM = 0;
@@ -1600,6 +1721,7 @@ void                main(void)
             PRE_JOB = 1;
             pre_pending = true;
             signal_slave();                     /* (the entities' list, then their light) */
+            BT(0, 5);
         }
         if (!paused)
         {
@@ -1610,6 +1732,7 @@ void                main(void)
             if (!premoved)
 #endif
             {
+                BT(0, 6);
                 movers_update(dt);
                 PRE(0);
                 pmove(&cmd, dt);
@@ -1668,6 +1791,7 @@ void                main(void)
         if (pre_slave)
             PRE_CAM = 1 + ents_pvs();
         view_on = bench_view < 0 && !(paused && menu_at_title());
+        BT(0, 7);
         view_update(paused ? 0 : dt);
         PRE(2);
         render_sky();
@@ -1675,6 +1799,7 @@ void                main(void)
         PRE(3);
         if (!paused)
             r_clock += (u32)dt;
+        BT(0, 8);
         if (!pre_slave)
         {
             g_render_ents();
@@ -1732,6 +1857,7 @@ void                main(void)
         r_lit_wait = pre_slave ? lit_wait : NULL;
         PRE(6);
         FT(4);
+        BT(0, 9);
         vdp_begin();
         r_two_cpus = slave_ok;
 #ifdef ONE_CPU
@@ -1751,7 +1877,9 @@ void                main(void)
             pm_asked = true;
         }
 #endif
+        BT(0, 10);
         render_world(vdp_get_writer(0), vdp_get_writer(1));
+        BT(0, 19);
         r_during = NULL;
 #ifdef SLOT_CHECK
         {
@@ -2298,7 +2426,9 @@ void                main(void)
 #endif
         FT(6);
         us_cpu = frt_to_us((frt_read() - t0) & 0xFFFF);
+        BT(0, 20);
         waited = vdp_submit();
+        BT(0, 21);
         t0 = frt_read();
         us_frame = frt_to_us((t0 - t_last) & 0xFFFF);
         t_last = t0;

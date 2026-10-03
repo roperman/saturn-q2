@@ -175,6 +175,12 @@ typedef struct
 extern q_level      lv;
 extern int          cart_mb;
 extern u32          level_try[2][5];
+#ifdef BOOT_TRACE
+void                btrace(int cpu, int step);     /* (OPT=-DBOOT_TRACE: main.c; each CPU's step on the screen at once) */
+# define BT(cpu, step)  btrace(cpu, step)
+#else
+# define BT(cpu, step)  ((void)0)
+#endif
 extern int          level_tries;
 void                level_ram_test(u32 *out);
 int                 level_sector_check(const char *name, u32 k, u32 *head);

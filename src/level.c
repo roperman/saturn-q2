@@ -317,6 +317,40 @@ __attribute__((cold)) int level_sector_check(const char *name, u32 k, u32 *head)
     return -1;
 }
 
+#ifdef JUNK_RAM
+/* (OPT=-DJUNK_RAM, a test) every memory the game doesn't clear itself filled with junk first, as a
+   Saturn's is when it's switched on (an emulator's is all zeroes): the cart, low work RAM past the
+   code there, high work RAM past .bss (not the stacks), VDP1's and VDP2's VRAM, colour RAM, sound
+   RAM, the DSP's data RAM. Called first thing in main */
+__attribute__((cold)) void junk_fill(void)
+{
+    u32             x = 0x2545F491, *p, *e;
+    int             i;
+
+    REG16(0x257EFFFE) = 1;                  /* (the cart on, as cart_init) */
+    REG32(0x25FE00B0) = 0x23301FF0;
+    REG32(0x25FE00B8) = 0x00000013;
+#define JUNK(a, b)  for (p = (u32 *)(a), e = (u32 *)(b); p < e; ++p) { x = x * 1664525u + 1013904223u; *p = x; }
+    JUNK(0x22400000, 0x22800000);                                   /* the cart (uncached) */
+    JUNK(((u32)_lwtext_end + 15) & ~15u, 0x00300000);               /* low work RAM */
+    JUNK(((u32)_bss_end + 15) & ~15u, 0x060F8000);                  /* high work RAM, below the stacks */
+    JUNK(0x25C00000, 0x25C80000);                                   /* VDP1 VRAM */
+    JUNK(0x25C80000, 0x25CC0000);                                   /* VDP1's frame buffer */
+    JUNK(0x25E00000, 0x25E80000);                                   /* VDP2 VRAM */
+    JUNK(0x25F00000, 0x25F01000);                                   /* colour RAM */
+    JUNK(0x25A00000, 0x25A80000);                                   /* sound RAM */
+#undef JUNK
+    DSP_PPAF = 0;                           /* (stopped) the DSP's data RAM */
+    DSP_PDA = 0;
+    for (i = 0; i < 256; ++i)
+    {
+        x = x * 1664525u + 1013904223u;
+        DSP_PDD = x;
+    }
+    cache_purge();
+}
+#endif
+
 static int          cart_init(void)
 {
     u8              id = CART_ID;

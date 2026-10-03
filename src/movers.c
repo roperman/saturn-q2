@@ -98,8 +98,8 @@ static void         mover_sound(int m, bool start)
         return;
     for (k = 0; k < 3; ++k)
         p[k] = (mo->mins[k] >> 1) + (mo->maxs[k] >> 1) + mover_ofs[m][k];
-    s_play(kind == MV_BUTTON ? SND_BUTTON : kind == MV_PLAT ? (start ? SND_PLAT_START : SND_PLAT_END)
-                                                           : (start ? SND_DOOR_START : SND_DOOR_END), p, ATTN_STATIC);
+    s_play_queued(kind == MV_BUTTON ? SND_BUTTON : kind == MV_PLAT ? (start ? SND_PLAT_START : SND_PLAT_END)
+                  : (start ? SND_DOOR_START : SND_DOOR_END), p, ATTN_STATIC);   /* (the slave may be moving you) */
 }
 
 /* set a mover (and its team) going */

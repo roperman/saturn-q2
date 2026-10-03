@@ -74,3 +74,36 @@ void                s_play(int id, const s32 *origin, int atten)
     else
         snd_sfx_at(id, (int)vol, (int)pan);
 }
+
+/* The slave moves you a frame ahead (main.c premove), and your steps, jumps, splashes and the
+   movers it sets going have sounds; the 68000's ring takes posts from one CPU at a time (a
+   read-modify-write of its write index), so what the move code wants played is kept here and
+   posted by the master as it takes the move: s_queue_flush, which is also when the move shows.
+   (On the master the same, flushed at once) */
+static struct { s16 id, atten; bool at; s32 origin[3]; } s_queue[8];
+static int          s_nqueued;
+
+void                s_play_queued(int id, const s32 *origin, int atten)
+{
+    if (s_nqueued == 8)
+        return;
+    s_queue[s_nqueued].id = (s16)id;
+    s_queue[s_nqueued].atten = (s16)atten;
+    s_queue[s_nqueued].at = origin != NULL;
+    if (origin)
+    {
+        s_queue[s_nqueued].origin[0] = origin[0];
+        s_queue[s_nqueued].origin[1] = origin[1];
+        s_queue[s_nqueued].origin[2] = origin[2];
+    }
+    ++s_nqueued;
+}
+
+void                s_queue_flush(void)     /* (the master's, its cache purged since the slave's move) */
+{
+    int             i;
+
+    for (i = 0; i < s_nqueued; ++i)
+        s_play(s_queue[i].id, s_queue[i].at ? s_queue[i].origin : NULL, s_queue[i].atten);
+    s_nqueued = 0;
+}

@@ -754,6 +754,7 @@ static void         game_step(void)
     s_lag(level.acc);                       /* (the shot's moment: the last tick's, which allowed it) */
     g_player_fire(pad_now & PAD_B && !(pad_now & PAD_START), cam.pos, cam.yaw, cam.pitch);
     g_frame(game_dt);
+    s_queue_flush();                        /* (a mover the game set going) */
     us_game = frt_to_us((frt_read() - tg) & 0xFFFF);
 }
 
@@ -1063,6 +1064,7 @@ void                main(void)
 #endif
             cache_purge();
             premoved = PM_DONE == 2;
+            s_queue_flush();                    /* (the move's sounds: the 68000's ring is the master's to post to) */
 #ifdef FIGHT_BENCH
             if (fight_frames > FIGHT_SKIP)
             {
@@ -1536,6 +1538,7 @@ void                main(void)
                 movers_update(dt);
                 PRE(0);
                 pmove(&cmd, dt);
+                s_queue_flush();
             }
             PRE(1);
             FT(2);

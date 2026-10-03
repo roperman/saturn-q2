@@ -505,7 +505,7 @@ static void         categorize(void)
             if (!pl.on_ground && pl.velocity[2] < -FIX(200))
             {
                 pl.land_time = pl.velocity[2] < -FIX(400) ? 25 : 18;   /* no jumping for a moment */
-                s_play(pl.velocity[2] < -FIX(400) ? SND_PLAYER_FALL : SND_PLAYER_LAND, NULL, ATTN_NONE);
+                s_play_queued(pl.velocity[2] < -FIX(400) ? SND_PLAYER_FALL : SND_PLAYER_LAND, NULL, ATTN_NONE);
             }
             pl.on_ground = true;
         }
@@ -529,9 +529,9 @@ static void         categorize(void)
         }
     }
     if (!was_in && pl.waterlevel)
-        s_play(SND_WATER_IN, NULL, ATTN_NONE);
+        s_play_queued(SND_WATER_IN, NULL, ATTN_NONE);
     else if (was_in && !pl.waterlevel)
-        s_play(SND_WATER_OUT, NULL, ATTN_NONE);
+        s_play_queued(SND_WATER_OUT, NULL, ATTN_NONE);
 }
 
 static void         check_jump(bool jump)
@@ -557,7 +557,7 @@ static void         check_jump(bool jump)
     pl.jump_held = true;
     pl.on_ground = false;
     pl.velocity[2] = imax(pl.velocity[2] + PM_JUMP, PM_JUMP);
-    s_play(SND_PLAYER_JUMP, NULL, ATTN_NONE);
+    s_play_queued(SND_PLAYER_JUMP, NULL, ATTN_NONE);
 }
 
 /* a footstep every 64 units walked on the ground (Quake's bob cycle, near enough) */
@@ -576,7 +576,7 @@ static void         footsteps(void)
     if (walked >= FIX(64))
     {
         walked -= FIX(64);
-        s_play(SND_STEP1 + (int)(rng() & 3), NULL, ATTN_NONE);
+        s_play_queued(SND_STEP1 + (int)(rng() & 3), NULL, ATTN_NONE);
     }
 }
 

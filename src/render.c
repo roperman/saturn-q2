@@ -4379,6 +4379,7 @@ static void         view_fetch_start(vdp_writer *w0)
         return;
     vf.f0 = f0i;
     vf.f1 = f1i;
+    STEP(90);
     scu_dma0(vf.base, m->polys, vf.rbytes, false);
     vf.stage = 1;
 }
@@ -4388,6 +4389,7 @@ static void         view_fetch_more(void)
 {
     if (vf.stage == 1 && !scu_dma0_busy())
     {
+        STEP(91);
         scu_dma0(vf.base + vf.rbytes, vf.fsrc, vf.fbytes, false);
         vf.stage = 2;
     }
@@ -6522,6 +6524,7 @@ static void         upload_one(const void *src, u32 d)
 {
     u32             vram = (d & ~UP_LATE) >> 8, bytes = (d & 255) * 4;
 
+    STEP(72);
 #ifndef UPLOAD_CHECK
     if (vdp_dma_queue(vram, src, bytes))
         return;                             /* (with the lists, not waited for: vdp_submit) */

@@ -107,7 +107,7 @@ static __attribute__((cold)) void         message(const char *a, const char *b)
    screens' layer, left on over the game and cleared to see through): unlike VDP1's frames it shows
    at once, whatever's stuck, so a hang leaves on the screen where each CPU stopped. The names, the
    frame count and this code live in low work RAM (high work RAM's full) */
-#define BT_N            (64)
+#define BT_N            (96)
 __attribute__((section(".lwdata"))) static char bt_names[BT_N][24] = {   /* (not const: .lwdata is writable) */
     [1] = "FRAME", [2] = "WAIT SLAVE'S MOVE", [3] = "GOT SLAVE'S MOVE", [4] = "WAIT SLAVE'S LIGHT",
     [5] = "SLAVE'S LIST STARTED", [6] = "MOVERS AND PMOVE", [7] = "VIEW SKY EFFECTS", [8] = "ENTITIES",
@@ -121,6 +121,11 @@ __attribute__((section(".lwdata"))) static char bt_names[BT_N][24] = {   /* (not
     [40] = "WALL LEVEL", [41] = "VIEW LEVEL", [42] = "DSPM LEVEL", [43] = "LOADED",
     [50] = "WAIT SIGNAL", [51] = "LIST JOB", [52] = "WAIT CAMERA", [53] = "SHADE AND LIGHT",
     [54] = "DRAW FRONT", [55] = "DRAWN, SIGNALLED", [56] = "NEXT MOVE", [57] = "WAIT DSP MODEL",
+    [70] = "SUBMIT: SWAP WAIT", [71] = "SUBMIT: LATE UPLOADS", [72] = "UPLOAD ONE", [74] = "SUBMIT: TABLE",
+    [75] = "SUBMIT: DMA TABLE", [79] = "SUBMIT: DMA STARTED",
+    [80] = "DMA0: WAIT IDLE", [81] = "DMA0: IDLE", [82] = "DMA0: ENABLE OFF", [83] = "DMA0: REGS SET",
+    [84] = "DMA0: STARTED", [85] = "TABLE: WAIT IDLE", [86] = "TABLE: IDLE", [87] = "TABLE: ENABLE OFF",
+    [88] = "TABLE: REGS SET", [89] = "TABLE: STARTED", [90] = "GUN RECORDS DMA", [91] = "GUN FRAMES DMA",
 };
 __attribute__((section(".lwdata"))) u32 bt_frame = 0;
 __attribute__((section(".lwdata"))) static char bt_dsp[48] = { 0 };     /* (the DSP's self-test line, kept) */
@@ -129,9 +134,11 @@ void                dsp_init_models(void);
 __attribute__((section(".lwdata"))) static char bt_dma[3][48] = { { 0 } };  /* (the DSP's DMA test, kept: reads,
                                                                                writes to high work RAM, to the cart) */
 
-/* (at boot) how the DSP's DMA steps its address on this machine: four words read into its RAM, and
-   four written out, with add modes 1 and 2, from and to high work RAM (H) and the cart (C). Each
-   word's low hex digit: reads should give 0123, writes 1234 then E (the memory as it was) */
+/* (at boot) how the DSP's DMA steps its address on this machine: four words read into its RAM, with
+   add modes 1 and 2, from high work RAM (H) and the cart (C), and four written out to high work RAM.
+   Each word's low hex digit: reads should give 0123, writes 1234 then E (the memory as it was). Not
+   written to the cart: the SCU's DMA mustn't (ST-210 No. 01, ST-TECH-47), and on hardware it sometimes
+   never finished */
 static __attribute__((cold)) void bt_dma_test(void)
 {
     u32             hw[8] __attribute__((aligned(16)));
@@ -139,10 +146,8 @@ static __attribute__((cold)) void bt_dma_test(void)
     char            *o;
     int             pass, k, m, t;
 
-    REG16(0x257EFFFE) = 1;                  /* (the cart on, as level.c's cart_init) */
-    REG32(0x25FE00B0) = CART_ASR0;
-    REG32(0x25FE00B8) = 0x00000013;
-    for (pass = 0; pass < 4; ++pass)
+    cart_timing();                          /* (the cart on, as level.c's cart_init) */
+    for (pass = 0; pass < 3; ++pass)
     {
         bool        wr = pass >= 2, onc = pass & 1;
         volatile u32 *mem = onc ? cart : h;
@@ -203,6 +208,16 @@ static __attribute__((cold)) void bt_fmt(char *out, const char *f, ...)
 }
 
 static __attribute__((cold)) void bt_line(int y, char *buf);
+__attribute__((cold)) void btrace(int cpu, int step);
+
+/* (engine/ STEP(n): the DMA's and vdp_submit's steps, the master's but for the slave's own uploads) */
+static __attribute__((cold)) void bt_master_step(int step)
+{
+    u32             sp;
+
+    __asm__ volatile ("mov r15,%0" : "=r" (sp));
+    btrace(sp >= 0x060FC000 ? 0 : 1, step);
+}
 
 __attribute__((cold)) void btrace(int cpu, int step)
 {
@@ -1309,6 +1324,7 @@ void                main(void)
         vdp_stall_hook = bt_stall;
         vdp_set_field_hook(bt_watch);
         bt_crash_handlers();
+        step_hook = bt_master_step;
     }
 #endif
     BT(0, 33);

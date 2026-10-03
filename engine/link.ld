@@ -8,7 +8,7 @@ ENTRY(_start)
 
 MEMORY
 {
-    HWRAM (rwx) : ORIGIN = 0x06004000, LENGTH = 0x000F4000   /* to 0x060F8000; slave stack 0x060F8000-0x060FC000, master stack 0x060FC000-0x06100000 */
+    HWRAM (rwx) : ORIGIN = 0x06004000, LENGTH = 0x000F4000   /* to 0x060F8000; the SCU DMA table (vdp.c dma_tab) 0x060F8000-0x060F8300, slave stack above it to 0x060FC000, master stack 0x060FC000-0x06100000 */
     LWRAM (rwx) : ORIGIN = 0x00200000, LENGTH = 0x00100000   /* (the levels' data after .lwtext: src/level.c) */
 }
 

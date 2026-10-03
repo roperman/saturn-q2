@@ -649,7 +649,10 @@ int                 vdp_cmd_count(void)
 /* (pipelined) the frame's transfers into VRAM, for SCU DMA's indirect mode (count, destination,
    source): its textures (vdp_dma_queue), then its lists */
 #define DMA_TAB         (64)
-static u32          dma_tab[3 * DMA_TAB] __attribute__((aligned(16)));
+/* (on a 1 KB boundary: the SCU reads a table only within the power-of-two block its size rounds up
+   to, ST-210 No. 25, and 64 transfers' 768 bytes need 1 KB; Mednafen reads it wherever it is. In
+   .bss that boundary cost 1.2 KB of padding, so it's the slave stack's bottom KB: engine/link.ld) */
+static u32 *const   dma_tab = (u32 *)0x060F8000;
 static int          dma_n;
 
 static void         dma_add(u32 dst, const void *src, u32 bytes)
@@ -720,6 +723,7 @@ int                 vdp_submit(void)
     vdp_peak[3] = writers[0].gcount > vdp_peak[3] ? writers[0].gcount : vdp_peak[3];
     vdp_peak[4] = writers[1].gcount > vdp_peak[4] ? writers[1].gcount : vdp_peak[4];
 
+    STEP(70);
     if (pipelined)
     {
         /* the last list swapped to (VDP1 was done with this slot's then) */
@@ -752,14 +756,30 @@ int                 vdp_submit(void)
     /* this list slot was last drawn two frames ago, so it's free to overwrite (and
        VRAM that frame used: list_hook's) */
     t = frt_read();
+    STEP(71);
     if (list_hook)
         list_hook();
+    STEP(74);
     if (pipelined)
     {
         /* the textures queued (list_hook's too), the lists and their Gouraud colours into VRAM
            in one go, not waited for (0.9 ms of a fight's frame): the swap isn't made until it's
            done, nor anything else sent by DMA, and vdp_begin waits for it before the lists (or
            this table) are written again */
+#ifdef NO_AB_DMA
+        /* (the textures from the cart copied now instead, sys.c ab_copy; the rest kept, in order) */
+        for (b = i = 0; i < dma_n; ++i)
+            if (on_abus(dma_tab[3 * i + 2]))
+                ab_copy(dma_tab[3 * i + 1], dma_tab[3 * i + 2], dma_tab[3 * i]);
+            else
+            {
+                dma_tab[3 * b] = dma_tab[3 * i];
+                dma_tab[3 * b + 1] = dma_tab[3 * i + 1];
+                dma_tab[3 * b + 2] = dma_tab[3 * i + 2];
+                ++b;
+            }
+        dma_n = b;
+#endif
         tab_range(0, 1 + writers[0].count);
         tab_range(writers[1].first, writers[1].count);
         tab_range(OVL_FIRST, overlay_count + 1);
@@ -767,7 +787,9 @@ int                 vdp_submit(void)
             if (writers[w].gcount)
                 dma_add(VDP1_VRAM + writers[w].gbase, writers[w].gst, (u32)writers[w].gcount * 8);
         dma_tab[3 * dma_n - 1] |= 0x80000000;
+        STEP(75);
         scu_dma0_table(dma_tab);
+        STEP(79);
         dma_n = 0;
         vdp_us_dma = frt_to_us((frt_read() - t) & 0xFFFF);
         queued_frame = frames_sent++;

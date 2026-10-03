@@ -281,47 +281,108 @@ u16                 pad_read(void)
 
 /* ---- SCU DMA level 0, CPU-triggered ---- */
 
+/* level 0 under way: moving, on standby (waiting for the bus: behind the DSP's DMA, say, or the
+   CPU's writes to VDP1/VDP2) or held back by a higher level (ST-097 DSTA: it's stopped only when
+   D0MV, D0WT and D0BK are all 0). Its registers mustn't be written until it's stopped: on hardware
+   that hangs the machine (ST-210 No. 23). Mednafen never shows the standby, so the move flag
+   alone passed there */
+#define D0_ACTIVE       (0x00010030)
+
 /* a chain of transfers started by scu_dma0_table (vdp_submit's lists) and not yet seen
    finished: nothing else starts until it has */
 volatile bool       scu_dma0_chain;
 
+#ifdef BOOT_TRACE
+void                (*step_hook)(int step);
+#endif
+
+#ifdef NO_AB_DMA
+/* (OPT=-DNO_AB_DMA, a test) nothing sent by SCU DMA from the A-bus (the cart) to the B-bus (VRAM):
+   while such a transfer runs neither CPU may touch either bus (ST-210 No. 08: SDRAM's refresh stops
+   and it may hang), and both do. The CPU copies it instead, through the uncached addresses */
+bool                on_abus(u32 a)
+{
+    a &= 0x07FFFFFF;
+    return a >= 0x02000000 && a < 0x05900000;
+}
+
+void                ab_copy(u32 dst, u32 src, u32 bytes)
+{
+    dst = (dst & 0x07FFFFFF) | 0x20000000;
+    src = (src & 0x07FFFFFF) | 0x20000000;
+    if (!((dst | src | bytes) & 3))
+    {
+        volatile u32    *d = (volatile u32 *)dst;
+        const volatile u32 *s = (const volatile u32 *)src;
+
+        for (; bytes; bytes -= 4)
+            *d++ = *s++;
+    }
+    else
+    {
+        volatile u16    *d = (volatile u16 *)dst;
+        const volatile u16 *s = (const volatile u16 *)src;
+
+        for (; bytes >= 2; bytes -= 2)
+            *d++ = *s++;
+    }
+}
+#endif
+
 void                scu_dma0(void *dst, const void *src, u32 bytes, bool bbus_dst)
 {
-    while (SCU_DSTA & 0x10)
+#ifdef NO_AB_DMA
+    if (bbus_dst && on_abus((u32)src))
+    {
+        ab_copy((u32)dst, (u32)src, bytes);
+        return;
+    }
+#endif
+    STEP(80);
+    while (SCU_DSTA & D0_ACTIVE)
         ;                                   /* (a chain under way: not cut short) */
+    STEP(81);
     scu_dma0_chain = false;
     SCU_D0EN = 0;
+    STEP(82);
     SCU_D0R = (u32)src & 0x07FFFFFF;
     SCU_D0W = (u32)dst & 0x07FFFFFF;
     SCU_D0C = bytes;
     SCU_D0AD = 0x100 | (bbus_dst ? 1 : 2);  /* read +4, write +2 (B-bus) or +4 */
     SCU_D0MD = 0x00000007;                  /* direct mode, start by enable bit */
+    STEP(83);
     SCU_D0EN = 0x101;
+    STEP(84);
 }
 
 bool                scu_dma0_busy(void)
 {
-    return (SCU_DSTA & 0x10) != 0;
+    return (SCU_DSTA & D0_ACTIVE) != 0;
 }
 
 /* SCU DMA's indirect mode: the transfers in table (count, destination, source; the last
    source's top bit set), all to the B-bus, one after another; not waited for */
 void                scu_dma0_table(const u32 *table)
 {
-    while (SCU_DSTA & 0x10)
+    STEP(85);
+    while (SCU_DSTA & D0_ACTIVE)
         ;
+    STEP(86);
     scu_dma0_chain = true;
     SCU_D0EN = 0;
+    STEP(87);
     SCU_D0W = (u32)table & 0x07FFFFFF;      /* (the table's address, in indirect mode) */
     SCU_D0AD = 0x101;                       /* the table read +4, writes +2 (B-bus) */
     SCU_D0MD = 0x01000007;                  /* indirect mode, start by enable bit */
+    STEP(88);
     SCU_D0EN = 0x101;
+    STEP(89);
 }
 
 /* the chain finished? (seen once, it's forgotten) */
 bool                scu_dma0_chain_done(void)
 {
-    if (scu_dma0_chain && !(SCU_DSTA & 0x10))
+    if (scu_dma0_chain && !(SCU_DSTA & D0_ACTIVE))
         scu_dma0_chain = false;
     return !scu_dma0_chain;
 }

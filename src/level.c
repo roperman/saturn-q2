@@ -328,9 +328,7 @@ __attribute__((cold)) void junk_fill(void)
     u32             x = 0x2545F491, *p, *e;
     int             i;
 
-    REG16(0x257EFFFE) = 1;                  /* (the cart on, as cart_init) */
-    REG32(0x25FE00B0) = CART_ASR0;
-    REG32(0x25FE00B8) = 0x00000013;
+    cart_timing();                          /* (the cart on, as cart_init) */
 #define JUNK(a, b)  for (p = (u32 *)(a), e = (u32 *)(b); p < e; ++p) { x = x * 1664525u + 1013904223u; *p = x; }
     JUNK(0x22400000, 0x22800000);                                   /* the cart (uncached) */
     JUNK(((u32)_lwtext_end + 15) & ~15u, 0x00300000);               /* low work RAM */
@@ -352,15 +350,24 @@ __attribute__((cold)) void junk_fill(void)
 }
 #endif
 
+/* the cart switched on, then the SCU's A-bus timing for it (ASR0: CS0/CS1, settings.h) and its
+   refresh (AREF). ASR0 may only be written while the A-bus is idle, so after a read of it has
+   finished (ST-210 No. 11): the switching on is a write, which could still be going */
+void                cart_timing(void)
+{
+    REG16(0x257EFFFE) = 1;
+    (void)*(volatile u32 *)0x22400000;
+    REG32(0x25FE00B0) = CART_ASR0;
+    REG32(0x25FE00B8) = 0x00000013;
+}
+
 static int          cart_init(void)
 {
     u8              id = CART_ID;
 
     if (id != 0x5A && id != 0x5C)
         return 0;
-    REG16(0x257EFFFE) = 1;                  /* switch it on */
-    REG32(0x25FE00B0) = CART_ASR0;          /* SCU ASR0: A-bus CS0/CS1 timing (settings.h) */
-    REG32(0x25FE00B8) = 0x00000013;         /* SCU AREF: A-bus refresh */
+    cart_timing();
     return id == 0x5C ? 4 : 1;
 }
 

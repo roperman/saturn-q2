@@ -183,6 +183,7 @@ void                btrace(int cpu, int step);     /* (OPT=-DBOOT_TRACE: main.c;
 #endif
 extern int          level_tries;
 void                level_ram_test(u32 *out);
+void                cart_timing(void);
 int                 level_sector_check(const char *name, u32 k, u32 *head);
 
 /* level.c */

@@ -35,7 +35,12 @@ void                s_init(const char *map)
     char            f[16];
 
     bank_file(f, map);
+#ifdef NO_SOUND
+    (void)f;
+    s_ready = false;                        /* (OPT=-DNO_SOUND, a test: the sound CPU and chip left alone) */
+#else
     s_ready = snd_init(f);
+#endif
 }
 
 /* a new level: its bank in place of the last */
@@ -44,7 +49,11 @@ void                s_level(const char *map)
     char            f[16];
 
     bank_file(f, map);
+#ifdef NO_SOUND
+    s_ready = false;
+#else
     s_ready = snd_bank(f);
+#endif
 }
 
 /* id at origin (NULL: the player's own, full and in the middle) */

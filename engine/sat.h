@@ -180,6 +180,12 @@ void                snd_sfx_later(int id, int vol, int pan, int us);    /* ...st
 void                snd_music_volume(int v);            /* 0-15 */
 bool                cd_init(void);
 bool                cd_read_sectors(u32 lba, u32 count, void *dst);
+#ifdef BOOT_TRACE
+extern void         (*step_hook)(int step);     /* (OPT=-DBOOT_TRACE: src/main.c's btrace, the master's steps) */
+# define STEP(n)        do { if (step_hook) step_hook(n); } while (0)
+#else
+# define STEP(n)        ((void)0)
+#endif
 extern u32          cd_max_play, cd_max_get, cd_diag[4];    /* (cd.c: reads' run and transfer lengths; the
                                                                last failure) */
 bool                cd_find(const char *name, u32 *lba, u32 *size);
@@ -213,6 +219,10 @@ static inline void  cache_purge(void)
 }
 bool                scu_dma0_busy(void);
 void                scu_dma0_table(const u32 *table);
+#ifdef NO_AB_DMA
+bool                on_abus(u32 a);
+void                ab_copy(u32 dst, u32 src, u32 bytes);
+#endif
 bool                scu_dma0_chain_done(void);
 
 #endif

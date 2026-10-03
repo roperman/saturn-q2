@@ -66,6 +66,40 @@ bool                model_parse(q_mdl *m, const u8 *b)
             m->nfpolys = 0;
     }
     m->frame_bytes = 24 + (u32)m->nverts * 4;
+    {
+        /* how far from its origin it reaches, over all its frames (each frame's box from its
+           scale and translation): the screen culls were a sphere of 48 and 64 units, which the
+           tank (72 above its origin) stuck out of, and lost its top when its origin was low */
+        u32 r2 = 0;
+        int f, k;
+
+        for (f = 0; f < m->nframes; ++f)
+        {
+            const s32 *h = (const s32 *)(m->frames + (u32)f * m->frame_bytes);
+            u32 d2 = 0;
+
+            for (k = 0; k < 3; ++k)
+            {
+                s32 lo = h[3 + k] >> 16, hi = (h[3 + k] + h[k] * 255) >> 16, a = imax(iabs(lo), iabs(hi)) + 1;
+
+                d2 += (u32)(a * a);
+            }
+            r2 = imax(r2, d2);
+        }
+        m->radius = FIX(imax((int)isqrt(r2) + 1, 48));
+        if (m->radius <= FIX(64))
+        {
+            m->cull_z = FIX(64);
+            m->cull_x = FIX(91);                /* (64 against the sides' slopes, 1 and 0.7: as before) */
+            m->cull_y = FIX(79);
+        }
+        else
+        {
+            m->cull_z = m->radius;
+            m->cull_x = fmul(m->radius, FIX(1.4143));
+            m->cull_y = fmul(m->radius, FIX(1.2207));
+        }
+    }
     /* the frames are read every time it's drawn: into fast RAM if they fit */
     m->loaded = true;
     return true;
@@ -260,7 +294,7 @@ void                ents_light_dyn(bool pvs)
             s32 vy = fmul(d0, cam.up[0]) + fmul(d1, cam.up[1]) + fmul(d2, cam.up[2]);
             s32 vz = fmul(d0, cam.fwd[0]) + fmul(d1, cam.fwd[1]) + fmul(d2, cam.fwd[2]);
 
-            if (vz < -FIX(64) || iabs(vx) - vz > FIX(91) || iabs(vy) - fmul(vz, FIX(0.7)) > FIX(79))
+            if (vz < -m->cull_z || iabs(vx) - vz > m->cull_x || iabs(vy) - fmul(vz, FIX(0.7)) > m->cull_y)
             {
                 e->g_lit = -2;
                 continue;

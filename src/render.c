@@ -308,6 +308,9 @@ static dl_light     dl[MAX_DLIGHTS];
 static const q_dlight *lsrc = r_dlights;    /* the lights the walls go by (the DSP's, or OPT=-DWALLS_AHEAD: last frame's) */
 static int          ndl;
 static s16          *leaf_model, *model_next;   /* brush models, listed by the leaf their centre's in */
+static s16          *model_leaf;            /* each one's leaf (relisted when it's moved: movers_relist) */
+static s32          (*model_listed)[3];     /* the offset it was listed at */
+static u32          listed_version;         /* movers_version when they were last looked at */
 static int          nvis;
 static const u8     bitm[8] = { 1, 2, 4, 8, 16, 32, 64, 128 };  /* (a variable shift's a library call) */
 static u8           *face_back;             /* a bit a face: on its plane's back (FF_BACK), in high work RAM */
@@ -622,10 +625,15 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
                 leaf_parent[-(ch + 1)] = (s16)i;
         }
     }
-    /* brush models (doors, lifts...): each in the leaf its centre's in */
+    /* brush models (doors, lifts...): each in the leaf its centre's in, where it starts; moved,
+       it's relisted (movers_relist, each frame they've moved: a lift drawn from where it was
+       would go unseen once its start's leaf was out of the view's PVS) */
     leaf_model = level_alloc((u32)lv.nleafs * 2);
     view_key.m = NULL;
     model_next = level_alloc((u32)lv.nmodels * 2 + 2);
+    model_leaf = level_alloc((u32)lv.nmodels * 2 + 2);
+    model_listed = level_alloc((u32)lv.nmodels * 12);
+    listed_version = 0;
     for (i = 0; i < lv.nleafs; ++i)
         leaf_model[i] = -1;
     for (i = 1; i < lv.nmodels; ++i)
@@ -634,13 +642,18 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
         s32             p[3];
         int             k, l;
 
+        model_leaf[i] = -1;
         if (lv.movers[i].kind == MV_NONE)
             continue;                       /* triggers: never drawn */
         for (k = 0; k < 3; ++k)
+        {
             p[k] = (m->mins[k] >> 1) + (m->maxs[k] >> 1);
+            model_listed[i][k] = 0;
+        }
         l = level_leaf(p);
         model_next[i] = leaf_model[l];
         leaf_model[l] = (s16)i;
+        model_leaf[i] = (s16)l;
     }
     /* the glow for sprites: 32x32, 4bpp, a radial ramp (index 0, round the edge, transparent) */
     {
@@ -5048,6 +5061,39 @@ void                walk_leaf_extra(int l, int mask)
     }
 }
 
+/* (render_world, when a mover's moved since: movers_version) each brush model that's moved
+   since it was listed, into the leaf its centre's in now */
+static void         movers_relist(void)
+{
+    int             i, k;
+
+    for (i = 1; i < lv.nmodels; ++i)
+    {
+        const q_model   *m = &lv.models[i];
+        s32             p[3];
+        s16             *q;
+        int             l;
+
+        if (model_leaf[i] < 0 || (mover_ofs[i][0] == model_listed[i][0] && mover_ofs[i][1] == model_listed[i][1]
+                                   && mover_ofs[i][2] == model_listed[i][2]))
+            continue;
+        for (k = 0; k < 3; ++k)
+        {
+            model_listed[i][k] = mover_ofs[i][k];
+            p[k] = (m->mins[k] >> 1) + (m->maxs[k] >> 1) + mover_ofs[i][k];
+        }
+        l = level_leaf(p);
+        if (l == model_leaf[i])
+            continue;
+        for (q = &leaf_model[model_leaf[i]]; *q != i; q = &model_next[*q])
+            ;                               /* (out of the old leaf's list) */
+        *q = model_next[i];
+        model_next[i] = leaf_model[l];
+        leaf_model[l] = (s16)i;
+        model_leaf[i] = (s16)l;
+    }
+}
+
 /* src/walk.s: the walk in assembly. Its context (the layout it reads) */
 typedef struct
 {
@@ -5253,20 +5299,28 @@ static bool         model_xf(const q_entity *e, model_xform *o)
         }
         T[k] = fmul(ax[k][0], d[0]) + fmul(ax[k][1], d[1]) + fmul(ax[k][2], d[2]);
     }
-    /* per frame: view = A b + C, with A = M * the frame's scale, C = M * its translation + T */
+    /* per frame: view = A b + C, with A = M * the frame's scale, C = M * its translation + T
+       (the second frame's only when it's blended in: its users look at lerp first) */
     for (k = 0; k < 3; ++k)
     {
         for (i = 0; i < 3; ++i)
-        {
             A0[k][i] = fmul(M[k][i], h0[i]);
-            A1[k][i] = fmul(M[k][i], h1[i]);
-        }
         C0[k] = fmul(M[k][0], h0[3]) + fmul(M[k][1], h0[4]) + fmul(M[k][2], h0[5]) + T[k];
-        C1[k] = fmul(M[k][0], h1[3]) + fmul(M[k][1], h1[4]) + fmul(M[k][2], h1[5]) + T[k];
     }
-    /* all of it (within 48 units of its origin) off screen? */
-    return !(T[2] < -FIX(48) || T[0] - FIX(48) > fmul(T[2] + FIX(48), kx) || T[0] + FIX(48) < -fmul(T[2] + FIX(48), kx)
-             || T[1] - FIX(48) > fmul(T[2] + FIX(48), ky) || T[1] + FIX(48) < -fmul(T[2] + FIX(48), ky));
+    if (e->lerp)
+        for (k = 0; k < 3; ++k)
+        {
+            for (i = 0; i < 3; ++i)
+                A1[k][i] = fmul(M[k][i], h1[i]);
+            C1[k] = fmul(M[k][0], h1[3]) + fmul(M[k][1], h1[4]) + fmul(M[k][2], h1[5]) + T[k];
+        }
+    /* all of it (within its radius of its origin: 48 units, or more for a big one) off screen? */
+    {
+        s32 r = m->radius;
+
+        return !(T[2] < -r || T[0] - r > fmul(T[2] + r, kx) || T[0] + r < -fmul(T[2] + r, kx)
+                 || T[1] - r > fmul(T[2] + r, ky) || T[1] + r < -fmul(T[2] + r, ky));
+    }
 }
 
 /* far away: the coarse mesh (its polygons, and only the first nfverts vertices: models_to_dsp
@@ -5365,7 +5419,7 @@ static void         models_to_dsp(void)
             vx = fmul(d0, cam.right[0]) + fmul(d1, cam.right[1]) + fmul(d2, cam.right[2]);
             vy = fmul(d0, cam.up[0]) + fmul(d1, cam.up[1]) + fmul(d2, cam.up[2]);
             vz = fmul(d0, cam.fwd[0]) + fmul(d1, cam.fwd[1]) + fmul(d2, cam.fwd[2]);
-            if (vz < -FIX(64) || iabs(vx) - vz > FIX(91) || iabs(vy) - fmul(vz, FIX(0.7)) > FIX(79))
+            if (vz < -e->mdl->cull_z || iabs(vx) - vz > e->mdl->cull_x || iabs(vy) - fmul(vz, FIX(0.7)) > e->mdl->cull_y)
                 continue;
             order[no++] = (s16)i;
         }
@@ -5391,12 +5445,21 @@ static void         models_to_dsp(void)
             nc = nc0;
             continue;
         }
-        for (k = 0; k < 3; ++k, st += 7)
-        {
-            st[0] = (u32)(fmul(xf.C0[k], w0) + fmul(xf.C1[k], w1));
-            st[1] = (u32)fmul(xf.A0[k][0], w0); st[2] = (u32)fmul(xf.A0[k][1], w0); st[3] = (u32)fmul(xf.A0[k][2], w0);
-            st[4] = (u32)fmul(xf.A1[k][0], w1); st[5] = (u32)fmul(xf.A1[k][1], w1); st[6] = (u32)fmul(xf.A1[k][2], w1);
-        }
+        if (!w1)
+            for (k = 0; k < 3; ++k, st += 7)
+            {
+                /* (not blended: the first frame's as they are, the second's nothing; about half of them) */
+                st[0] = (u32)xf.C0[k];
+                st[1] = (u32)xf.A0[k][0]; st[2] = (u32)xf.A0[k][1]; st[3] = (u32)xf.A0[k][2];
+                st[4] = st[5] = st[6] = 0;
+            }
+        else
+            for (k = 0; k < 3; ++k, st += 7)
+            {
+                st[0] = (u32)(fmul(xf.C0[k], w0) + fmul(xf.C1[k], w1));
+                st[1] = (u32)fmul(xf.A0[k][0], w0); st[2] = (u32)fmul(xf.A0[k][1], w0); st[3] = (u32)fmul(xf.A0[k][2], w0);
+                st[4] = (u32)fmul(xf.A1[k][0], w1); st[5] = (u32)fmul(xf.A1[k][1], w1); st[6] = (u32)fmul(xf.A1[k][2], w1);
+            }
         st[0] = ((u32)(m->frames + (u32)e->oldframe * m->frame_bytes + 24) & 0x07FFFFFF) >> 2;
         st[1] = ((u32)(m->frames + (u32)e->frame * m->frame_bytes + 24) & 0x07FFFFFF) >> 2;
         st[2] = (u32)blocks;
@@ -5568,7 +5631,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
 
         if (gl >= 0)
             gt = ent_lit[gl];               /* (lit a frame behind, as the frame started: model.c) */
-        i = gl == -2 ? 0 : ndl;
+        i = gl == -2 ? 0 : nml;             /* (lit by the slave, or by none: none again here) */
     }
     for (; i < nml; ++i)
 #else
@@ -6436,7 +6499,13 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
     memset(&rs, 0, sizeof(rs));
     if (++frame == 0)
     {
-            frame = 1;
+        /* (once in 65535 frames) 0 means never: 1, and the slots' stamps along with it, so a
+           slot used last frame still reads as last frame's (VDP1 may be drawing with it); the
+           axes' stamps cleared, lest one from 65534 frames ago match */
+        frame = 1;
+        for (i = 0; i < MAX_SLOTS; ++i)
+            ++slot_frame[i];
+        memset(axis_view, 0, (u32)lv.naxes * 32);
     }
     leaf = level_leaf(cam.pos);
     cluster = lv.leafs[leaf].cluster;
@@ -6504,6 +6573,11 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         spr_leaf[i] = l;
         spr_next[i] = leaf_spr[l];
         leaf_spr[l] = (s16)i;
+    }
+    if (movers_version != listed_version)
+    {
+        listed_version = movers_version;    /* (a mover moved since: where it's listed) */
+        movers_relist();
     }
     /* (the entities' list and light may be the slave's: done by now, as a rule) */
     if (r_pre_wait)

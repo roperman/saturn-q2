@@ -24,7 +24,11 @@
 #ifndef VDP_GOURAUD_MAX
 # define VDP_GOURAUD_MAX (1024)
 #endif
-#define GOURAUD_MAX     VDP_GOURAUD_MAX     /* per list; half each for the master and slave writers */
+#define GOURAUD_MAX     VDP_GOURAUD_MAX     /* per list, between the two writers: the slave's can't want more
+                                               than one a command, the master's gets the rest (its gun's
+                                               polygons and the overlays' come out of its share too) */
+#define GOURAUD1_MAX    (WRITER1_CMDS < GOURAUD_MAX / 2 ? WRITER1_CMDS : GOURAUD_MAX / 2)
+#define GOURAUD0_MAX    (GOURAUD_MAX - GOURAUD1_MAX)
 #define GOURAUD_A       (LUT_VRAM + MAX_TEXT_COLORS * 32)
 #define GOURAUD_B       (GOURAUD_A + GOURAUD_MAX * 8)
 #define TEX_VRAM        (GOURAUD_B + GOURAUD_MAX * 8)
@@ -58,6 +62,7 @@ static bool         no_hw_erase;
 static void         (*vblank_hook)(void);
 u32                 vdp_us_dma, vdp_us_wait;
 int                 vdp_peak[5];
+u32                 vdp_gover;              /* Gouraud tables asked for past a writer's share, in all */
 u32                 late_frames;        /* frames that had to clear with a polygon */
 
 /* Erase decision, made in the timer-0 interrupt a few lines before the
@@ -371,10 +376,11 @@ void                vdp_begin(void)
         wr->count = 0;
         for (i = 0; i < ZBUCKETS; ++i)
             wr->head[i] = -1;
-        wr->gbase = (list ? GOURAUD_B : GOURAUD_A) + (u32)(w * GOURAUD_MAX / 2) * 8;
+        wr->gbase = (list ? GOURAUD_B : GOURAUD_A) + (u32)(w ? GOURAUD0_MAX : 0) * 8;
         wr->gcount = 0;
-        wr->gmax = GOURAUD_MAX / 2;
-        wr->gst = &gstage[w * GOURAUD_MAX];
+        wr->gover = 0;
+        wr->gmax = w ? GOURAUD1_MAX : GOURAUD0_MAX;
+        wr->gst = &gstage[w ? GOURAUD0_MAX * 2 : 0];
     }
     overlay_count = 0;
     /* slot 0: clear (part of) the draw buffer to transparent - VDP2's back
@@ -700,6 +706,7 @@ int                 vdp_submit(void)
     vdp_peak[0] = writers[0].count > vdp_peak[0] ? writers[0].count : vdp_peak[0];
     vdp_peak[1] = writers[1].count > vdp_peak[1] ? writers[1].count : vdp_peak[1];
     vdp_peak[2] = overlay_count > vdp_peak[2] ? overlay_count : vdp_peak[2];
+    vdp_gover += (u32)(writers[0].gover + writers[1].gover);
     vdp_peak[3] = writers[0].gcount > vdp_peak[3] ? writers[0].gcount : vdp_peak[3];
     vdp_peak[4] = writers[1].gcount > vdp_peak[4] ? writers[1].gcount : vdp_peak[4];
 

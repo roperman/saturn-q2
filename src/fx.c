@@ -21,6 +21,7 @@ typedef struct
     s32             pos[3], vel[3], life;
     g_ent           *owner;
     int             damage, radius_damage, kind, spin, mdl;   /* (mdl: a gib's) */
+    int             leaf;                   /* (a resting gib's, kept: fx_render) */
     bool            live, resting;
 }                   t_proj;
 
@@ -190,6 +191,7 @@ __attribute__((cold)) void fx_gib(int mdl, const s32 *pos, const s32 *vel)
     for (k = 0; k < 3; ++k)
         p->vel[k] = vel[k];
     p->mdl = mdl;
+    p->leaf = -1;
     p->spin = (int)(rng() & 0xFFFF);
     p->life = FIX(5) + fmul(frandom(), FIX(5));
 }
@@ -470,7 +472,12 @@ void                fx_render(void)
         {
             /* its light by normal, for its leaf and its yaw (the slave's ents_shade does only the
                game's entities: these were drawn black) */
-            int l = level_leaf(r->origin), ys = (int)(((u32)r->yaw >> 12) & 15);
+            int l, ys = (int)(((u32)r->yaw >> 12) & 15);
+
+            if (p->kind == P_GIB && p->resting && p->leaf >= 0)
+                l = p->leaf;                /* (lying still: found once) */
+            else
+                l = p->leaf = level_leaf(r->origin);
 
             r->g_leaf = (s16)l;
             r->g_moved = false;

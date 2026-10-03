@@ -224,6 +224,7 @@ extern const s32    p_mins[3], p_maxs[3];
 
 /* movers.c: doors, lifts, buttons */
 extern s32          (*mover_ofs)[3];        /* each brush model's offset now */
+extern u32          movers_version;         /* one more each time one moves or goes */
 void                movers_init(void);
 void                movers_update(s32 dt);
 void                movers_use(int name);                  /* set going everything with this targetname */
@@ -296,6 +297,8 @@ typedef struct
     u32             per_skin, frame_bytes;
     int             nluts;                  /* colour tables a skin: one a polygon, or one for all */
     int             tex_id0, lut0;          /* where its textures and colour tables start in the renderer's */
+    s32             radius;                 /* how far any frame's vertex gets from its origin (16.16, 48 at least) */
+    s32             cull_z, cull_x, cull_y; /* a sphere of max(64, radius) against the view's sides (model_parse) */
     bool            loaded;
 }                   q_mdl;
 

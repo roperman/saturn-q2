@@ -216,6 +216,8 @@ def main():
         polys = [([renum[v] for v in xyz], st) for xyz, st in polys]
         lpolys = [([renum[v] for v in xyz], st) for xyz, st in lpolys]
     npolys = len(polys)
+    # src/render.c MAX_MVERTS / MAX_MPOLYS: a model over them would be drawn with stale vertices
+    assert m.nverts <= 416 and npolys <= 432, f"{args[1]}: {m.nverts} vertices, {npolys} polygons: over the renderer's 416 / 432"
     polys = polys + lpolys
     # texture sizes: the polygon's extent in the skin, rounded (width a multiple of 8)
     sizes = []

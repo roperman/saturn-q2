@@ -41,7 +41,7 @@ typedef struct
 # define VDP_WRITER1_CMDS VDP_WRITER_CMDS   /* (the second writer's, if it's to differ) */
 #endif
 #ifndef ZBUCKETS
-# define ZBUCKETS       (512)
+# define ZBUCKETS       (512)           /* (the game builds with 2: a bucket a CPU, the lists in painter's order) */
 #endif
 #define MAX_CMDS        VDP_MAX_CMDS
 #define WRITER_CMDS     VDP_WRITER_CMDS     /* the first writer's room (the master's) */
@@ -73,6 +73,7 @@ typedef struct
     u32             *gst;               /* ...staged in work RAM; vdp_submit DMAs them over with the list */
     s16             head[ZBUCKETS], tail[ZBUCKETS];
     int             cmax;               /* commands it has room for */
+    int             gover;              /* tables asked for past gmax this frame (they got the last one's) */
 }                   vdp_writer;
 
 /* a texture in VDP1 VRAM */
@@ -117,7 +118,10 @@ static inline u16   vdp_gouraud_fast(vdp_writer *w, u32 c01, u32 c23)
     int             i = w->gcount;
 
     if (i >= w->gmax)
-        i = w->gmax - 1;
+    {
+        i = w->gmax - 1;                /* (out of tables: the wrong shading, counted) */
+        ++w->gover;
+    }
     else
         w->gcount = i + 1;
     w->gst[i * 2] = c01;
@@ -145,6 +149,7 @@ void                vdp_color_offset_all(int r, int g, int b);   /* every layer:
 
 extern u32          vdp_us_dma, vdp_us_wait;            /* last submit: list DMA, waiting for VDP1 */
 extern int          vdp_peak[5];                        /* most commands sent: master's, slave's, overlay; Gouraud tables: master's, slave's */
+extern u32          vdp_gover;                          /* Gouraud tables wanted past a writer's share (drawn with the last one's) */
 void                vdp_set_pipelined(bool on);         /* submit returns at once, the swap's by interrupt (vdp.c) */
 bool                vdp_dma_queue(u32 vram, const void *src, u32 bytes);    /* into VRAM with the lists (vdp_submit) */
 void                vdp_set_list_hook(void (*fn)(void));    /* in vdp_submit once VDP1's done with the frame before last (VRAM it used is free) */

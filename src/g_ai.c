@@ -329,8 +329,8 @@ static const s32    *goal_point(const g_ent *ent)
 
 static void         M_MoveToGoal(g_ent *ent, s32 dist)
 {
-    if (!ent->on_ground)
-        return;
+    if (!ent->on_ground && !(ent->flags & FL_FLY))
+        return;                             /* (in the air: falling, unless it flies) */
     if (ent->enemy && SV_CloseEnough(ent, ent->enemy, dist))
         return;
     /* bump around... */
@@ -348,7 +348,7 @@ bool                M_walkmove(g_ent *ent, int yaw, s32 dist)
 {
     s32             move[3];
 
-    if (!ent->on_ground)
+    if (!ent->on_ground && !(ent->flags & FL_FLY))
         return false;
     move[0] = fmul(fcos(yaw), dist);
     move[1] = fmul(fsin(yaw), dist);

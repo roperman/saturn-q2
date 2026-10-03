@@ -204,7 +204,7 @@ void                SP_monster_flyer(g_ent *self)
     self->maxs[2] = FIX(32);
     self->skinnum = 0;
     self->health = 50;
-    self->gib_health = 0;                   /* (never gibbed: it explodes) */
+    self->gib_health = -1000;               /* (never gibbed: g_damage gibs at or under it; it always explodes) */
     self->flags |= FL_FLY;                  /* (before monster_start: it isn't dropped to the floor) */
     self->stand = flyer_stand;
     self->run = flyer_run;

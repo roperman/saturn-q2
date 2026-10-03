@@ -2914,3 +2914,14 @@ entities lump (the class ids moved up by two), so the data's the same;
 the last 0.2 is where the code landed. Rule from it: anything added for a
 rare path goes `cold`, and a record that every frame touches doesn't grow
 for a rare case.
+
+**Two flyer bugs, found drawing the engine's flowchart** (each branch
+traced against the code). `M_MoveToGoal` and `M_walkmove` refused to move
+a monster that wasn't on the ground, and a flyer never is: Quake exempts
+`FL_FLY` there and the port didn't, so the flyers hovered where they spawned
+and shot, never chasing. With the exemption they come down off their
+ledge, close in and slash (tested from the warp: 100 -> 95 on the HUD as
+the wings hit). And the flyer's `gib_health` of 0 sent any killing blow
+down `g_damage`'s gib branch (meat and bones) instead of its explosion:
+now -1000, so it always explodes, as Quake's. The tour loads all three
+(HWRAM 64/80/144 bytes left); the NTSC fight 37.7/36.2, as before.

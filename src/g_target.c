@@ -32,13 +32,47 @@ void                G_UseTargetName(int name, g_ent *other, g_ent *activator)
 
     if (!name)
         return;
-    for (i = 0; i < g_nfull + g_nshort; ++i)
+#ifdef CHAIN_CHECK
     {
-        g_ent *t = g_ent_at(i);
+        /* (OPT=-DCHAIN_CHECK: the chain's and the scan's would fire the same records?) */
+        extern u32 chain_checks, chain_diffs;
+        int a = 0, c = 0;
 
-        if (t->kind != EK_FREE && t->targetname == name && t->use && t != other)
-            t->use(t, other, activator);
+        for (i = 0; i < g_nfull + g_nshort; ++i)
+        {
+            const g_ent *t = g_ent_at(i);
+
+            if (t->kind != EK_FREE && t->targetname == name && t->use && t != other)
+                a += i + 1;
+        }
+        if (g_tn_first && name < g_tn_count)
+            for (i = g_tn_first[name]; i != G_TN_NONE; i = g_tn_next[i])
+            {
+                const g_ent *t = g_ent_at(i);
+
+                if (t->kind != EK_FREE && t->targetname == name && t->use && t != other)
+                    c += i + 1;
+            }
+        ++chain_checks;
+        chain_diffs += a != c;
     }
+#endif
+    if (g_tn_first && name < g_tn_count)
+        for (i = g_tn_first[name]; i != G_TN_NONE; i = g_tn_next[i])
+        {
+            g_ent *t = g_ent_at(i);         /* (its chain: freed ones skipped, a reused one has no name) */
+
+            if (t->kind != EK_FREE && t->targetname == name && t->use && t != other)
+                t->use(t, other, activator);
+        }
+    else
+        for (i = 0; i < g_nfull + g_nshort; ++i)
+        {
+            g_ent *t = g_ent_at(i);
+
+            if (t->kind != EK_FREE && t->targetname == name && t->use && t != other)
+                t->use(t, other, activator);
+        }
     movers_use(name);
 }
 
@@ -61,7 +95,7 @@ void                G_UseTargets(g_ent *ent, g_ent *activator)
             t->message = ent->message;
             t->target = ent->target;
             t->killtarget = ent->killtarget;
-            t->nextthink = level.time + ent->delay;
+            g_think_at(t, level.time + ent->delay);
             t->think = think_delay;
             return;
         }
@@ -72,13 +106,24 @@ void                G_UseTargets(g_ent *ent, g_ent *activator)
         s_play(SND_TALK, NULL, ATTN_NONE);
     }
     if (ent->killtarget)
-        for (i = 1; i < g_nfull + g_nshort; ++i)
-        {
-            g_ent *t = g_ent_at(i);
+    {
+        if (g_tn_first && ent->killtarget < g_tn_count)
+            for (i = g_tn_first[ent->killtarget]; i != G_TN_NONE; i = g_tn_next[i])
+            {
+                g_ent *t = g_ent_at(i);
 
-            if (t->kind != EK_FREE && t->targetname == ent->killtarget)
-                g_free(t);
-        }
+                if (t->kind != EK_FREE && t->targetname == ent->killtarget)
+                    g_free(t);
+            }
+        else
+            for (i = 1; i < g_nfull + g_nshort; ++i)
+            {
+                g_ent *t = g_ent_at(i);
+
+                if (t->kind != EK_FREE && t->targetname == ent->killtarget)
+                    g_free(t);
+            }
+    }
     G_UseTargetName(ent->target, ent, activator);
 }
 
@@ -104,7 +149,7 @@ static void         multi_trigger(g_ent *ent)
     {
         ent->inactive = true;
         ent->think = multi_wait;
-        ent->nextthink = level.time + ent->wait;
+        g_think_at(ent, level.time + ent->wait);
     }
     else
         ent->kind = EK_FREE;                /* once */
@@ -190,7 +235,7 @@ static void         use_counter(g_ent *self, g_ent *other, g_ent *activator)
 static void         think_timer(g_ent *self)
 {
     G_UseTargets(self, self->activator);
-    self->nextthink = level.time + self->wait + fmul(crandom(), self->random);
+    g_think_at(self, level.time + self->wait + fmul(crandom(), self->random));
 }
 
 static void         use_timer(g_ent *self, g_ent *other, g_ent *activator)
@@ -202,7 +247,7 @@ static void         use_timer(g_ent *self, g_ent *other, g_ent *activator)
         return;
     }
     if (self->delay)
-        self->nextthink = level.time + self->delay;
+        g_think_at(self, level.time + self->delay);
     else
         think_timer(self);
 }
@@ -264,7 +309,7 @@ static void         use_explosion(g_ent *self, g_ent *other, g_ent *activator)
     if (self->delay)
     {
         self->think = think_explosion;
-        self->nextthink = level.time + self->delay;
+        g_think_at(self, level.time + self->delay);
     }
     else
         think_explosion(self);
@@ -333,7 +378,7 @@ static void         barrel_die(g_ent *self, g_ent *attacker, int damage, const s
     self->dead = true;
     self->activator = attacker;
     self->think = barrel_explode;
-    self->nextthink = level.time + FIX(0.2);
+    g_think_at(self, level.time + FIX(0.2));
 }
 
 static void         barrel_pain(g_ent *self, g_ent *other, int damage)
@@ -372,7 +417,7 @@ bool                g_spawn_point(g_ent *e, const q_erec *r)
             if (e->delay < FIX(0.2))
                 e->delay = FIX(0.2);
             e->think = think_always;
-            e->nextthink = level.time + FIX(0.1);
+            g_think_at(e, level.time + FIX(0.1));
             return true;
         case C_TRIGGER_COUNTER:
             e->kind = EK_POINT;
@@ -387,7 +432,7 @@ bool                g_spawn_point(g_ent *e, const q_erec *r)
             e->think = think_timer;
             if (r->spawnflags & 1)
             {
-                e->nextthink = level.time + FIX(1) + e->delay + e->wait + fmul(crandom(), e->random);
+                g_think_at(e, level.time + FIX(1) + e->delay + e->wait + fmul(crandom(), e->random));
                 e->activator = g_player;
             }
             return true;

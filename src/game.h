@@ -170,9 +170,10 @@ _Static_assert(G_SHORT % 16 == 0, "g_ent: the short ones a whole number of lines
 
 /* The monsters think in groups (edict number % MON_GROUPS), each at 10 Hz
    but a share of a tick apart, so a fight's AI is spread over the frames
-   rather than all in one every 100 ms */
+   rather than all in one every 100 ms. 8 (from 4) halved the fight's worst
+   frame's game time (26.6 to 15.9 ms, OVERNIGHT.md 59); 16 was no better */
 #ifndef MON_GROUPS
-# define MON_GROUPS     (4)
+# define MON_GROUPS     (8)
 #endif
 
 typedef struct
@@ -255,6 +256,32 @@ typedef enum { MENU_NONE, MENU_MAIN, MENU_SKILL, MENU_OPTIONS, MENU_PAUSE } menu
 typedef enum { MA_NONE, MA_NEW_GAME, MA_RESTART, MA_RESUME, MA_TITLE } menu_action;
 extern menu_id      menu_cur;
 extern int          g_skill;                    /* 0-2; -1: everything spawns */
+/* the records by targetname (g_init builds a chain a name, in record order; G_UseTargetName
+   walks one rather than scanning every record, ~250 in low work RAM or on the cart, a use) */
+#define G_TN_NONE       (0xFFFF)
+extern u16          *g_tn_first;                /* a name's first record (g_ent_at's number), or G_TN_NONE */
+extern u16          *g_tn_next;                 /* each record's next with its name */
+extern int          g_tn_count;                 /* names with a chain: ids below it */
+/* The entities with a think pending (g_tick runs them when due): a list, not a scan of every
+   record (~1.2 ms a tick, the records in low work RAM or the cart). g_think_at puts one on it
+   when its nextthink was 0; one on it stays till g_tick takes it off (its think ran, or it's
+   no longer one g_tick thinks for). Too many for the list: g_tick scans every record again
+   and rebuilds it */
+#define G_THINKERS      (48)
+extern g_ent        **g_thinkers;
+extern int          g_nthinkers;
+extern bool         g_thinkers_full;
+static inline void  g_think_at(g_ent *e, s32 t)
+{
+    if (!e->nextthink)
+    {
+        if (g_nthinkers < G_THINKERS)
+            g_thinkers[g_nthinkers++] = e;
+        else
+            g_thinkers_full = true;
+    }
+    e->nextthink = t;
+}
 extern int          opt_volume;
 extern int          opt_stats;            /* (menu.c) 0 off, 1 the frame rate, 2 the debugging overlay */
 extern bool         opt_crosshair;

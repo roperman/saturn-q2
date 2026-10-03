@@ -255,6 +255,14 @@ s32                 player_flash;           /* the red flash when you're hit, 0.
 
 int                 kills, total_monsters;
 bool                level_complete;
+u16                 *g_tn_first, *g_tn_next;    /* the records by targetname (game.h) */
+int                 g_tn_count;
+g_ent               **g_thinkers;               /* those with a think pending (game.h g_think_at); in low work RAM */
+#ifdef CHAIN_CHECK
+u32                 chain_checks, chain_diffs;
+#endif
+int                 g_nthinkers;
+bool                g_thinkers_full;
 
 /* Quake's ThrowGib and ThrowHead: the monster in pieces (each one's, as its m_*.c had them), each
    from somewhere in its box at VelocityForDamage's speed, and the body gone */
@@ -696,6 +704,10 @@ __attribute__((cold)) void g_init(void)
     ai_reset();
     for (i = 0; i < MON_GROUPS; ++i)
         level.mon_acc[i] = FRAMETIME * i / MON_GROUPS;
+    if (!g_thinkers)
+        g_thinkers = level_alloc_low(G_THINKERS * sizeof(g_ent *));
+    g_nthinkers = 0;
+    g_thinkers_full = true;                 /* (the first tick: every record looked at) */
     kills = total_monsters = found_secrets = total_secrets = found_goals = total_goals = 0;
     level_complete = false;
     g_client_init();
@@ -837,6 +849,36 @@ __attribute__((cold)) void g_init(void)
         }
         e->kind = EK_FREE;                  /* not something we do yet */
     }
+    /* the records by targetname: each name's chain, in record order (as the scan went) */
+    {
+        int n = g_nfull + g_nshort, maxtn = 0, t;
+
+        for (i = 0; i < n; ++i)
+        {
+            const g_ent *e = g_ent_at(i);
+
+            if (e->kind != EK_FREE && e->targetname > maxtn)
+                maxtn = e->targetname;
+        }
+        if (!g_tn_first || g_tn_count < maxtn + 1)
+        {
+            g_tn_first = level_alloc_low((u32)(maxtn + 1 + n) * 2);
+            g_tn_next = g_tn_first ? g_tn_first + maxtn + 1 : NULL;
+        }
+        g_tn_count = g_tn_first ? maxtn + 1 : 0;
+        for (t = 0; t < g_tn_count; ++t)
+            g_tn_first[t] = G_TN_NONE;
+        for (i = n - 1; i >= 0 && g_tn_first; --i)
+        {
+            const g_ent *e = g_ent_at(i);
+
+            if (e->kind != EK_FREE && e->targetname)
+            {
+                g_tn_next[i] = g_tn_first[e->targetname];
+                g_tn_first[e->targetname] = (u16)i;
+            }
+        }
+    }
 }
 
 void                g_player_noise(void)
@@ -852,24 +894,126 @@ static void         g_tick(void)
     level.time += FRAMETIME;
     ++level.framenum;
     level.sight_client = g_player->dead ? NULL : g_player;
+#ifdef TICK_PROF
+    {
+        extern u32 tp_part[3];
+        u32 t0 = frt_read(), t1;
+
+        g_touch_triggers();
+        t1 = frt_read();
+        tp_part[0] += frt_to_us((t1 - t0) & 0xFFFF);
+        g_touch_items();
+        t0 = frt_read();
+        tp_part[1] += frt_to_us((t0 - t1) & 0xFFFF);
+    }
+#else
     g_touch_triggers();
     g_touch_items();
-    for (i = 1; i < g_nfull + g_nshort; ++i)
+#endif
+    /* all but the active monsters: its think, when it's time: those with one pending (game.h
+       g_thinkers), each taken off the list as it's run (its think puts it back if it asks for
+       another) or found not to be one for here. The list overflowed: every record scanned
+       (as it was, ~1.2 ms) and the list made again */
+#ifdef TICK_PROF
     {
-        g_ent *e;
+        extern u32 tp_full, tp_most;
 
-        if (i == g_nfull)
-            i += g_nitems;                  /* (items don't think) */
-        e = g_ent_at(i);
-        /* all but the active monsters: its think, when it's time */
-        if ((e->kind != EK_MONSTER || e->inactive) && e->kind != EK_FREE && e->think && e->nextthink
-            && level.time >= e->nextthink)
+        tp_full += g_thinkers_full;
+        if ((u32)g_nthinkers > tp_most)
+            tp_most = (u32)g_nthinkers;
+    }
+#endif
+    if (g_thinkers_full)
+    {
+        g_thinkers_full = false;
+        g_nthinkers = 0;
+        for (i = 1; i < g_nfull + g_nshort; ++i)
         {
+            g_ent *e;
+
+            if (i == g_nfull)
+                i += g_nitems;              /* (items don't think) */
+            e = g_ent_at(i);
+            if ((e->kind != EK_MONSTER || e->inactive) && e->kind != EK_FREE && e->think && e->nextthink)
+            {
+                if (level.time >= e->nextthink)
+                {
+                    e->nextthink = 0;
+                    e->think(e);            /* (may put itself or another on the list) */
+                }
+                if (e->nextthink)
+                {
+                    int j;
+
+                    for (j = 0; j < g_nthinkers && g_thinkers[j] != e; ++j)
+                        ;
+                    if (j == g_nthinkers)
+                    {
+                        if (g_nthinkers < G_THINKERS)
+                            g_thinkers[g_nthinkers++] = e;
+                        else
+                            g_thinkers_full = true;
+                    }
+                }
+            }
+        }
+        return;
+    }
+    for (i = 0; i < g_nthinkers; )
+    {
+        g_ent *e = g_thinkers[i];
+
+        if (e->kind != EK_FREE && e->think && e->nextthink && (e->kind != EK_MONSTER || e->inactive)
+            && level.time < e->nextthink)
+        {
+            ++i;                            /* not yet */
+            continue;
+        }
+        g_thinkers[i] = g_thinkers[--g_nthinkers];  /* off the list (its think may put it back) */
+        if (e->kind != EK_FREE && e->think && e->nextthink && (e->kind != EK_MONSTER || e->inactive))
+        {
+#ifdef TICK_PROF
+            extern u32 tp_thinks, tp_think_us, tp_think_worst, tp_think_cls;
+            u32 t0 = frt_read(), us;
+            int cls = e->cls;
+#endif
             e->nextthink = 0;
             e->think(e);
+#ifdef TICK_PROF
+            us = frt_to_us((frt_read() - t0) & 0xFFFF);
+            ++tp_thinks;
+            tp_think_us += us;
+            if (us > tp_think_worst)
+            {
+                tp_think_worst = us;
+                tp_think_cls = (u32)cls;
+            }
+#endif
         }
     }
 }
+
+#ifdef TICK_PROF
+/* (OPT="-DFIGHT_BENCH -DTICK_PROF") where the ticks go: each monster's time by the move it's in
+   (its anim's name), the worst single monster, and the rest of a tick (g_tick) */
+u32                 tp_us[8], tp_n[8], tp_worst, tp_tick_us, tp_ticks, tp_mon_ticks, tp_part[3], tp_full, tp_most, tp_thinks;
+u32                 tp_think_us, tp_think_worst, tp_think_cls;
+const char          *tp_name[8], *tp_worst_name;
+int                 tp_worst_tr;
+
+static void         tp_add(const char *name, u32 us)
+{
+    int             k;
+
+    for (k = 0; k < 8 && tp_name[k] && tp_name[k] != name; ++k)
+        ;
+    if (k == 8)
+        return;
+    tp_name[k] = name;
+    tp_us[k] += us;
+    ++tp_n[k];
+}
+#endif
 
 /* a group's monsters' tick, in their own time */
 static void         g_tick_monsters(int g)
@@ -890,6 +1034,11 @@ static void         g_tick_monsters(int g)
         e->old_frame = e->frame;
         if (!e->move)
             continue;                       /* dead and done */
+#ifdef TICK_PROF
+        u32 tp_t0 = frt_read(), tp_dt;
+        int tp_tr0 = g_ntraces;
+        const char *tp_nm = e->move->anim;
+#endif
         e->flags &= ~FL_STEPPED;
         M_MoveFrame(e);
         /* ground checks only when it's in the air, or moved other than by a step that found the
@@ -901,7 +1050,20 @@ static void         g_tick_monsters(int g)
             e->leaf = (s16)level_leaf(e->origin);   /* (g_render_ents': is it in view) */
         if (g_solid_slot[i] != 0xFF)
             solid_box(&g_solids[g_solid_slot[i]], e);
+#ifdef TICK_PROF
+        tp_dt = frt_to_us((frt_read() - tp_t0) & 0xFFFF);
+        tp_add(tp_nm, tp_dt);
+        if (tp_dt > tp_worst)
+        {
+            tp_worst = tp_dt;
+            tp_worst_name = tp_nm;
+            tp_worst_tr = g_ntraces - tp_tr0;
+        }
+#endif
     }
+#ifdef TICK_PROF
+    ++tp_mon_ticks;
+#endif
     level.time = now;
 }
 
@@ -920,7 +1082,17 @@ void                g_frame(s32 dt)
     {
         level.acc -= FRAMETIME;
         s_lag(level.acc);                   /* (its moment: the rest of the frame's time ago) */
+#ifdef TICK_PROF
+        {
+            u32 t0 = frt_read();
+
+            g_tick();
+            tp_tick_us += frt_to_us((frt_read() - t0) & 0xFFFF);
+            ++tp_ticks;
+        }
+#else
         g_tick();
+#endif
     }
     if (level.acc >= FRAMETIME)
         level.acc = 0;                      /* far behind: let it go */

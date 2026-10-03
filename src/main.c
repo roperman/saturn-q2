@@ -790,6 +790,8 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
     at[i] = 0;
     message("QUAKE II", "LOADING");
     g_edicts = NULL;                        /* (they, and these, come out of the level's memory again) */
+    g_tn_first = NULL;
+    g_thinkers = NULL;
     mover_gone = NULL;
     if (!level_load(file))
         for (;;)
@@ -1802,6 +1804,47 @@ void                main(void)
             }
 #endif
 
+#ifdef TICK_PROF
+            {
+                extern u32 tp_us[8], tp_n[8], tp_worst, tp_tick_us, tp_ticks, tp_part[3];
+                extern const char *tp_name[8], *tp_worst_name;
+                extern int tp_worst_tr;
+                int k, y = 2;
+
+                {
+                    extern u32 tp_full, tp_most, tp_thinks, tp_think_us, tp_think_worst, tp_think_cls;
+
+                    vdp_printf(8, y, RGB(255, 255, 120), "TICK %dUS TRIG%d ITEM%d N%d FULL%d MOST%d",
+                               tp_tick_us / imax(tp_ticks, 1), tp_part[0] / imax(tp_ticks, 1),
+                               tp_part[1] / imax(tp_ticks, 1), tp_ticks, tp_full, tp_most);
+                    y += 9;
+                    vdp_printf(8, y, RGB(255, 255, 120), "THINKS %d %dUS WORST %dUS CLS %d", tp_thinks,
+                               tp_think_us / imax(tp_ticks, 1), tp_think_worst, tp_think_cls);
+#ifdef CHAIN_CHECK
+                    {
+                        extern u32 chain_checks, chain_diffs;
+
+                        y += 9;
+                        vdp_printf(8, y, RGB(255, 255, 120), "USES %d CHAIN DIFFS %d", chain_checks, chain_diffs);
+                    }
+#endif
+                }
+                y += 9;
+#define NC(s, i)    ((s)[i] ? (s)[i] : ' ')
+                vdp_printf(8, y, RGB(255, 255, 120), "WORST %dUS %c%c%c%c TR%d", tp_worst, NC(tp_worst_name, 0),
+                           NC(tp_worst_name, 1), NC(tp_worst_name, 2), NC(tp_worst_name, 3), tp_worst_tr);
+                y += 9;
+                for (k = 0; k < 8 && tp_name[k]; ++k, y += 9)
+                    vdp_printf(8, y, RGB(160, 255, 160), "%c%c%c%c N%d %dUS %dUS/F", NC(tp_name[k], 0),
+                               NC(tp_name[k], 1), NC(tp_name[k], 2), NC(tp_name[k], 3), tp_n[k],
+                               tp_us[k] / imax(tp_n[k], 1), tp_us[k] / n);
+#undef NC
+#ifdef FIGHT_TRACES
+                vdp_printf(8, y, RGB(255, 200, 160), "BOX %d G%d C%d M%d E%d", fight_tr[4] / n, fight_tt[0] / 10,
+                           fight_tt[1] / 10, fight_tt[2] / 10, fight_tt[3] / 10);
+#endif
+            }
+#endif
             vdp_printf(8, 96, RGB(255, 220, 120), "FIGHT: %d FRAMES", fight_n);
 #ifdef MF_PROF
             {

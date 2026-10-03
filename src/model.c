@@ -65,7 +65,7 @@ bool                model_parse(q_mdl *m, const u8 *b)
         if (k < m->nfverts)
             m->nfpolys = 0;
     }
-    m->frame_bytes = 24 + (u32)m->nverts * 4;
+    m->frame_bytes = 24 + (u32)m->nverts * 4 + (((u32)m->nverts + 3) & ~3u);   /* (the normals' run after the words) */
     {
         /* how far from its origin it reaches, over all its frames (each frame's box from its
            scale and translation): the screen culls were a sphere of 48 and 64 units, which the

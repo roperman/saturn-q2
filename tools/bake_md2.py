@@ -287,13 +287,16 @@ def main():
         luts += b"".join(order) + struct.pack(">%dH" % len(lmap), *lmap)
         nluts = len(order) | 0x80000000
     tex_table = [rec[:6] + struct.pack(">H", lut_of[t]) for t, rec in enumerate(tex_table)]
-    # frames: scale and translate (16.16), then the byte vertices
+    # frames: scale and translate (16.16), then the byte vertices (x y z normal), then the
+    # normals again as a run (padded to 4 bytes): the CPU reads only those while the DSP takes
+    # the words, so a run is a quarter of the lines fetched (src/render.c draw_model)
     fdata = bytearray()
     for f in frames:
         _, s, t, verts = m.frames[f]
         fdata += struct.pack(">6i", *[int(round(x * 65536)) for x in s + t])
         for v in vorder:
             fdata += bytes(verts[v])
+        fdata += bytes(verts[v][3] for v in vorder) + bytes((-len(vorder)) & 3)
     # shading: light from above and in front, turned with the model's yaw in 16 steps
     norms = anorms()
     shade = bytearray()

@@ -5560,7 +5560,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     const q_mdl     *m = e->mdl;
     s32             c = fcos(e->yaw), sn = fsin(e->yaw), zmin = 0x7FFFFFFF, zmax = -0x7FFFFFFF;
     const u8        *f0 = m->frames + (u32)e->oldframe * m->frame_bytes, *f1 = m->frames + (u32)e->frame * m->frame_bytes;
-    const u8        *v0 = f0 + 24, *v1 = f1 + 24, *vn = e->lerp < FIX(0.5) ? v0 : v1;
+    const u8        *v0 = f0 + 24, *v1 = f1 + 24, *vn = (e->lerp < FIX(0.5) ? v0 : v1) + (u32)m->nverts * 4;  /* (the normals' run) */
     s32             lerp = e->lerp, inv;
     model_xform     xf;
     s32             (*A0)[3] = xf.A0, (*A1)[3] = xf.A1, *C0 = xf.C0, *C1 = xf.C1;
@@ -5742,7 +5742,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             u8          oc = 0;
 
             x->mz[i] = vz;
-            x->mg[i] = gt[vn[i * 4 + 3] < 162 ? vn[i * 4 + 3] : 0];
+            x->mg[i] = gt[vn[i] < 162 ? vn[i] : 0];
             if (vz < NEAR_Z)
                 oc = OC_NEAR;
             else
@@ -5820,7 +5820,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             PROF(x->st.proj += nv);
             for (i = 0; i < nv; ++i)
             {
-                int k = vn[i * 4 + 3];
+                int k = vn[i];
 
                 x->mg[i] = gt[k < 162 ? k : 0];
             }
@@ -5853,7 +5853,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             vz += fmul(p[2] - vz, lerp);
         }
         x->mz[i] = vz;
-        x->mg[i] = gt[vn[i * 4 + 3] < 162 ? vn[i * 4 + 3] : 0];
+        x->mg[i] = gt[vn[i] < 162 ? vn[i] : 0];
         if (vz < NEAR_Z)
             oc = OC_NEAR;
         else

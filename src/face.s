@@ -164,18 +164,53 @@ FF_LOD    = 128
 .endm
 
 ! a stored texel along an axis, t = fmul(@(\soff,\s), r1) to @(\toff,r14), and the
-! steps from it: @(\aoff,\ad) = t * \ka, @(\boff,\bd) = t * \kb. Uses r0 r4 r13
-.macro  STEPS s, soff, toff, ad, aoff, ka, bd, boff, kb
+! steps from it: @(\aoff,\s) = t * \ka, @(\boff,\s) = t * \kb; the three components
+! (soff, +4, +8) interleaved so that no multiply's result is read as soon as it's
+! asked for. Uses r0 r4 r13 and \t1 \t2
+.macro  STEPS3 s, soff, toff, aoff, ka, boff, kb, t1, t2
         mov.l   @(\soff,\s),r0
-        FMUL    r0,r1,r4,r13
+        dmuls.l r0,r1
+        mov.l   @(\soff+4,\s),r0
+        sts     mach,r13
+        sts     macl,r4
+        dmuls.l r0,r1
+        xtrct   r13,r4                  ! t0
+        mov.l   @(\soff+8,\s),r0
+        sts     mach,r13
+        sts     macl,\t1
+        dmuls.l r0,r1
+        xtrct   r13,\t1                 ! t1
         mov.l   r4,@(\toff,r14)
+        mov.l   \t1,@(\toff+4,r14)
+        sts     mach,r13
+        sts     macl,\t2
+        xtrct   r13,\t2                 ! t2
         mov     r4,r0
         mul.l   \ka,r0
+        mov     \t1,r13
+        mov.l   \t2,@(\toff+8,r14)
         sts     macl,r0
-        mov.l   r0,@(\aoff,\ad)
-        mul.l   \kb,r4
-        sts     macl,r4
-        mov.l   r4,@(\boff,\bd)
+        mul.l   \ka,r13
+        mov.l   r0,@(\aoff,\s)
+        mov     \t2,r0
+        sts     macl,r13
+        mul.l   \ka,r0
+        mov.l   r13,@(\aoff+4,\s)
+        mov     r4,r13
+        sts     macl,r0
+        mul.l   \kb,r13
+        mov.l   r0,@(\aoff+8,\s)
+        mov     \t1,r0
+        sts     macl,r13
+        mul.l   \kb,r0
+        mov.l   r13,@(\boff,\s)
+        mov     \t2,r13
+        sts     macl,r0
+        mul.l   \kb,r13
+        mov.l   r0,@(\boff+4,\s)
+        nop
+        sts     macl,r13
+        mov.l   r13,@(\boff+8,\s)
 .endm
 
 _face_asm:
@@ -581,9 +616,7 @@ _face_asm:
         bf      1f
         mov     r8,r2
 1:      sub     r7,r2
-        STEPS   r3,GA_D,A_DUT,r3,GA_E0,r2,r3,GA_E1,r8
-        STEPS   r3,GA_D+4,A_DUT+4,r3,GA_E0+4,r2,r3,GA_E1+4,r8
-        STEPS   r3,GA_D+8,A_DUT+8,r3,GA_E0+8,r2,r3,GA_E1+8,r8
+        STEPS3  r3,GA_D,A_DUT,GA_E0,r2,GA_E1,r8,r7,r11      ! (r7 eu0 and r11 nu as scratch: stored above)
         ! along v: dvt, and the steps out of the first row and into the last (f0, f1)
         mov     r6,r2
         mov     r12,r0
@@ -591,9 +624,8 @@ _face_asm:
         bf      2f
         mov     r10,r2
 2:      sub     r9,r2
-        STEPS   r5,12,A_DVT,r5,0,r2,r5,24,r10
-        STEPS   r5,16,A_DVT+4,r5,4,r2,r5,28,r10
-        STEPS   r5,20,A_DVT+8,r5,8,r2,r5,32,r10
+        STEPS3  r5,12,A_DVT,0,r2,24,r10,r7,r9
+        mov.l   @(A_FNU,r14),r11        ! (nu back)
         ! the grid's first point
         mov.l   @(A_FO,r14),r0
         mov.l   r0,@(GA_P,r3)

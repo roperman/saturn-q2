@@ -263,6 +263,10 @@ typedef struct
     const void      *up_src[UPQ];           /* textures to copy into VRAM at the frame's end (tex_upload) */
     u32             up_dst[UPQ];            /* VRAM offset << 8 | longs (| UP_LATE) */
     int             nup;
+    u8              *gen_ring;              /* the textures made as they're uploaded (tex_generate): on the cart, a
+                                               quarter of it a frame (an upload's source lives till the DMA, two
+                                               frames at most) */
+    int             gen_n;                  /* ...made this frame */
     u16             wl_rec[32];             /* the whole faces it lit this frame (the next frame's, lit ahead: r_wall_ahead) */
     int             wl_nrec;
 #ifdef DSP_WALLS
@@ -757,6 +761,47 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
     vdp_set_list_hook(r_late_uploads);
 }
 
+/* A texture the file doesn't hold (tools/bake_map.py: the pixels were stored again for every
+   transposed and quartered tile, 90-135 KB a level): made from its tile's 16 x 16 texels (two
+   to a byte, 8 bytes a row) into dst, 128 bytes */
+#define GEN_SLOTS       (32)                /* a frame's, a CPU's (more: copied now, or no slot) */
+#define GEN_ENTRY       (128)
+#define GEN_RING_BYTES  (4 * GEN_SLOTS * GEN_ENTRY)
+
+static void         tex_make(u8 *dst, int gen, const u8 *tile)
+{
+    int             x, y;
+
+    if (gen == 1)
+    {
+        /* transposed: the texel at (x, y) is the tile's at (y, x) */
+        for (y = 0; y < 16; ++y)
+            for (x = 0; x < 16; x += 2)
+            {
+                u32 a = (tile[x * 8 + y / 2] >> (y & 1 ? 0 : 4)) & 15;
+                u32 b = (tile[(x + 1) * 8 + y / 2] >> (y & 1 ? 0 : 4)) & 15;
+
+                dst[y * 8 + x / 2] = (u8)(a << 4 | b);
+            }
+    }
+    else
+    {
+        /* quartered: the four 8 x 8 quarters one under another (top left, top right, bottom left,
+           bottom right), 4 bytes a row (src/render.c cell_split) */
+        for (y = 0; y < 32; ++y)
+            ((u32 *)dst)[y] = *(const u32 *)(tile + ((y >> 4) * 8 + (y & 7)) * 8 + ((y >> 3) & 1) * 4);
+    }
+}
+
+/* ...into this CPU's ring: the upload's source */
+static const void   *tex_generate(r_ctx *x, int gen, const u8 *tile)
+{
+    u8              *dst = x->gen_ring + (((u32)frame & 3) * GEN_SLOTS + (u32)x->gen_n++) * GEN_ENTRY;
+
+    tex_make(dst, gen, tile);
+    return dst;
+}
+
 /* A texture into its slot: queued for the SCU's DMA at the frame's end (the
    cart to VDP1's VRAM on the SCU's own buses, not the CPUs'; a CPU's store
    to VRAM is 111 cycles), or copied now if the queue's full. Late: into a
@@ -804,13 +849,15 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
     u32             bytes = 0, vram;
     bool            late = false;
     u16             lut = 0;
+    int             gen = 0;
 
     if (x->full)
         return -1;
     if (t < lv.ntextures)
     {
         tx = &lv.textures[t];
-        src = lv.texdata + tx->ofs;
+        src = lv.texdata + (tx->ofs & TEX_OFS_MASK);
+        gen = (int)(tx->ofs >> TEX_GEN_SHIFT);  /* (made from its tile as it goes: tex_make) */
         bytes = (u32)tx->w * tx->h / 2;
     }
     else
@@ -843,7 +890,8 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
         x->tight = true;
     if (x->tight)
     {
-        if (!r_dma_uploads || x->nup >= UPQ || (((u32)src | bytes) & 3) || (s = slot_find(x, 2)) < 0)
+        if (!r_dma_uploads || x->nup >= UPQ || (((u32)src | bytes) & 3) || (gen && x->gen_n >= GEN_SLOTS)
+            || (s = slot_find(x, 2)) < 0)
         {
             x->full = true;
             ++x->st.nocache;
@@ -867,6 +915,20 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
     {
         slot_lut[s] = lut;
         ++x->st.muploads;
+    }
+    if (gen)
+    {
+        if (x->gen_n < GEN_SLOTS)
+            src = tex_generate(x, gen, src);
+        else
+        {
+            u32 buf[GEN_ENTRY / 4];         /* (the ring's share for this frame used up: made here, copied now) */
+
+            tex_make((u8 *)buf, gen, src);
+            memcpy((u8 *)VDP1_VRAM + vram, buf, bytes);
+            ++x->st.uploads;
+            return (s32)vram;
+        }
     }
     tex_upload(x, vram, src, bytes, late);
     ++x->st.uploads;
@@ -2027,6 +2089,8 @@ __attribute__((cold)) void r_wall_level(void)       /* (a level's start: built s
     int             k;
 
     wl_b[0] = wl_b[1] = NULL;
+    for (k = 0; k < 2; ++k)
+        ctx[k].gen_ring = cart_alloc(GEN_RING_BYTES);   /* (the textures made as they're uploaded) */
 #if defined(DSP_WALLS) || defined(WALLS_TEST)
     /* the programs and their buffers on the cart, if there's room with the gun's kept drawing and
        as many slots as it would have anyway (after this: view_level_init; demo3's cart has room for
@@ -6254,6 +6318,7 @@ static void         part_begin(r_ctx *x)
     x->full = false;
     x->tight = false;
     x->nup = 0;
+    x->gen_n = 0;
 }
 
 #ifdef FIGHT_BENCH

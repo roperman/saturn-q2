@@ -105,6 +105,9 @@ typedef struct { s16 lo[3], hi[3]; } q_portal;
 #define FF_BACK         (64)                    /* on its plane's back */
 #define FF_LOD          (128)                   /* it has a coarse grid (q_lodface) */
 #define TEX_TRANSPOSED  (0x8000)
+#define TEX_GEN_SHIFT   (28)                    /* q_tex.ofs's top bits: made from its tile as it's uploaded
+                                                   (1 transposed, 2 quartered: render.c tex_make); the rest the tile's */
+#define TEX_OFS_MASK    (0x0FFFFFFF)
 #define CELL_EMPTY      (0xFFFF)
 #define CONTENTS_SOLID  (1)
 #define CONTENTS_WINDOW (2)

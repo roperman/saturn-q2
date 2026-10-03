@@ -166,14 +166,17 @@ class Baker:
             self.textures.append(make())
         return self.tex_ids[key]
 
+    # a texture: (tile, w, h, data, transposed, gen). gen 0: its data's in the file; 1, 2: made
+    # from its tile's as it's uploaded (src/render.c tex_generate: transposed, quartered), the
+    # record's offset the tile's: the pixels aren't stored again
     def tex_tile(self, t):
         N = self.N
-        return self.texture(("tile", t), lambda: (t, N, N, self.tile_data[t][0], False))
+        return self.texture(("tile", t), lambda: (t, N, N, self.tile_data[t][0], False, 0))
 
     def tex_transposed(self, t):
         N = self.N
-        idx = self.tile_data[t][0]
-        return self.texture(("tileT", t), lambda: (t, N, N, [idx[x * N + y] for y in range(N) for x in range(N)], True))
+        self.tex_tile(t)
+        return self.texture(("tileT", t), lambda: (t, N, N, None, True, 1))
 
     def tex_variant(self, t, mask, x0, y0, w, h):
         """the tile cropped to (x0, y0, w, h), texels outside the mask transparent"""
@@ -184,7 +187,7 @@ class Baker:
             for x in range(x0, x0 + w):
                 data.append(idx[y * N + x] if mask[y * N + x] else 0)
         key = ("var", t, x0, y0, w, h, bytes(data))
-        return self.texture(key, lambda: (t, w, h, data, False))
+        return self.texture(key, lambda: (t, w, h, data, False, 0))
 
     # ---- faces ----
 
@@ -439,7 +442,7 @@ class Baker:
                         # cropped, but exactly its grid cell: as a whole tile's, with the texture's
                         # colour table (and whether it's transposed), where its rows start (in 8
                         # bytes), its width / 8 and how many rows (q_cell_fast)
-                        lt, w, h, data, tr = self.textures[c[0]]
+                        lt, w, h, data, tr, gen = self.textures[c[0]]
                         assert (c[1] * w) % 16 == 0
                         cdata.append(struct.pack(">2H4B", c[0] | CELL_EXACT, lt | (TEX_TRANSPOSED if tr else 0),
                                                  c[1], c[1] * w // 16, w >> 3, c[2]))
@@ -492,20 +495,25 @@ class Baker:
         # bottom left, bottom right), for a whole tile too near the camera to draw in one piece
         # (src/render.c cell_split); quarter q of tile t is texture quart0 + t, from row q * N/2
         N, h = self.N, self.N // 2
+        for t in range(len(self.tile_data)):
+            self.tex_tile(t)                # (every tile's own texture: the quartered one's made from it)
         quart0 = len(self.textures)
         for t in range(len(self.tile_data)):
-            idx = self.tile_data[t][0]
-            data = [idx[(qy * h + y) * N + qx * h + x] for qy in (0, 1) for qx in (0, 1) for y in range(h) for x in range(h)]
-            self.texture(("quart", t), lambda t=t, data=data: (t, h, N * 2, data, False))
+            self.texture(("quart", t), lambda t=t: (t, h, N * 2, None, False, 2))
         lump("quarts", struct.pack(">I", quart0))
-        # textures: 4bpp, rows of w/2 bytes; each starts on 8 bytes (srca)
-        tex_table, tex_blob = [], bytearray()
-        for (t, w, h, data, transposed) in self.textures:
-            ofs = len(tex_blob)
-            for i in range(0, len(data), 2):
-                tex_blob.append((data[i] << 4) | data[i + 1])
+        # textures: 4bpp, rows of w/2 bytes; each starts on 8 bytes (srca). One made as it's
+        # uploaded has its tile's offset, with how in the top bits (TEX_GEN_SHIFT)
+        tex_table, tex_blob, offs = [], bytearray(), {}
+        for i, (t, w, h, data, transposed, gen) in enumerate(self.textures):
+            if gen:
+                continue
+            offs[i] = len(tex_blob)
+            for k in range(0, len(data), 2):
+                tex_blob.append((data[k] << 4) | data[k + 1])
             while len(tex_blob) & 31:
                 tex_blob.append(0)
+        for i, (t, w, h, data, transposed, gen) in enumerate(self.textures):
+            ofs = offs[self.tex_ids[("tile", t)]] | (gen << 28) if gen else offs[i]    # (its tile's own entry's)
             tex_table.append(struct.pack(">IHBB", ofs, t | (TEX_TRANSPOSED if transposed else 0), w, h))
         lump("textures", b"".join(tex_table))
         lump("texdata", bytes(tex_blob))

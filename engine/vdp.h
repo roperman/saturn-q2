@@ -159,6 +159,7 @@ u32                 vdp_frame_no(void);                 /* frames submitted so f
 extern volatile u32 vdp_shown;                          /* in the vblank hook: the frame now on screen */
 extern volatile u32 vdp_swap_fields[8];                 /* how long pictures stayed up: 1, 2, ... 7+ fields */
 void                vdp_set_field_hook(void (*fn)(void));   /* every field, in the timer interrupt */
+void                vdp_debug_state(int *queued, int *fields);  /* (a test's watchdog) */
 extern u32          late_frames;                        /* VDP1 ran late: polygon clear instead of erase */
 
 /* a sorted polygon slot in bucket z (0 = far); caller fills pmod/colr/coords.

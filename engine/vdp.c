@@ -430,6 +430,13 @@ void                vdp2_bgon(u16 set, u16 clear)
     VDP2_BGON = bgon_shadow;
 }
 
+/* (a test's watchdog) the swap's state: the list waiting for its swap (-1 none), fields since the last */
+void                vdp_debug_state(int *q, int *f)
+{
+    *q = queued;
+    *f = fields;
+}
+
 void                vdp_set_field_hook(void (*fn)(void))
 {
     field_hook = fn;

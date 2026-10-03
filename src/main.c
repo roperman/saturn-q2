@@ -214,6 +214,34 @@ __attribute__((cold)) void btrace(int cpu, int step)
     bt_line(196 + cpu * 10, buf);
 }
 
+/* (every field, from the swap's timer interrupt) a watchdog: the frame count not moving for two
+   seconds, the SCU's DMA status, the DSP's (running? its PC), VDP1's and the swap's on three lines,
+   again every two seconds while it's stuck: whatever the master's spinning on, this still runs */
+__attribute__((section(".lwdata"))) static u32 bt_wlast = 0, bt_wstuck = 0;
+
+static __attribute__((cold)) void bt_watch(void)
+{
+    u32             f = *(volatile u32 *)UNCACHED(&bt_frame);
+    char            buf[48];
+    int             q, fl;
+
+    if (f != bt_wlast)
+    {
+        bt_wlast = f;
+        bt_wstuck = 0;
+        return;
+    }
+    if (++bt_wstuck % 100)
+        return;
+    vdp_debug_state(&q, &fl);
+    bt_fmt(buf, "STUCK %ds DSTA %08X", bt_wstuck / 50, SCU_DSTA);
+    bt_line(146, buf);
+    bt_fmt(buf, "DSP %08X EDSR %X COPR %04X", DSP_PPAF, (u32)VDP1_EDSR, (u32)REG16(0x25D00014));
+    bt_line(156, buf);
+    bt_fmt(buf, "TV %04X QUEUED %d FIELDS %d", (u32)VDP2_TVSTAT, q, fl);
+    bt_line(166, buf);
+}
+
 /* (vdp_submit stuck waiting for the swap) VDP1's state on two lines above the trace: its end flags,
    the command it's on and the last, its mode, the SCU DMA's status, the swap interrupt's fields
    since the last swap; then the command it's on (control, link, size, the corners) */
@@ -1223,6 +1251,7 @@ void                main(void)
                dsp_test[2], dsp_test[3], dsp_test[4], dsp_test[5], dsp_test[6], dsp_test[7]);
         bt_line(186, bt_dsp);               /* (expected: 1 106 211 316 twice: from HWRAM, from the cart) */
         vdp_stall_hook = bt_stall;
+        vdp_set_field_hook(bt_watch);
     }
 #endif
     BT(0, 33);
@@ -1342,6 +1371,11 @@ void                main(void)
         FT(0);
 #ifdef BOOT_TRACE
         ++*(volatile u32 *)UNCACHED(&bt_frame);
+#ifdef WATCH_TEST
+        if (*(volatile u32 *)UNCACHED(&bt_frame) == 100)
+            for (;;)
+                ;                           /* (OPT="-DBOOT_TRACE -DWATCH_TEST": stuck, for the watchdog) */
+#endif
 #endif
         BT(0, 1);
 

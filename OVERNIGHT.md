@@ -2837,3 +2837,80 @@ The level tour: all three load and complete with the maker on (the walls'
 programs on each; the block takes 7 KB of the cart: Installation 524 KB
 free, Comm Center ~690; HWRAM 176/48/160 bytes left, LWRAM 107/7.8/16.9
 KB).
+
+## 63. The flyer and the parasite
+
+The last two of the demo's monsters, now that the cart has the room
+(sections 60-62). Both are per-level overlays like the gunner, berserker
+and tank (`src/m_flyer.c`, `src/m_parasite.c`, `OVERLAYS` in build.sh), two
+new classes in the bake (`tools/bake_map.py`: the maps rebaked), two models
+(`tools/models.txt`, 193 and 185 KB: the flyer's stand, melee, attack and
+three pains, 100 frames; the parasite's stand, run, pain, drain and death,
+62), and their sounds.
+
+**The flyer** (Quake 2's m_flyer.c) flies: a new `FL_FLY` flag that
+`SV_movestep` takes a different way (Quake's: no stairs or ground test,
+the move tried first leaning 8 units up or down towards its goal, then
+level, never into water), `M_CheckGround` and `monster_physics` leave
+alone (it never falls), and `monster_start` and a triggered spawn don't
+drop to the floor. Its moves: stand (its run too, 45 frames), the blaster
+attack (four bolts from each gun in turn, backing off; Quake's flash
+offsets, 1 damage a bolt at 1000 units a second), and in reach the blades:
+out, a loop of two slashes while you're in reach (`fire_hit`'s test:
+in reach and in front, 5 a slash), away. It explodes when it dies
+(Quake's BecomeExplosion1: the bang and the flash, no body). Left out: its
+start, stop, banks, rolls and defence moves, which Quake never plays, and
+its idle hum. Its yaw speed is Quake's flymonster's, half a walker's.
+
+**The parasite** (m_parasite.c): stand (with its taps), run, pain, death,
+and the drain: within 256 units and 30 degrees up or down, a trace from
+its mouth to you with nothing in the way, a bite of 5 then ten drains of 2
+over a second (`parasite_drain_attack`, Quake's), its tongue drawn as a
+**beam**: a new effect (`fx_beam`, a `q_sprite` with an end point) drawn
+by `draw_beam` as the sprites' glow texture stretched along a bar between
+the two points, half-transparent and Gouraud-tinted like them, the far end
+thin and the near end wide with the perspective, cut at the near plane
+since it ends at you. Left out: its fidgets, walk, "break" (never played)
+and search sound.
+
+Sounds: 17 more (`tools/bake_sound.py`), which put Installation 24 KB and
+Comm Center 74 KB over sound RAM's 480 KB. Trimmed per the rule (bangs
+before voices): the explosions 1.2 -> 0.7 s, the menu and door sounds,
+pickups and armour 0.5-0.6, the super shotgun and rocket 0.7/0.6, the
+soldier's idle, then the longest deaths a tenth or two (1.3 -> 1.1). Banks
+now 318/428/474 KB (158/48/2 KB free): Comm Center's is at the limit.
+
+Memory: the tour loads all three (Installation's kills 40 -> 43, Comm
+Center's 33 -> 40: three flyers each, and the parasites at medium; one
+parasite is hard-only); HWRAM 48/16/16 bytes left, LWRAM 107/6.8/14 KB,
+the cart 1382/316/28 KB: Comm Center carries the gunner now too, which
+used to be left out for room. Its cart and sound bank are both full: the
+next thing that wants room there takes it from something.
+
+Tested with `OPT="-DNEW_GAME_DEMO=2 -DWARP_ONLY=MDL_FLYER -DSPAWN_ALL"`
+(`SPAWN_ALL` is new: the triggered monsters there from the start; the
+flyers on both levels are trigger-spawned) and the warp (START + A),
+looking up: the three flyers hover against Installation's sky, bank
+about and shoot, their bolts coming at the camera (god mode: 99, 98, 100
+on the HUD). The parasite stands in ambush till it sees or hears you (a
+shot wakes it), charges, and drains from point-blank: a full tongue takes
+25 off (5 + 10 x 2), the HUD showing 98, 76, 74 between god mode's
+refills and the hit's red flash. That close its tongue is behind the near
+plane (its mouth's 6 units from your origin), so nothing shows of it; the
+beam itself is seen with `OPT=-DBEAM_TEST`, which draws one across in
+front of you and one down to your feet always: a bar, and a cone widening
+to the near plane.
+
+The fight (Outer Base: neither monster) came out 38.3/36.9 at first,
+against 37.5/36.0 before: 0.9 ms from nothing but the code and data added
+to high work RAM (the beam's drawing in render.c, the flying step inside
+`SV_movestep`, 16 bytes more on every sprite record), which moved the hot
+code and data about the cache. `draw_beam`, `fx_beam` and the flying step
+(its own function, `SV_flystep`) marked `cold`, and the beams given their
+own small array (`r_beams`, listed into leaves as sprites past the sprites'
+numbers) rather than a wider `q_sprite`: 37.6/36.2 NTSC, 39.8/37.4 PAL. A
+rebake of Outer Base with the previous script differs only in its
+entities lump (the class ids moved up by two), so the data's the same;
+the last 0.2 is where the code landed. Rule from it: anything added for a
+rare path goes `cold`, and a record that every frame touches doesn't grow
+for a rare case.

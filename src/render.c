@@ -301,10 +301,12 @@ static u16          vis_faces[MAX_VIS];
 static u8           vis_model[MAX_VIS];     /* the brush model each face is part of (0 the world; SPRITE a sprite) */
 #define SPRITE          (0xFF)
 #define ENTITY          (0xFE)
-static s16          *leaf_spr, spr_next[MAX_SPRITES];
+static s16          *leaf_spr, spr_next[MAX_SPRITES + MAX_BEAMS];   /* (the beams after the sprites) */
 static s16          *leaf_ent, ent_next[MAX_ENTITIES];
 static int          ent_leaf[MAX_ENTITIES];
-static int          spr_leaf[MAX_SPRITES];
+static int          spr_leaf[MAX_SPRITES + MAX_BEAMS];
+q_beam              r_beams[MAX_BEAMS];
+int                 r_nbeams;
 
 q_dlight            r_dlights[MAX_DLIGHTS];
 int                 r_ndlights;
@@ -5421,6 +5423,82 @@ static void         walk(int n, u8 mask)
 }
 
 /* a glowing blob: a half-transparent halo round a solid core */
+/* a beam (the parasite's tongue): the glow stretched along a bar from pos to end, its
+   half-width size; cut at the near plane (it ends at you) */
+static __attribute__((cold, noinline)) void draw_beam(r_ctx *x, const q_beam *sp)
+{
+    s32             d[3], r, t;
+    v3              a, b;
+    int             k, ax, ay, bx, by, sa, sb, dx, dy, len;
+
+    for (k = 0; k < 3; ++k)
+        d[k] = sp->pos[k] - cam.pos[k];
+    to_view(d, &a);
+    for (k = 0; k < 3; ++k)
+        d[k] = sp->end[k] - cam.pos[k];
+    to_view(d, &b);
+    if (a.z < NEAR_Z * 2 && b.z < NEAR_Z * 2)
+        return;
+    if (a.z < NEAR_Z * 2)
+    {
+        t = fdiv(NEAR_Z * 2 - a.z, b.z - a.z);
+        a.x += fmul(b.x - a.x, t);
+        a.y += fmul(b.y - a.y, t);
+        a.z = NEAR_Z * 2;
+    }
+    else if (b.z < NEAR_Z * 2)
+    {
+        t = fdiv(NEAR_Z * 2 - b.z, a.z - b.z);
+        b.x += fmul(a.x - b.x, t);
+        b.y += fmul(a.y - b.y, t);
+        b.z = NEAR_Z * 2;
+    }
+    divu_start(FOCAL, 0, a.z);
+    r = divu_result();
+    ax = CX + (fmul(a.x, r) >> 16);
+    ay = CY - (fmul(a.y, r) >> 16);
+    sa = imax(fmul(sp->size, r) >> 16, 1);
+    divu_start(FOCAL, 0, b.z);
+    r = divu_result();
+    bx = CX + (fmul(b.x, r) >> 16);
+    by = CY - (fmul(b.y, r) >> 16);
+    sb = imax(fmul(sp->size, r) >> 16, 1);
+    if (imax(ax, bx) < -64 || imin(ax, bx) > SCREEN_W + 64 || imax(ay, by) < -64 || imin(ay, by) > SCREEN_H + 64
+        || iabs(ax) > 2000 || iabs(bx) > 2000 || iabs(ay) > 2000 || iabs(by) > 2000 || sa > 200 || sb > 200)
+        return;
+    dx = bx - ax;
+    dy = by - ay;
+    len = (int)isqrt((u32)(dx * dx + dy * dy));
+    if (len < 1)
+        return;
+    for (k = 0; k < 2; ++k)
+    {
+        /* as a sprite's: the core on the halo, across the bar */
+        bool        halo = x->fifo ? k == 0 : k == 1;
+        u32         link, *cw = cmd_alloc(x, &link);
+        vdp1_cmd    *c = (vdp1_cmd *)cw;
+        int         ea = halo ? sa * 2 : sa, eb = halo ? sb * 2 : sb;
+        int         pax = -dy * ea / len, pay = dx * ea / len, pbx = -dy * eb / len, pby = dx * eb / len;
+        u16         col = halo ? sp->halo : sp->color, g;
+
+        if (!c)
+            return;
+        g = (u16)(0x8000 | (col & 0x7FFF));
+        c->ctrl = 0x1000 | VDP1_DISTORTED;
+        c->link = (u16)link;
+        c->pmod = (u16)(PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD | PMOD_HALF_TRANS);
+        c->colr = (u16)(glow_lut >> 3);
+        c->srca = (u16)(glow_vram >> 3);
+        c->size = (4 << 8) | 32;
+        c->xa = (s16)(ax + pax); c->ya = (s16)(ay + pay);
+        c->xb = (s16)(bx + pbx); c->yb = (s16)(by + pby);
+        c->xc = (s16)(bx - pbx); c->yc = (s16)(by - pby);
+        c->xd = (s16)(ax - pax); c->yd = (s16)(ay - pay);
+        c->grda = vdp_gouraud_w(x->w, g, g, g, g);
+        ++x->st.cells;
+    }
+}
+
 static __attribute__((noinline)) void draw_sprite(r_ctx *x, int si)
 {
     const q_sprite  *sp = &r_sprites[si];
@@ -5430,6 +5508,11 @@ static __attribute__((noinline)) void draw_sprite(r_ctx *x, int si)
     int             k;
 
     (void)w;
+    if (si >= MAX_SPRITES)
+    {
+        draw_beam(x, &r_beams[si - MAX_SPRITES]);
+        return;
+    }
     d[0] = sp->pos[0] - cam.pos[0];
     d[1] = sp->pos[1] - cam.pos[1];
     d[2] = sp->pos[2] - cam.pos[2];
@@ -6808,6 +6891,14 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         spr_next[i] = leaf_spr[l];
         leaf_spr[l] = (s16)i;
     }
+    for (i = 0; i < r_nbeams && i < MAX_BEAMS; ++i)
+    {
+        int l = level_leaf(r_beams[i].pos);     /* (a beam as a sprite past the sprites' numbers) */
+
+        spr_leaf[MAX_SPRITES + i] = l;
+        spr_next[MAX_SPRITES + i] = leaf_spr[l];
+        leaf_spr[l] = (s16)(MAX_SPRITES + i);
+    }
     if (movers_version != listed_version)
     {
         listed_version = movers_version;    /* (a mover moved since: where it's listed) */
@@ -6915,6 +7006,8 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
             leaf_ent[ent_leaf[i]] = -1;
     for (i = 0; i < r_nsprites && i < MAX_SPRITES; ++i)
         leaf_spr[spr_leaf[i]] = -1;
+    for (i = 0; i < r_nbeams && i < MAX_BEAMS; ++i)
+        leaf_spr[spr_leaf[MAX_SPRITES + i]] = -1;
     rs.nodes = (int)frt_to_us((frt_read() - t0) & 0xFFFF);  /* the walk's time */
     view_fetch_more();
     /* ("faster fights", on unless OPT=-DNO_GAME_DURING_DRAW: the game's tick here,

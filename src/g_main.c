@@ -533,7 +533,8 @@ static __attribute__((cold)) void         monster_triggered_spawn(g_ent *self, g
     self->inactive = false;
     self->solid = true;
     self->use = monster_use;
-    M_droptofloor(self);
+    if (!(self->flags & FL_FLY))
+        M_droptofloor(self);
     self->leaf = (s16)level_leaf(self->origin);     /* (where it dropped to: g_render_ents' PVS test) */
     for (k = 0; k < 3; ++k)
         self->old_origin[k] = self->origin[k];
@@ -552,11 +553,13 @@ enum { G_NONE, G_FULL, G_ITEM, G_TRIG, G_POINT, G_POOLS };
 
 static __attribute__((cold)) int          g_pool(int c)
 {
-    if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_TANK)
+    if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_PARASITE)
         return (c == C_MONSTER_INFANTRY && !models[MDL_INFANTRY].loaded)
                || (c == C_MONSTER_GUNNER && !models[MDL_GUNNER].loaded)
                || (c == C_MONSTER_BERSERK && !models[MDL_BERSERK].loaded)
-               || (c == C_MONSTER_TANK && !models[MDL_TANK].loaded) ? G_NONE : G_FULL;
+               || (c == C_MONSTER_TANK && !models[MDL_TANK].loaded)
+               || (c == C_MONSTER_FLYER && !models[MDL_FLYER].loaded)
+               || (c == C_MONSTER_PARASITE && !models[MDL_PARASITE].loaded) ? G_NONE : G_FULL;
     if (c == C_MISC_EXPLOBOX)
         return models[MDL_BARREL].loaded ? G_FULL : G_NONE;
     if (c == C_FUNC_EXPLOSIVE)
@@ -619,6 +622,7 @@ __attribute__((cold)) void g_overlays_load(void)
 {
     static const struct { int mdl; const char *file; } ovl[] = {
         { MDL_GUNNER, "GUNNER.OVL" }, { MDL_BERSERK, "BERSERK.OVL" }, { MDL_TANK, "TANK.OVL" },
+        { MDL_FLYER, "FLYER.OVL" }, { MDL_PARASITE, "PARASITE.OVL" },
     };
     unsigned        i;
 
@@ -776,12 +780,13 @@ __attribute__((cold)) void g_init(void)
         e->count = r->count;
         e->model = r->model;
         e->kind = EK_POINT;
-        if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_TANK)
+        if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_PARASITE)
         {
             if (c != C_MONSTER_SOLDIER_LIGHT && c != C_MONSTER_SOLDIER && c != C_MONSTER_SOLDIER_SS)
             {
                 int m = c == C_MONSTER_INFANTRY ? MDL_INFANTRY : c == C_MONSTER_GUNNER ? MDL_GUNNER
-                        : c == C_MONSTER_BERSERK ? MDL_BERSERK : MDL_TANK;
+                        : c == C_MONSTER_BERSERK ? MDL_BERSERK : c == C_MONSTER_TANK ? MDL_TANK
+                        : c == C_MONSTER_FLYER ? MDL_FLYER : MDL_PARASITE;
 
                 if (!models[m].loaded)
                 {
@@ -803,7 +808,11 @@ __attribute__((cold)) void g_init(void)
             ++total_monsters;
             for (k = 0; k < 3; ++k)
                 e->old_origin[k] = e->origin[k];    /* (where its spawn dropped it to: no blend from above) */
+#ifdef SPAWN_ALL
+            if (0)                          /* (OPT=-DSPAWN_ALL: the triggered ones there from the start, a test) */
+#else
             if (e->spawnflags & 2)
+#endif
             {
                 /* not there until something triggers it */
                 e->inactive = true;

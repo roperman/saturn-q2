@@ -88,6 +88,10 @@ void                g_models_needed(bool *need)
             need[MDL_BERSERK] = true;
         else if (r->cls == C_MONSTER_TANK)
             need[MDL_TANK] = need[MDL_GIB_CHEST] = need[MDL_GIB_METAL] = need[MDL_GIB_GEAR] = true;
+        else if (r->cls == C_MONSTER_FLYER)
+            need[MDL_FLYER] = true;
+        else if (r->cls == C_MONSTER_PARASITE)
+            need[MDL_PARASITE] = true;
         else if (r->cls == C_MISC_EXPLOBOX)
             need[MDL_BARREL] = true;
     }

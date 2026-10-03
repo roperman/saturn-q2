@@ -252,8 +252,11 @@ void                cam_update(void);                       /* the axes from yaw
 /* dynamic lights and sprites: fx.c fills these each frame, render.c draws them */
 typedef struct { s32 pos[3]; s32 radius; u8 r, g, b, pad; } q_dlight;  /* r g b: 5-bit units at the centre */
 typedef struct { s32 pos[3]; s32 size; u16 color, halo; } q_sprite;     /* a glowing blob, size in units */
+typedef struct { s32 pos[3], end[3]; s32 size; u16 color, halo; } q_beam;   /* a bar of the glow from pos to end,
+                                                                               size its half-width */
 #define MAX_DLIGHTS     (8)
 #define MAX_SPRITES     (64)
+#define MAX_BEAMS       (4)
 extern q_dlight     r_dlights[MAX_DLIGHTS];
 extern int          r_ndlights;
 #define LIT_POOL        (6)                     /* models lit a frame behind at once (model.c ents_light_dyn) */
@@ -267,6 +270,8 @@ void                r_wall_ahead(void);         /* (the slave, its drawing done)
 void                r_wall_forget(void);        /* (the master, before it draws) */
 extern void         (*r_lit_wait)(void);        /* (draw_master, before its first model: the slave's done them) */
 extern q_sprite     r_sprites[MAX_SPRITES];
+extern q_beam       r_beams[MAX_BEAMS];
+extern int          r_nbeams;
 extern int          r_nsprites;
 
 /* fx.c: blaster bolts, flashes, sparks */
@@ -276,6 +281,7 @@ void                fx_bolt(struct g_ent_s *owner, const s32 *start, const s32 *
 void                fx_flash(const s32 *p, s32 radius, s32 dur, u8 r, u8 g, u8 b);
 void                fx_spark(const s32 *p);
 void                fx_explosion(const s32 *p);
+void                fx_beam(const s32 *a, const s32 *b);  /* (the parasite's tongue: a beam for a moment) */
 void                fx_grenade(struct g_ent_s *owner, const s32 *start, const s32 *dir, int damage, s32 speed);
 void                fx_rocket(struct g_ent_s *owner, const s32 *start, const s32 *dir, int damage, int radius_damage);
 void                fx_gib(int mdl, const s32 *pos, const s32 *vel);   /* a piece of a monster, flying */

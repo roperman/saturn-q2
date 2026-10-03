@@ -6,6 +6,8 @@ infantry  INFANTRY.MDL models/monsters/infantry/tris.md2  skin,pain  stand:stand
 gunner    GUNNER.MDL   models/monsters/gunner/tris.md2    skin,pain  stand:stand01-stand30,run:run01-run08,pain2:pain201-pain208,pain3:pain301-pain305,death:death01-death11,chain:attak209-attak230,grenade:attak101-attak121 lod=6 optional
 berserk   BERSERK.MDL  models/monsters/berserk/tris.md2   skin,pain  stand:stand1-stand5,run:run1-run6,attack:att_c1-att_c20,pain1:painc1-painc4,pain2:painb1-painb20,death1:death1-death13,death2:deathc1-deathc8 lod=6 optional
 tank      TANK.MDL     models/monsters/tank/tris.md2      skin,pain  stand:stand01-stand30,run:walk01-walk20,blast:attak101-attak122,rocket:attak301-attak353,chain:attak401-attak429,pain1:pain101-pain104,pain2:pain201-pain205,pain3:pain301-pain316,death:death101-death132 lod=6 optional
+flyer     FLYER.MDL    models/monsters/flyer/tris.md2     skin,pain  stand:stand01-stand45,melee:attak101-attak121,attack:attak201-attak217,pain1:pain101-pain109,pain2:pain201-pain204,pain3:pain301-pain304 lod=6 optional
+parasite  PARASITE.MDL models/monsters/parasite/tris.md2  skin,pain  stand:stand01-stand17,run:run01-run09,pain1:pain101-pain111,drain:drain01-drain18,death:death101-death107 lod=6 optional
 barrel    BARREL.MDL   models/objects/barrels/tris.md2    skin  -  sharedlut
 rocket    ROCKET.MDL   models/objects/rocket/tris.md2     skin  -  sharedlut
 grenade   GRENADE.MDL  models/objects/grenade/tris.md2    skin  -  sharedlut

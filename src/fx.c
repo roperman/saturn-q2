@@ -27,10 +27,12 @@ typedef struct
 
 typedef struct { s32 pos[3], t, dur, radius; u8 r, g, b; bool live, sprite, big; } t_flash;
 typedef struct { s32 pos[3], t; bool live; } t_spark;
+typedef struct { s32 pos[3], end[3], t; bool live; } t_beam;
 
 static t_proj       proj[MAX_PROJ];
 static t_flash      flashes[MAX_FLASHES];
 static t_spark      sparks[MAX_SPARKS];
+static t_beam       beams[MAX_BEAMS];
 static int          spark_next;
 static t_flash      *last_flash;
 
@@ -44,6 +46,29 @@ void                fx_spark(const s32 *p)
         s->pos[k] = p[k];
     s->t = 0;
     s->live = true;
+}
+
+/* a beam from a to b, for a moment (its maker says so again each tick it lasts) */
+__attribute__((cold)) void fx_beam(const s32 *a, const s32 *b)
+{
+    int             i, k, oldest = 0;
+
+    for (i = 0; i < MAX_BEAMS; ++i)
+    {
+        if (!beams[i].live)
+            break;
+        if (beams[i].t > beams[oldest].t)
+            oldest = i;
+    }
+    if (i == MAX_BEAMS)
+        i = oldest;
+    for (k = 0; k < 3; ++k)
+    {
+        beams[i].pos[k] = a[k];
+        beams[i].end[k] = b[k];
+    }
+    beams[i].t = 0;
+    beams[i].live = true;
 }
 
 void                fx_flash(const s32 *p, s32 radius, s32 dur, u8 r, u8 g, u8 b)
@@ -328,6 +353,7 @@ void                fx_reset(void)
     memset(proj, 0, sizeof(proj));
     memset(flashes, 0, sizeof(flashes));
     memset(sparks, 0, sizeof(sparks));
+    memset(beams, 0, sizeof(beams));
 }
 
 void                fx_update(s32 dt)
@@ -343,6 +369,26 @@ void                fx_update(s32 dt)
     for (i = 0; i < MAX_SPARKS; ++i)
         if (sparks[i].live && (sparks[i].t += dt) >= FIX(0.15))
             sparks[i].live = false;
+    for (i = 0; i < MAX_BEAMS; ++i)
+        if (beams[i].live && (beams[i].t += dt) >= FIX(0.15))
+            beams[i].live = false;
+#ifdef BEAM_TEST
+    {
+        /* (OPT=-DBEAM_TEST: a bar across in front of you, and one down to your feet, always) */
+        s32 a[3], b[3];
+
+        for (k = 0; k < 3; ++k)
+        {
+            a[k] = cam.pos[k] + fmul(cam.fwd[k], FIX(120)) - fmul(cam.right[k], FIX(40));
+            b[k] = cam.pos[k] + fmul(cam.fwd[k], FIX(120)) + fmul(cam.right[k], FIX(40));
+        }
+        fx_beam(a, b);
+        for (k = 0; k < 3; ++k)
+            b[k] = cam.pos[k];
+        b[2] -= FIX(25);
+        fx_beam(a, b);
+    }
+#endif
 
     /* the renderer's lights and sprites */
     r_ndlights = 0;
@@ -390,6 +436,21 @@ void                fx_update(s32 dt)
             sp->size = FIX(1.5);
             sp->color = RGB(255, 230, 150);
             sp->halo = RGB(160, 120, 60);
+        }
+    r_nbeams = 0;
+    for (i = 0; i < MAX_BEAMS; ++i)
+        if (beams[i].live)
+        {
+            q_beam  *bm = &r_beams[r_nbeams++];
+
+            for (k = 0; k < 3; ++k)
+            {
+                bm->pos[k] = beams[i].pos[k];
+                bm->end[k] = beams[i].end[k];
+            }
+            bm->size = FIX(3);
+            bm->color = RGB(220, 255, 200);
+            bm->halo = RGB(80, 170, 60);
         }
     for (i = 0; i < MAX_FLASHES; ++i)
     {

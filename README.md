@@ -13,7 +13,7 @@ RAM cart.
 > Claude has written most of the code, so the rest of this is in its words.
 > *Roper*
 
-I'm Claude (Claude Opus 5.5). The Saturn has two 28 MHz SH-2 CPUs with 4 KB
+I'm Claude (Opus 5.5 for most of it, Fable 5.1 since). The Saturn has two 28 MHz SH-2 CPUs with 4 KB
 caches, 2 MB of work RAM and a sprite chip that draws quads with no
 perspective correction and no depth buffer. Getting Quake 2 onto that has
 mostly been a job of finding where the time goes and winning it back, which
@@ -33,8 +33,9 @@ say) is a switch, and that call is Roper's, as is any that costs memory or
 latency.
 
 [OVERNIGHT.md](OVERNIGHT.md) is my log of it all: each change, why I made
-it, what I measured before and after, and the ideas that didn't pay. Every
-commit has me as co-author.
+it, what I measured before and after, and the ideas that didn't pay;
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the tour of how it all
+works, part by part. Every commit has me as co-author.
 
 Two numbers from that log (Mednafen, PAL):
 
@@ -54,9 +55,11 @@ and over half of each level's never came), more monsters and items.
   there's the level-complete screen and the three skill levels.
 - Monsters with Quake 2's own AI, ported from its game code: soldiers
   (light, standard, SS), infantry, the gunner (Installation and Comm
-  Center), the berserker (Comm Center) and the tank (Installation). They
-  see and hear you, chase you, shoot, flinch and die, and a hard enough hit
-  (or a body shot again) leaves them in pieces, as Quake's gibs.
+  Center), the berserker (Comm Center), the tank (Installation), the flyer
+  (Installation and Comm Center) and the parasite (Comm Center). They see
+  and hear you, chase you (the flyer flies), shoot, slash or drain you,
+  flinch and die, and a hard enough hit (or a body shot again) leaves them
+  in pieces, as Quake's gibs.
 - Weapons: blaster, shotgun, super shotgun, machinegun, chaingun, grenade
   launcher, rocket launcher. Quake's damage and fire rates, radius damage,
   and the weapon drawn in your hands.
@@ -72,9 +75,8 @@ and over half of each level's never came), more monsters and items.
 - A title menu with options, including brightness (for a PC screen, say),
   and Quake 2's console background behind the loading screens.
 
-Not yet: the other monsters (flyers and parasites, so Installation and Comm
-Center are quieter than Quake's), flickering lights, saving, and
-full-resolution textures. [PLAN.md](PLAN.md) has what's next.
+Not yet: flickering lights, saving, and full-resolution textures.
+[PLAN.md](PLAN.md) has what's next.
 
 ## Speed
 
@@ -219,7 +221,9 @@ into work RAM: the BSP into the fast high 1 MB, faces, cells and lights into
 the low. The game code (`src/g_*.c`, `src/m_*.c`) is Quake 2's, in fixed
 point, ticking at its 10 Hz with the monsters blended between ticks; in a
 fight it runs on the master while the slave draws. Its traces are Quake 2's,
-the line walk in assembly (`tline.s`).
+the line walk in assembly (`tline.s`). The monsters only some levels have
+are code overlays read onto the cart with their models.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) goes through all of it.
 
 ## Checking a change
 
@@ -233,7 +237,9 @@ Build switches (`OPT=-D... ./build.sh`) and scripts in `tools/`:
 | `tools/compare.sh` | the benchmark's views with the assembly on and off, pixel by pixel |
 | `OPT=-DONE_CPU` | everything on the master (fixed drawing order, for comparing builds) |
 | `OPT=-DFACE_CHECK`, `-DLINE_CHECK`, `-DBOUNDS_CHECK`, `-DMODEL_CHECK` | assembly and C side by side, results compared |
-| `OPT=-DLEVEL_TEST` | each level in turn, and the memory each leaves |
+| `OPT=-DLEVEL_TEST`, `tools/tour.sh` | each level in turn, and the memory each leaves |
+| `tools/abcompare.sh` | the six views with a change stashed and not, pixel by pixel |
+| `tools/make_sim.py` | the texture maker's DSP program against the C, in the simulator |
 | `OPT=-DWALLS_TEST`, `tools/walls_sim.py` | the walls' DSP programs against the C, on the Saturn at a level's start, or in `tools/dspsim.py` (a copy of Mednafen's DSP) |
 | `OPT=-DNO_DSP_WALLS` | the walls' dynamic lights all on the CPUs, this frame's |
 
@@ -247,6 +253,7 @@ keyboard, so leave the machine alone while it runs.
 | `src/` | the game: renderer, game code, traces, sound, menus, and the SH-2 assembly (`*.s`) |
 | `engine/` | the bare-metal engine: start-up, VDP1/VDP2, the SCU DSP, CD, sound (the 68000 driver in `engine/m68k/`) |
 | `tools/` | the bakers (map, models, sounds, HUD) and the test scripts |
+| `docs/` | how it works, part by part |
 | `OVERNIGHT.md` | the development log |
 | `PLAN.md` | what's next |
 

@@ -9,15 +9,12 @@ section by section.
 
 ## Next: the game
 
-- [ ] **The other monsters.** Installation has flyers the port doesn't
-      have yet, and Comm Center parasites and flyers (the gunners,
-      berserkers and the tank are in: OVERNIGHT.md sections 50, 53-55).
-      Each needs its AI ported from Quake 2's `m_*.c`, loaded per level as
-      the others' is; the cart has room for their models since the level
+- [x] **The other monsters.** All of the demo's are in now: the flyer
+      and the parasite last (OVERNIGHT.md section 63), after the level
       files stopped holding each tile's pixels seven times over (sections
-      60-62: ~546 KB free on Installation, ~700 on Comm Center, the
-      cropped and quartered tiles made by the DSP as they're uploaded).
-      The parasite needs its drain's beam, the flyer flying.
+      60-62) made the cart room for their models. Comm Center's cart is
+      full again (~28 KB left) and its sound bank is at the limit (2 KB):
+      anything more there has to come out of something.
 - [ ] **Flickering lights** (Quake's light styles): a lightmap layer a
       style, blended at run time.
 - [ ] **Saving** to backup RAM (the engine has a driver, `engine/bup.c`).

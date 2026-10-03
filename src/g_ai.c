@@ -8,7 +8,6 @@
 
 #define STEPSIZE        FIX(18)
 #define MELEE_DISTANCE  FIX(80)
-#define ANG(d)          ((int)((d) * 65536 / 360))
 
 static bool         enemy_vis, enemy_infront;
 static int          enemy_range, enemy_yaw;
@@ -63,6 +62,65 @@ realcheck:
     return true;
 }
 
+/* a flying monster's step (Quake's): no stairs or ground; the move tried leaning up or down
+   towards its goal first, then level; not into water */
+static __attribute__((cold, noinline)) bool SV_flystep(g_ent *ent, const s32 *move)
+{
+    s32             neworg[3], test[3];
+    q_trace         t;
+    g_ent           *hit;
+    int             i, k;
+
+    for (i = 0; i < 2; ++i)
+    {
+        for (k = 0; k < 3; ++k)
+            neworg[k] = ent->origin[k] + move[k];
+        if (i == 0 && ent->enemy)
+        {
+            const s32   *g;
+            s32         dz;
+
+            if (!ent->goalentity)
+                ent->goalentity = ent->enemy;
+            g = ent->goalentity == &goal_marker ? ent->goal_pos : ent->goalentity->origin;
+            dz = ent->origin[2] - g[2];
+            if (ent->goalentity->kind == EK_PLAYER)
+            {
+                if (dz > FIX(40))
+                    neworg[2] -= FIX(8);
+                if (dz < FIX(30))
+                    neworg[2] += FIX(8);
+            }
+            else if (dz > FIX(8))
+                neworg[2] -= FIX(8);
+            else if (dz > 0)
+                neworg[2] -= dz;
+            else if (dz < -FIX(8))
+                neworg[2] += FIX(8);
+            else
+                neworg[2] += dz;
+        }
+        t = g_trace(ent->origin, ent->mins, ent->maxs, neworg, ent, MASK_MONSTERSOLID, &hit);
+        if (ent->waterlevel == 0)
+        {
+            test[0] = t.endpos[0];
+            test[1] = t.endpos[1];
+            test[2] = t.endpos[2] + ent->mins[2] + FIX(1);
+            if (point_contents(test, 0) & MASK_WATER)
+                return false;
+        }
+        if (t.fraction == FIX(1))
+        {
+            for (k = 0; k < 3; ++k)
+                ent->origin[k] = t.endpos[k];
+            return true;
+        }
+        if (!ent->enemy)
+            break;
+    }
+    return false;
+}
+
 /* a walking step: up a stair or down one, not off a ledge; false (and no move) if it can't */
 static bool         SV_movestep(g_ent *ent, const s32 *move)
 {
@@ -71,6 +129,8 @@ static bool         SV_movestep(g_ent *ent, const s32 *move)
     g_ent           *hit;
     int             k;
 
+    if (ent->flags & FL_FLY)
+        return SV_flystep(ent, move);
     for (k = 0; k < 3; ++k)
     {
         oldorg[k] = ent->origin[k];
@@ -744,7 +804,7 @@ static void         M_CheckGround(g_ent *ent)
     s32             p[3];
     q_trace         t;
 
-    if (ent->velocity[2] > FIX(100))
+    if (ent->velocity[2] > FIX(100) || ent->flags & FL_FLY)
     {
         ent->on_ground = false;
         return;
@@ -795,6 +855,8 @@ void                monster_physics(g_ent *self)
     q_trace         t;
     int             k;
 
+    if (self->flags & FL_FLY)
+        return;                             /* (never falls) */
     M_CheckGround(self);
     if (self->on_ground)
         return;
@@ -820,7 +882,8 @@ void                monster_start(g_ent *self)
     self->max_health = self->health;
     self->ideal_yaw = self->yaw;
     self->old_yaw = self->yaw;
-    M_droptofloor(self);
+    if (!(self->flags & FL_FLY))
+        M_droptofloor(self);
     self->stand(self);
     self->frame = self->move->first + (int)(rng() % (u32)(self->move->last - self->move->first + 1));
     self->old_frame = self->frame;

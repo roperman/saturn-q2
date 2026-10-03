@@ -56,7 +56,7 @@ cat obj/walls1.bin obj/walls2.bin obj/xformm.bin obj/walls0.bin obj/make.bin > c
 python3 tools/bake_models.py data/pak0.pak cd
 # the monsters only some levels have: their code on the CD, each linked against game.elf, loaded by
 # the levels that have them (src/g_main.c g_overlays_load; tools/overlay.py)
-OVERLAYS="gunner berserk tank"
+OVERLAYS="gunner berserk tank flyer parasite"
 build_overlays()
 {
     local cflags="$1" m b

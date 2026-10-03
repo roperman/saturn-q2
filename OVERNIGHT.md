@@ -2719,3 +2719,35 @@ faces); no hidden block.
 Where it ended: the fight NTSC 37.5/36.1 ms, 130 of 533 late (the fight's
 chances put runs between 35.8 and 36.1 ms and 122 and 130 late now); PAL
 39.8/37.1, 0 of 502 late.
+
+## 60. Textures made as they're uploaded, 1: transposed and quartered
+
+Looking for cart room for the flyer (212 KB) and parasite (272 KB): a
+level's texture data (745-922 KB) turned out to hold its unique 16 x 16
+tiles about seven times over. VDP1 draws a sprite from contiguous rows of
+texels 8 wide or more, so every use a tile can't serve in place got its
+own copy of the pixels in the file: masked to a face's polygon edge
+(Outer Base: 2,313 full-size ones, 289 KB, and thousands cropped to half
+width), transposed for cells whose texture rows run down the cell (391),
+and quartered for the near split (719). The tiles themselves are 90 KB.
+
+The first two kinds that can be made on the way: a transposed or quartered
+texture's record now holds its tile's offset with how to make it in the
+top bits (`TEX_GEN_SHIFT`, q2.h), and `tex_load` makes the 128 bytes
+(`tex_make`) into a ring on the cart (16 KB a CPU, a quarter of it a
+frame, since an upload's source lives till the frame's end or, late, the
+next) that the queued DMA takes from like any other upload. Past a frame's
+share (32 a CPU) it's made on the stack and copied to VRAM at once.
+Uploads are about one a frame in the fight; these are a few per cent of
+them.
+
+Texture data 922/745/883 -> 794/556/704 KB: Installation's cart free 68
+-> 227 KB. Five of the six views pixel-identical; the sixth's 46 pixels
+are a 44 x 6 strip by the gun that an unrelated change (section 58's run)
+showed with the same count, the CPUs' meeting point. Close to a wall (the
+quarters' case) it looks right. The fight unchanged (37.7/36.3, 134).
+
+Next, the masked variants (part 2): a mask of 32 bytes a variant instead
+of its pixels, applied to the tile as it's uploaded; ~450 KB a level
+more, but variants are most of the uploads, so a fast turn in a busy spot
+(60 uploads in a frame) could cost a 2-3 ms hitch to measure first.

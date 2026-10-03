@@ -56,6 +56,15 @@
    each: the fight's worst frames). In the fight 40% of blocked monsters
    find their way on the 5th try or later, so 4 holds those up a tick
    (OVERNIGHT.md 59 has the numbers). */
+/* The A-bus's timing for the RAM cart (SCU ASR0, CS0 and CS1). SAROO, the SD card drive, sets
+   0x38803880 as it boots a game (8 waits, the cart's own wait signal heeded) and needs it: with
+   Sega's 0x23301FF0 for its own cart (3 waits, the wait signal ignored) a read from SAROO's cart
+   now and then got the bus's stale word instead (its SDRAM serves the CD too), and the game hung
+   somewhere new each run. 0x38803880 works on a Sega cart too, which never asks to wait; slower */
+#ifndef CART_ASR0
+#define CART_ASR0       (0x38803880)
+#endif
+
 #ifndef CHASE_TRIES
 #define CHASE_TRIES     (0)
 #endif

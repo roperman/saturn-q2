@@ -140,7 +140,7 @@ static __attribute__((cold)) void bt_dma_test(void)
     int             pass, k, m, t;
 
     REG16(0x257EFFFE) = 1;                  /* (the cart on, as level.c's cart_init) */
-    REG32(0x25FE00B0) = 0x23301FF0;
+    REG32(0x25FE00B0) = CART_ASR0;
     REG32(0x25FE00B8) = 0x00000013;
     for (pass = 0; pass < 4; ++pass)
     {

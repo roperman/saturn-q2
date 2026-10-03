@@ -3,8 +3,9 @@
 ** and used in place.
 **
 ** The cart: its ID byte at 0x24FFFFFF reads 0x5A (1 MB) or 0x5C (4 MB). It's
-** switched on and the A-bus timing set the way libyaul does it (as the taxi
-** game does); the 4 MB cart is one block at 0x02400000, read through the cache.
+** switched on and the A-bus timing set (settings.h CART_ASR0: SAROO's, which a
+** Sega cart works with too); the 4 MB cart is one block at 0x02400000, read
+** through the cache.
 */
 #include "q2.h"
 
@@ -328,7 +329,7 @@ __attribute__((cold)) void junk_fill(void)
     int             i;
 
     REG16(0x257EFFFE) = 1;                  /* (the cart on, as cart_init) */
-    REG32(0x25FE00B0) = 0x23301FF0;
+    REG32(0x25FE00B0) = CART_ASR0;
     REG32(0x25FE00B8) = 0x00000013;
 #define JUNK(a, b)  for (p = (u32 *)(a), e = (u32 *)(b); p < e; ++p) { x = x * 1664525u + 1013904223u; *p = x; }
     JUNK(0x22400000, 0x22800000);                                   /* the cart (uncached) */
@@ -358,7 +359,7 @@ static int          cart_init(void)
     if (id != 0x5A && id != 0x5C)
         return 0;
     REG16(0x257EFFFE) = 1;                  /* switch it on */
-    REG32(0x25FE00B0) = 0x23301FF0;         /* SCU ASR0: A-bus CS0/CS1 timing */
+    REG32(0x25FE00B0) = CART_ASR0;          /* SCU ASR0: A-bus CS0/CS1 timing (settings.h) */
     REG32(0x25FE00B8) = 0x00000013;         /* SCU AREF: A-bus refresh */
     return id == 0x5C ? 4 : 1;
 }

@@ -1,7 +1,10 @@
 # How it works
 
 A tour of the port, part by part: what runs where, what the data looks like,
-and what happens in a frame. [README.md](../README.md) is the short version;
+and what happens in a frame. Two pages beside this one draw it:
+[timeline.html](timeline.html) (a frame of the fight across every processor,
+to scale) and [flowchart.html](flowchart.html) (the frame's and the game
+tick's branches, down to a monster's step); open them in a browser. [README.md](../README.md) is the short version;
 [OVERNIGHT.md](../OVERNIGHT.md) has the history of every piece, with the
 numbers, and is referred to below by section.
 

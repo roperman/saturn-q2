@@ -35,7 +35,11 @@ latency.
 [OVERNIGHT.md](OVERNIGHT.md) is my log of it all: each change, why I made
 it, what I measured before and after, and the ideas that didn't pay;
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) is the tour of how it all
-works, part by part. Every commit has me as co-author.
+works, part by part, and two pages draw it: [docs/timeline.html](docs/timeline.html),
+one frame across the Saturn's processors against the clock, and
+[docs/flowchart.html](docs/flowchart.html), every branch of a frame and a
+game tick down to a monster's single step (open them in a browser: GitHub
+shows their source). Every commit has me as co-author.
 
 Two numbers from that log (Mednafen, PAL):
 

@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Saturn Frame Timeline</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root { box-sizing: border-box; }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  :root {
+    --bg: #eef1f4;
+    --panel: #f8fafb;
+    --ink: #17212b;
+    --ink-2: #4a5663;
+    --ink-3: #7a8793;
+    --grid: #cbd3db;
+    --grid-2: #dde3e9;
+    --idle: #b9c2cb;
+    --c-master: #2c5f9e;
+    --c-slave: #2e8574;
+    --c-dsp: #b8732e;
+    --c-dma: #7b5aa6;
+    --c-vdp1: #b3434f;
+    --c-vdp2: #4f7a2a;
+    --c-snd: #8a6e1f;
+    --c-smpc: #5d6b78;
+    --on-block: #ffffff;
+    --faded: 0.28;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    --cond: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+    --sans: "Barlow", "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #12171d;
+      --panel: #182028;
+      --ink: #e3e8ed;
+      --ink-2: #aeb8c2;
+      --ink-3: #7d8994;
+      --grid: #34404b;
+      --grid-2: #242e38;
+      --idle: #4a5561;
+      --c-master: #5b93d6;
+      --c-slave: #4fb39f;
+      --c-dsp: #dd9a55;
+      --c-dma: #a88bd3;
+      --c-vdp1: #de6d79;
+      --c-vdp2: #82ad55;
+      --c-snd: #c9a948;
+      --c-smpc: #8b99a6;
+      --on-block: #0d1217;
+      --faded: 0.32;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #12171d;
+    --panel: #182028;
+    --ink: #e3e8ed;
+    --ink-2: #aeb8c2;
+    --ink-3: #7d8994;
+    --grid: #34404b;
+    --grid-2: #242e38;
+    --idle: #4a5561;
+    --c-master: #5b93d6;
+    --c-slave: #4fb39f;
+    --c-dsp: #dd9a55;
+    --c-dma: #a88bd3;
+    --c-vdp1: #de6d79;
+    --c-vdp2: #82ad55;
+    --c-snd: #c9a948;
+    --c-smpc: #8b99a6;
+    --on-block: #0d1217;
+    --faded: 0.32;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+    padding-inline: 20px;
+    padding-block: 36px 56px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 40px; }
+  header { display: grid; gap: 10px; max-width: 70ch; }
+  .eyebrow {
+    font-family: var(--cond);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  h1 {
+    font-family: var(--cond);
+    font-weight: 700;
+    font-size: clamp(34px, 5vw, 52px);
+    line-height: 1.02;
+    letter-spacing: 0.01em;
+    text-wrap: balance;
+    margin: 0;
+  }
+  h2 {
+    font-family: var(--cond);
+    font-weight: 700;
+    font-size: 26px;
+    letter-spacing: 0.02em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  p { margin: 0; }
+  .lede { color: var(--ink-2); font-size: 17px; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+  .lede a, .section-head a, footer a { color: var(--c-master); }
+
+  section { display: grid; gap: 16px; }
+  .section-head { display: grid; gap: 6px; max-width: 72ch; }
+  .section-head p { color: var(--ink-2); }
+
+  /* the chart */
+  .chart-frame {
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: 6px;
+    padding-block: 18px 12px;
+    padding-inline: 0;
+    display: grid;
+    gap: 12px;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    padding-inline: 18px;
+    font-size: 14px;
+    color: var(--ink-2);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .sw { width: 22px; height: 12px; border-radius: 2px; display: inline-block; }
+  .sw.strong { background: var(--ink-2); }
+  .sw.faded { background: var(--ink-2); opacity: var(--faded); }
+  .sw.idle { background: repeating-linear-gradient(135deg, var(--idle) 0 3px, transparent 3px 6px); border: 1px solid var(--idle); }
+  .sw.mark { width: 2px; height: 14px; background: var(--c-vdp1); border-radius: 0; }
+  .scroller { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .scroller:focus-visible { outline: 2px solid var(--c-master); outline-offset: 2px; }
+  svg.timeline { display: block; font-family: var(--sans); }
+  .timeline text { fill: var(--ink); }
+  .timeline .lane-name { font-family: var(--cond); font-weight: 600; font-size: 15px; letter-spacing: 0.02em; }
+  .timeline .lane-sub { font-family: var(--mono); font-size: 10.5px; fill: var(--ink-3); }
+  .timeline .tick { font-family: var(--mono); font-size: 11px; fill: var(--ink-3); }
+  .timeline .blk-label { font-family: var(--cond); font-weight: 600; font-size: 13px; fill: var(--on-block); }
+  .timeline .blk-label.dark { fill: var(--ink); }
+  .timeline .period { font-family: var(--cond); font-weight: 700; font-size: 14px; letter-spacing: 0.08em; fill: var(--ink-2); }
+  .timeline .note { font-family: var(--sans); font-size: 12px; fill: var(--ink-2); }
+  .chart-note { padding-inline: 18px; font-size: 13.5px; color: var(--ink-3); max-width: 120ch; }
+
+  /* steps */
+  ol.steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0;
+    counter-reset: step;
+    border-top: 1px solid var(--grid);
+  }
+  ol.steps li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 3.2rem 7.5rem 1fr;
+    gap: 4px 16px;
+    padding-block: 12px;
+    border-bottom: 1px solid var(--grid-2);
+    align-items: baseline;
+  }
+  ol.steps li::before {
+    content: counter(step, decimal-leading-zero);
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink-3);
+  }
+  .when { font-family: var(--mono); font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .what { max-width: 72ch; }
+  .what b { font-weight: 600; }
+  .chip {
+    display: inline-block;
+    font-family: var(--cond);
+    font-weight: 600;
+    font-size: 12.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding-inline: 6px;
+    border-radius: 3px;
+    margin-right: 6px;
+    color: var(--on-block);
+    vertical-align: 1px;
+  }
+  .c-master { background: var(--c-master); }
+  .c-slave { background: var(--c-slave); }
+  .c-dsp { background: var(--c-dsp); }
+  .c-dma { background: var(--c-dma); }
+  .c-vdp1 { background: var(--c-vdp1); }
+  .c-vdp2 { background: var(--c-vdp2); }
+  .c-snd { background: var(--c-snd); }
+  .c-smpc { background: var(--c-smpc); }
+
+  /* the DSP's chain */
+  .chain { display: flex; flex-wrap: wrap; gap: 10px 0; align-items: stretch; }
+  .chain .prog {
+    display: grid; gap: 4px; align-content: start;
+    background: var(--panel); border: 1px solid var(--grid); border-left: 4px solid var(--c-dsp);
+    border-radius: 4px; padding: 10px 12px; width: 13.5rem;
+  }
+  .chain .prog b { font-family: var(--cond); font-weight: 600; font-size: 17px; }
+  .chain .prog code { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+  .chain .prog span { font-size: 14px; color: var(--ink-2); }
+  .chain .arrow { align-self: center; padding-inline: 8px; color: var(--ink-3); font-family: var(--mono); }
+
+  /* chips table */
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 15px; }
+  th, td { text-align: left; vertical-align: top; padding: 10px 14px 10px 0; border-bottom: 1px solid var(--grid-2); }
+  th {
+    font-family: var(--cond);
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    border-bottom: 1px solid var(--grid);
+  }
+  td.name { white-space: nowrap; font-family: var(--cond); font-weight: 600; font-size: 16px; }
+  td.name .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: 0; }
+  td code, .what code, li code, p code { font-family: var(--mono); font-size: 0.86em; color: var(--ink-2); }
+  td.cost { font-family: var(--mono); font-size: 13.5px; white-space: nowrap; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+
+  /* why */
+  .why { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px 28px; }
+  .why div { display: grid; gap: 6px; align-content: start; }
+  .why h3 { font-family: var(--cond); font-weight: 600; font-size: 18px; margin: 0; letter-spacing: 0.01em; }
+  .why p { color: var(--ink-2); font-size: 15px; }
+
+  footer { color: var(--ink-3); font-size: 13.5px; max-width: 80ch; border-top: 1px solid var(--grid); padding-top: 14px; }
+
+  @media (max-width: 640px) {
+    ol.steps li { grid-template-columns: 2.4rem 1fr; }
+    ol.steps li .when { grid-column: 2; }
+    ol.steps li .what { grid-column: 2; }
+    .chain .prog { width: 100%; }
+    .chain .arrow { width: 100%; text-align: center; padding-block: 2px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Quake 2 on the Sega Saturn · one frame · October 2026</div>
+    <h1>What runs where, and when</h1>
+    <p class="lede">
+      The Saturn has <strong>two SH-2 CPUs</strong>, a <strong>DSP</strong> and a <strong>DMA</strong> engine in its system control unit,
+      <strong>two video chips</strong> and a <strong>68000</strong> for sound. The port keeps them busy at once. The chart follows an
+      average frame of the fight benchmark on PAL (25 frames a second, so 40&nbsp;ms each), to scale. While the CPUs build frame N,
+      VDP1 draws frame N−1 and the TV shows frame N−2. The <a href="flowchart.html">Saturn Engine Flowchart</a> has what each step decides.
+    </p>
+  </header>
+
+  <section>
+    <div class="chart-frame">
+      <div class="legend" aria-hidden="true">
+        <span><i class="sw strong"></i>frame N</span>
+        <span><i class="sw faded"></i>the frames before and after</span>
+        <span><i class="sw idle"></i>waiting</span>
+        <span><i class="sw mark"></i>the swap: timer interrupt at line 216, then the vblank</span>
+      </div>
+      <div class="scroller" tabindex="0" role="region" aria-label="Timeline of one frame across the Saturn's processors">
+        <svg class="timeline" id="timeline" role="img" aria-labelledby="tl-title tl-desc"></svg>
+      </div>
+      <p class="chart-note">From the fight benchmark in Mednafen (502 frames, every one two fields): the CPUs busy 37.3&nbsp;ms of each 40.
+        The master: the pad 0.2&nbsp;ms, set-up 0.5, the BSP walk 10.0, the game's tick 11.4 (on average a frame; 18.0 at most), drawing from the back 14.7.
+        The slave draws for 32.9&nbsp;ms (it waits on the walk now and then), and makes the next frame's move at the end.
+        The DSP's parts and VDP1's time are estimates; the texture maker costs the CPUs 27&nbsp;µs a frame here.
+        On a phone, scroll the chart sideways.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Frame N, in order</h2>
+      <p>The master SH-2 runs the loop in <code>src/main.c</code>. Everything else is started by it, or runs on its own clock.</p>
+    </div>
+    <ol class="steps">
+      <li><span class="when">0.0 ms</span><div class="what"><span class="chip c-master">Master</span>Takes the move the <span class="chip c-slave">Slave</span> made for this frame at the end of the last one: the pad it read, the doors and lifts moved, you moved (Quake 2's <code>pmove</code>, against the level's brushes).</div></li>
+      <li><span class="when">0.0</span><div class="what"><span class="chip c-master">Master</span>Starts the <span class="chip c-slave">Slave</span> on the monsters' list: which are in view and where, their light, and the dynamic lights on them.</div></li>
+      <li><span class="when">0.2</span><div class="what"><span class="chip c-master">Master</span>Camera, the gun in your hands, the sky's scroll, the effects (projectiles move and hit, flashes fade; this frame's lights, sprites and beams), the screen's tint.</div></li>
+      <li><span class="when">0.7</span><div class="what"><span class="chip c-master">Master</span>Starts the <span class="chip c-dsp">DSP</span> on every visible model's vertices; it runs its other programs after them on its own. The <span class="chip c-dma">DMA</span> fetches the gun's next animation frames from the RAM cart.</div></li>
+      <li><span class="when">0.7</span><div class="what"><span class="chip c-master">Master</span>Walks the BSP tree front to back (<code>walk.s</code>), publishing the visible faces as it finds them. The slave starts drawing the first ones straight away.</div></li>
+      <li><span class="when">1.4 → 36.8</span><div class="what"><span class="chip c-slave">Slave</span>Draws from the front of the list: each face's setup, grid and cells in assembly (<code>face.s</code>, <code>grid.s</code>, <code>cells.s</code>) into VDP1 commands, and each model once the DSP has its vertices.</div></li>
+      <li><span class="when">10.7</span><div class="what"><span class="chip c-master">Master</span>Runs the game's tick while the slave draws, when one's due: the world's 10&nbsp;Hz tick and the monsters in eight groups, with their traces through the level (<code>g_main.c</code>, <code>g_ai.c</code>, <code>trace.c</code>).</div></li>
+      <li><span class="when">22.1</span><div class="what"><span class="chip c-master">Master</span>Draws the gun, then faces and models from the back of the list, until it meets the slave coming the other way.</div></li>
+      <li><span class="when">36.8</span><div class="what"><span class="chip c-master">Master</span>Tells the <span class="chip c-dsp">DSP</span>'s texture maker the frame's done and makes any texture it hadn't got to. The textures the CPUs needed go across by <span class="chip c-dma">DMA</span>, then the status bar goes on top.</div></li>
+      <li><span class="when">36.8</span><div class="what"><span class="chip c-slave">Slave</span>Reads the pad and makes the next frame's move while the master finishes, so the next frame starts with it done.</div></li>
+      <li><span class="when">37.3</span><div class="what"><span class="chip c-master">Master</span>Hands the frame over: the <span class="chip c-dma">DMA</span> copies both CPUs' command lists and Gouraud tables into VDP1's memory, and the list waits for the swap.</div></li>
+      <li><span class="when">39.5 / 40</span><div class="what"><span class="chip c-vdp1">VDP1</span>A timer interrupt at line 216 checks VDP1 has finished the frame before. If it has, VDP1 starts on frame N at the vblank, and the buffer it just finished (frame N−1) goes on screen.</div></li>
+      <li><span class="when">40 → ~62</span><div class="what"><span class="chip c-vdp1">VDP1</span>Draws frame N's thousand or so textured quads and polygons into the back buffer, while the CPUs are already on frame N+1.</div></li>
+      <li><span class="when">80</span><div class="what"><span class="chip c-vdp2">VDP2</span>Frame N reaches the screen: VDP2 shows VDP1's buffer over its own sky layer and gradient, with the colour offset for underwater tints and flashes.</div></li>
+    </ol>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>The DSP's frame</h2>
+      <p>The DSP holds one 256-word program at a time. Each of these loads the next itself, by DMA from the RAM cart, so the CPUs start it once a frame and never wait for the chain.</p>
+    </div>
+    <div class="chain">
+      <div class="prog"><b>The models</b><code>xformm.dsp</code><span>Every visible model's two animation frames, blended and turned into view, 16 vertices at a time.</span></div>
+      <div class="arrow">→</div>
+      <div class="prog"><b>The walls' lights</b><code>walls0, walls1, walls2</code><span>When a light's lit: picks the faces it reaches from last frame's, and lights their grid points for the next frame.</span></div>
+      <div class="arrow">→</div>
+      <div class="prog"><b>The texture maker</b><code>make.dsp</code><span>For the rest of the frame: makes each texture the CPUs list (a tile cut by a 32-byte mask, or split for the near plane).</span></div>
+      <div class="arrow">→</div>
+      <div class="prog"><b>Back to the models</b><code>at the frame's end</code><span>The master's end flag: the maker finishes its job, says how many it made, and loads the models' program for next time.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Each chip's job</h2>
+      <p>In the code and at what cost, a frame of the fight.</p>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Chip</th><th>What it does here</th><th>Where</th><th>A frame</th></tr></thead>
+        <tbody>
+          <tr><td class="name"><i class="dot c-master"></i>Master SH-2</td><td>The main loop, the BSP walk, the game's tick, and its half of the drawing (from the back, plus the gun); the frame's end.</td><td><code>main.c</code>, <code>walk.s</code>, <code>g_*.c</code>, <code>render.c</code></td><td class="cost">37.3 ms</td></tr>
+          <tr><td class="name"><i class="dot c-slave"></i>Slave SH-2</td><td>The monsters' list and their lighting, then the other half of the drawing, from the front, as soon as the walk has published a face; then the next frame's move.</td><td><code>slave_main</code>, <code>face.s</code>, <code>cells.s</code></td><td class="cost">~35 ms</td></tr>
+          <tr><td class="name"><i class="dot c-dsp"></i>SCU DSP</td><td>The models' vertices, the walls' dynamic lights, and the textures made as they're uploaded. It runs alongside the CPUs, which only wait if a model's turn comes before its vertices are ready.</td><td><code>engine/*.dsp</code></td><td class="cost">all of it</td></tr>
+          <tr><td class="name"><i class="dot c-dma"></i>SCU DMA</td><td>Copies without the CPUs: the gun's animation and missing textures from the RAM cart, and the finished command lists into VDP1's memory.</td><td><code>scu_dma0</code> in <code>engine/</code></td><td class="cost">~1.5 ms</td></tr>
+          <tr><td class="name"><i class="dot c-vdp1"></i>VDP1</td><td>Draws the command list: each world cell is a distorted sprite with Gouraud shading (no perspective correction and no depth buffer, so the list comes back to front), plus models, glows, beams and the status bar.</td><td><code>engine/vdp.c</code></td><td class="cost">~20 ms</td></tr>
+          <tr><td class="name"><i class="dot c-vdp2"></i>VDP2</td><td>Puts VDP1's frame on screen over the sky: a scrolling panorama and a colour for each scan line. The colour offset tints the picture underwater and flashes it on hits.</td><td><code>engine/sky.c</code></td><td class="cost">free</td></tr>
+          <tr><td class="name"><i class="dot c-snd"></i>68000 + SCSP</td><td>The sound driver runs on its own CPU 60 times a second. It takes orders from the SH-2 through a mailbox (the game's sounds each at their moment), and the SCSP mixes 32 voices, with reverb on its own DSP.</td><td><code>engine/m68k/driver.c</code></td><td class="cost">free</td></tr>
+          <tr><td class="name"><i class="dot c-smpc"></i>SMPC</td><td>Reads the pads when asked, at the end of each vblank.</td><td><code>engine/sys.c</code></td><td class="cost">free</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>Why it's arranged like this</h2>
+    </div>
+    <div class="why">
+      <div><h3>Two frames in flight</h3><p>VDP1 draws one frame while the CPUs build the next, so neither waits for the other. The price is latency: a frame reaches the screen about two frames after the pads were read.</p></div>
+      <div><h3>The walk feeds the slave</h3><p>Faces are published one at a time as the walk finds them, so the slave doesn't wait for the whole list. The master takes from the back and the slave from the front, and they meet wherever the work runs out.</p></div>
+      <div><h3>The game runs during the drawing</h3><p>Monsters and their traces run on the master while the slave draws. The slave takes more of the list that frame, which balances the two CPUs.</p></div>
+      <div><h3>The next move, made early</h3><p>The slave finishes drawing before the master, so it reads the pad and moves you for the next frame then. The next frame starts with that done, about 1.5&nbsp;ms sooner.</p></div>
+      <div><h3>The DSP keeps itself busy</h3><p>Its programs load each other from the cart, so after one start a frame it works through the models, the walls' lights and the textures with no CPU attention.</p></div>
+      <div><h3>Everything else runs alongside</h3><p>The DMA, the sound CPU and the SMPC each run on their own. The CPUs only hand them work and collect the results, and never wait for them in the common case.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    Measured in Mednafen on a PAL Saturn with the 4&nbsp;MB RAM cart, from the port's fight benchmark (20&nbsp;seconds in a room of monsters on Outer Base), 3&nbsp;October 2026. Times are averages over its frames; quieter frames leave more of each 40&nbsp;ms idle. First drawn 29&nbsp;September, when the CPUs were busy 33.8&nbsp;ms with half the level's monsters missing.
+  </footer>
+</div>
+
+<script>
+(function () {
+  const svg = document.getElementById('timeline');
+  const NS = 'http://www.w3.org/2000/svg';
+  const PX = 9;            // pixels per millisecond
+  const LEFT = 150;        // lane labels
+  const TOP = 48;          // period labels and the time scale
+  const LANE = 50;
+  const BAR = 30;
+  const END = 120;         // three frames of 40 ms
+  const lanes = [
+    { id: 'master', name: 'Master SH-2', sub: '26.8 MHz' },
+    { id: 'slave', name: 'Slave SH-2', sub: '26.8 MHz' },
+    { id: 'dsp', name: 'SCU DSP', sub: '4 programs' },
+    { id: 'dma', name: 'SCU DMA', sub: 'copies' },
+    { id: 'vdp1', name: 'VDP1', sub: 'draws' },
+    { id: 'vdp2', name: 'VDP2 · screen', sub: 'shows' },
+    { id: 'snd', name: '68000 + SCSP', sub: 'sound, 60 Hz' },
+    { id: 'smpc', name: 'SMPC', sub: 'the pads' },
+  ];
+  const W = LEFT + END * PX + 24;
+  const H = TOP + lanes.length * LANE + 12;
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('width', W);
+  svg.setAttribute('height', H);
+
+  function el(name, attrs, text) {
+    const e = document.createElementNS(NS, name);
+    for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    svg.appendChild(e);
+    return e;
+  }
+  const t = document.createElementNS(NS, 'title');
+  t.id = 'tl-title';
+  t.textContent = 'Timeline of one frame across the Saturn\'s processors';
+  svg.appendChild(t);
+  const d = document.createElementNS(NS, 'desc');
+  d.id = 'tl-desc';
+  d.textContent = 'Three 40 ms frame periods. In the first, both SH-2s build frame N while the DSP runs its chain of programs and the DMA copies data; the slave makes the next move at the end. In the second, VDP1 draws frame N. In the third, frame N is on screen.';
+  svg.appendChild(d);
+
+  const x = ms => LEFT + ms * PX;
+  const laneY = i => TOP + i * LANE;
+
+  // defs: the idle hatch
+  const defs = document.createElementNS(NS, 'defs');
+  defs.innerHTML = '<pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="none"/><line x1="0" y1="0" x2="0" y2="6" style="stroke: var(--idle)" stroke-width="2.4"/></pattern>';
+  svg.appendChild(defs);
+
+  // lane backgrounds and labels
+  lanes.forEach((ln, i) => {
+    const y = laneY(i);
+    el('rect', { x: LEFT, y: y, width: END * PX, height: LANE, style: `fill: ${i % 2 ? 'transparent' : 'var(--grid-2)'}; opacity: ${i % 2 ? 1 : 0.55}` });
+    el('text', { x: 16, y: y + 23, class: 'lane-name' }, ln.name);
+    el('text', { x: 16, y: y + 39, class: 'lane-sub' }, ln.sub);
+  });
+
+  // the time grid: every 10 ms, fields every 20 (vblanks), frames every 40
+  for (let ms = 0; ms <= END; ms += 10) {
+    const strong = ms % 40 === 0;
+    el('line', { x1: x(ms), x2: x(ms), y1: TOP - 6, y2: H - 12, style: `stroke: var(--grid); stroke-width: ${strong ? 1.4 : 1}` + (strong ? '' : '; stroke-dasharray: 2 4') });
+    el('text', { x: x(ms), y: TOP - 12, class: 'tick', 'text-anchor': ms === 0 ? 'start' : ms === END ? 'end' : 'middle' }, ms + (ms === END ? ' ms' : ''));
+  }
+  [['building frame N', 0], ['VDP1 draws frame N', 40], ['frame N on screen', 80]].forEach(([s, ms]) => {
+    el('text', { x: x(ms) + 6, y: 16, class: 'period' }, s.toUpperCase());
+  });
+
+  // blocks: [lane, from, to, label, frame] (frame: 'n' strong, 'o' the others faded, 'idle' hatched, 'poll' the maker waiting)
+  const B = [];
+  function frameBlocks(off, f) {
+    B.push(['master', off + 0.0, off + 0.2, '', f],
+           ['master', off + 0.2, off + 0.7, '', f],
+           ['master', off + 0.7, off + 10.7, 'BSP walk', f],
+           ['master', off + 10.7, off + 22.1, 'game tick', f],
+           ['master', off + 22.1, off + 36.8, 'draws from the back', f],
+           ['master', off + 36.8, off + 37.3, '', f],
+           ['master', off + 37.3, off + 40, '', 'idle'],
+           ['slave', off + 0, off + 0.4, '', f],
+           ['slave', off + 0.4, off + 0.7, '', 'idle'],
+           ['slave', off + 0.7, off + 1.4, '', f],
+           ['slave', off + 1.4, off + 36.8, 'draws from the front', f],
+           ['slave', off + 36.8, off + 38.3, 'next move', f],
+           ['slave', off + 38.3, off + 40, '', 'idle'],
+           ['dsp', off + 0.7, off + 3.7, 'models', f],
+           ['dsp', off + 3.7, off + 4.6, '', f],
+           ['dsp', off + 4.6, off + 36.8, 'texture maker: waits for jobs', 'poll'],
+           ['dsp', off + 36.8, off + 37.0, '', f],
+           ['dma', off + 0.7, off + 1.3, '', f],
+           ['dma', off + 36.9, off + 37.2, '', f],
+           ['dma', off + 37.3, off + 38.3, '', f]);
+  }
+  frameBlocks(0, 'n');
+  frameBlocks(40, 'o');
+  frameBlocks(80, 'o');
+  // VDP1: frame N-1 in the first period, N in the second, N+1 in the third
+  B.push(['vdp1', 0, 22, 'draws N−1', 'o'], ['vdp1', 40, 62, 'draws frame N', 'n'], ['vdp1', 80, 102, 'draws N+1', 'o']);
+  B.push(['vdp2', 0, 40, 'shows N−2', 'o'], ['vdp2', 40, 80, 'shows N−1', 'o'], ['vdp2', 80, 120, 'shows frame N', 'n']);
+
+  const laneIndex = Object.fromEntries(lanes.map((l, i) => [l.id, i]));
+  B.forEach(([id, a, b, label, f]) => {
+    const i = laneIndex[id];
+    const y = laneY(i) + (LANE - BAR) / 2;
+    const w = (b - a) * PX;
+    if (f === 'idle') {
+      el('rect', { x: x(a), y: y, width: w, height: BAR, fill: 'url(#hatch)', style: 'stroke: var(--idle); stroke-width: 1', rx: 2 });
+      return;
+    }
+    if (f === 'poll') {
+      // the maker: waiting for jobs, mostly (hatched in the DSP's colour, faint), its few textures as ticks
+      const strong = a < 40;
+      el('rect', { x: x(a), y: y, width: w, height: BAR, fill: 'url(#hatch)', style: `stroke: var(--c-dsp); stroke-width: 1; opacity: ${strong ? 0.9 : 0.35}`, rx: 2 });
+      if (strong && label) el('text', { x: x(a) + 7, y: y + BAR / 2 + 4.5, class: 'blk-label dark' }, label);
+      return;
+    }
+    el('rect', { x: x(a) + 0.5, y: y, width: Math.max(w - 1, 2), height: BAR, rx: 2, style: `fill: var(--c-${id}); opacity: ${f === 'n' ? 1 : 'var(--faded)'}` });
+    if (label && w > label.length * 6.4 + 12) {
+      el('text', { x: x(a) + 7, y: y + BAR / 2 + 4.5, class: 'blk-label' + (f === 'n' ? '' : ' dark') }, label);
+    }
+  });
+
+  // the textures the maker makes as the CPUs list them (about one a frame in the fight)
+  [24.5].forEach(ms => {
+    const y = laneY(laneIndex.dsp) + (LANE - BAR) / 2;
+    el('rect', { x: x(ms), y: y + 4, width: 3, height: BAR - 8, rx: 1, style: 'fill: var(--c-dsp)' });
+  });
+  // the walls' lights: a short program after the models when a light's lit
+  {
+    const y = laneY(laneIndex.dsp);
+    el('text', { x: x(3.9), y: y + 9, class: 'note' }, 'lights');
+  }
+
+  // sound: the driver's ticks, 60 a second; the SCSP always running
+  {
+    const i = laneIndex.snd, y = laneY(i) + (LANE - BAR) / 2;
+    el('rect', { x: x(0), y: y + BAR / 2 - 3, width: END * PX, height: 6, rx: 3, style: 'fill: var(--c-snd); opacity: var(--faded)' });
+    for (let ms = 0; ms < END; ms += 1000 / 60) {
+      el('rect', { x: x(ms), y: y + 4, width: 5, height: BAR - 8, rx: 1, style: 'fill: var(--c-snd)' });
+    }
+    el('text', { x: x(52), y: y + BAR / 2 - 7, class: 'note' }, 'SCSP mixes 32 voices, reverb on its DSP');
+  }
+  // SMPC: the pads, read at the end of each vblank (the vblank's 5.6 ms after it starts)
+  {
+    const i = laneIndex.smpc, y = laneY(i) + (LANE - BAR) / 2;
+    for (let ms = 5.6; ms < END; ms += 20) {
+      el('rect', { x: x(ms), y: y + 6, width: 6, height: BAR - 12, rx: 1, style: 'fill: var(--c-smpc)' });
+    }
+    el('text', { x: x(8), y: y + BAR / 2 + 4, class: 'note' }, 'pads read (the slave takes them for the next move)');
+  }
+
+  // the swaps: the timer interrupt at line 216, then the vblank
+  [40, 80].forEach(ms => {
+    el('line', { x1: x(ms), x2: x(ms), y1: TOP, y2: laneY(laneIndex.vdp2) + LANE, style: 'stroke: var(--c-vdp1); stroke-width: 2' });
+    el('circle', { cx: x(ms - 0.5), cy: laneY(laneIndex.vdp1) + LANE / 2, r: 4, style: 'fill: var(--c-vdp1)' });
+  });
+  // the hand-off of frame N: the master's lists into VRAM, then VDP1 at the swap
+  el('path', { d: `M ${x(38.3)} ${laneY(laneIndex.dma) + LANE / 2} C ${x(39)} ${laneY(laneIndex.dma) + LANE / 2}, ${x(39.2)} ${laneY(laneIndex.vdp1) + LANE / 2}, ${x(40)} ${laneY(laneIndex.vdp1) + LANE / 2}`,
+               style: 'fill: none; stroke: var(--ink-2); stroke-width: 1.4; stroke-dasharray: 3 3' });
+  el('path', { d: `M ${x(62)} ${laneY(laneIndex.vdp1) + LANE / 2} C ${x(72)} ${laneY(laneIndex.vdp1) + LANE / 2}, ${x(76)} ${laneY(laneIndex.vdp2) + LANE / 2}, ${x(80)} ${laneY(laneIndex.vdp2) + LANE / 2}`,
+               style: 'fill: none; stroke: var(--ink-2); stroke-width: 1.4; stroke-dasharray: 3 3' });
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,706 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Saturn Engine Flowchart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root { box-sizing: border-box; }
+  body { margin: 0; }
+  img { max-width: 100%; }
+  :root {
+    --bg: #eef1f4;
+    --panel: #f8fafb;
+    --ink: #17212b;
+    --ink-2: #4a5663;
+    --ink-3: #7a8793;
+    --grid: #cbd3db;
+    --grid-2: #dde3e9;
+    --line: #8d99a5;
+    --dec: #dce6f2;
+    --dec-ink: #1b2d44;
+    --yes: #2c5f9e;
+    --end: #e6eaee;
+    --c-master: #2c5f9e;
+    --c-slave: #2e8574;
+    --c-dsp: #b8732e;
+    --c-dma: #7b5aa6;
+    --c-vdp: #b3434f;
+    --on-block: #ffffff;
+    --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+    --cond: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+    --sans: "Barlow", "Helvetica Neue", Arial, sans-serif;
+    --node-w: 19rem;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #12171d;
+      --panel: #182028;
+      --ink: #e3e8ed;
+      --ink-2: #aeb8c2;
+      --ink-3: #7d8994;
+      --grid: #34404b;
+      --grid-2: #242e38;
+      --line: #5d6a76;
+      --dec: #1f3045;
+      --dec-ink: #dbe6f3;
+      --yes: #6fa2e0;
+      --end: #222c36;
+      --c-master: #5b93d6;
+      --c-slave: #4fb39f;
+      --c-dsp: #dd9a55;
+      --c-dma: #a88bd3;
+      --c-vdp: #de6d79;
+      --on-block: #0d1217;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #12171d;
+    --panel: #182028;
+    --ink: #e3e8ed;
+    --ink-2: #aeb8c2;
+    --ink-3: #7d8994;
+    --grid: #34404b;
+    --grid-2: #242e38;
+    --line: #5d6a76;
+    --dec: #1f3045;
+    --dec-ink: #dbe6f3;
+    --yes: #6fa2e0;
+    --end: #222c36;
+    --c-master: #5b93d6;
+    --c-slave: #4fb39f;
+    --c-dsp: #dd9a55;
+    --c-dma: #a88bd3;
+    --c-vdp: #de6d79;
+    --on-block: #0d1217;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.5;
+    padding-inline: 20px;
+    padding-block: 36px 56px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 44px; }
+  header { display: grid; gap: 10px; max-width: 72ch; }
+  .eyebrow { font-family: var(--cond); font-weight: 600; font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
+  h1 { font-family: var(--cond); font-weight: 700; font-size: clamp(34px, 5vw, 52px); line-height: 1.02; letter-spacing: 0.01em; text-wrap: balance; margin: 0; }
+  h2 { font-family: var(--cond); font-weight: 700; font-size: 26px; letter-spacing: 0.02em; margin: 0; text-wrap: balance; }
+  h3 { font-family: var(--cond); font-weight: 600; font-size: 19px; letter-spacing: 0.02em; margin: 0; }
+  p { margin: 0; }
+  a { color: var(--yes); }
+  a:focus-visible { outline: 2px solid var(--yes); outline-offset: 2px; border-radius: 2px; }
+  .lede { color: var(--ink-2); font-size: 17px; }
+  code { font-family: var(--mono); font-size: 0.86em; color: var(--ink-2); }
+
+  section { display: grid; gap: 18px; scroll-margin-top: 16px; }
+  .section-head { display: grid; gap: 6px; max-width: 74ch; }
+  .section-head p { color: var(--ink-2); }
+  .kicker { font-family: var(--mono); font-size: 12.5px; color: var(--ink-3); }
+  .stack { display: grid; gap: 40px; }
+  .stack > div { display: grid; gap: 14px; scroll-margin-top: 16px; min-width: 0; }
+
+  /* the map */
+  .map { display: grid; gap: 8px; font-size: 15px; }
+  .map .lvl { display: grid; gap: 8px; border-left: 2px solid var(--grid); padding-left: 16px; margin-left: 8px; }
+  .map .row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+  .map a { font-family: var(--cond); font-weight: 600; font-size: 18px; text-decoration: none; }
+  .map a:hover { text-decoration: underline; }
+  .map .when { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+  .map .why { color: var(--ink-2); font-size: 14.5px; }
+
+  /* legend */
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 22px; font-size: 14px; color: var(--ink-2); align-items: center; }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .lg { display: inline-block; height: 18px; width: 34px; }
+  .lg.step { background: var(--panel); border: 1px solid var(--grid); border-radius: 3px; }
+  .lg.dec { background: var(--dec); clip-path: polygon(8px 0, calc(100% - 8px) 0, 100% 50%, calc(100% - 8px) 100%, 8px 100%, 0 50%); }
+  .lg.call { background: var(--panel); border: 1px solid var(--grid); border-left: 4px double var(--line); border-right: 4px double var(--line); }
+  .lg.loop { border: 1.5px dashed var(--line); border-radius: 6px; }
+  .lg.term { background: var(--end); border-radius: 999px; border: 1px solid var(--grid); }
+
+  /* the flows */
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+  .flow { position: relative; display: flex; flex-direction: column; align-items: flex-start; min-width: 0; }
+  .it { position: relative; padding-top: 16px; width: 100%; }
+  .it:first-child { padding-top: 0; }
+  .it::before { content: ""; position: absolute; left: 22px; top: 0; height: 16px; border-left: 2px solid var(--line); }
+  .it:first-child::before { display: none; }
+
+  .node {
+    position: relative; z-index: 1;
+    width: min(100%, var(--node-w));
+    background: var(--panel);
+    border: 1px solid var(--grid);
+    border-radius: 4px;
+    padding: 7px 12px 8px;
+    font-size: 14.5px; line-height: 1.38;
+    display: grid; gap: 2px;
+  }
+  .node .c { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); line-height: 1.3; overflow-wrap: anywhere; }
+  .node.lane { border-left-width: 4px; }
+  .lane-master { border-left-color: var(--c-master); }
+  .lane-slave { border-left-color: var(--c-slave); }
+  .lane-dsp { border-left-color: var(--c-dsp); }
+  .lane-dma { border-left-color: var(--c-dma); }
+  .lane-vdp { border-left-color: var(--c-vdp); }
+  .chip { display: inline-block; font-family: var(--cond); font-weight: 600; font-size: 12px; letter-spacing: 0.05em; text-transform: uppercase; padding-inline: 5px; border-radius: 3px; margin-right: 6px; color: var(--on-block); vertical-align: 1px; }
+  .chip.master { background: var(--c-master); } .chip.slave { background: var(--c-slave); } .chip.dsp { background: var(--c-dsp); } .chip.dma { background: var(--c-dma); } .chip.vdp { background: var(--c-vdp); }
+
+  .node.call { border-left: 4px double var(--line); border-right: 4px double var(--line); }
+  .node.call a { font-weight: 600; text-decoration: none; }
+  .node.call a::after { content: " →"; }
+  .node.call a:hover { text-decoration: underline; }
+
+  .node.term { background: var(--end); border-radius: 999px; width: auto; max-width: min(100%, var(--node-w)); padding-inline: 16px; font-family: var(--cond); font-weight: 600; font-size: 15px; letter-spacing: 0.02em; }
+  .node.start { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+  .node.dec {
+    background: var(--dec); color: var(--dec-ink); border: 0; border-radius: 0;
+    padding: 9px 26px 10px;
+    clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 14px 100%, 0 50%);
+    font-weight: 500;
+  }
+  .node.cases { padding: 0; gap: 0; overflow: hidden; }
+  .node.cases .head { padding: 7px 12px 6px; font-weight: 600; }
+  .node.cases .case { display: grid; gap: 1px; padding: 6px 12px 7px; border-top: 1px solid var(--grid-2); }
+  .node.cases .case a { font-weight: 600; text-decoration: none; }
+  .node.cases .case a::after { content: " →"; }
+
+  .back { display: inline-block; position: relative; z-index: 1; font-family: var(--mono); font-size: 12px; color: var(--ink-3); background: var(--bg); padding: 1px 6px; margin-left: 10px; }
+
+  /* a decision: its node, its branch to the side, the main line on down */
+  .dec-row { display: grid; grid-template-columns: var(--node-w) minmax(0, 1fr); grid-template-areas: "node br" "ml br"; align-items: start; }
+  .dec-row::after { content: ""; position: absolute; left: 22px; top: 16px; bottom: 0; border-left: 2px solid var(--line); z-index: 0; }
+  .dec-row:first-child::after { top: 0; }
+  .dec-row > .node { grid-area: node; width: 100%; }
+  .dec-row > .ml { grid-area: ml; position: relative; z-index: 1; margin: 2px 0 0 30px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+  .br { grid-area: br; position: relative; padding-left: 58px; min-width: 0; }
+  .br::before { content: ""; position: absolute; left: 0; top: 19px; width: 50px; border-top: 2px solid var(--yes); }
+  .br::after { content: ""; position: absolute; left: 46px; top: 15px; border: 5px solid transparent; border-left: 7px solid var(--yes); border-right: 0; }
+  .br > .bl { position: absolute; left: 6px; top: 0; font-family: var(--mono); font-size: 11.5px; color: var(--yes); }
+  .br > .flow { padding-top: 0; }
+
+  /* a loop: a box round its steps */
+  .loopbox { position: relative; z-index: 1; border: 1.5px dashed var(--line); border-radius: 8px; padding: 34px 14px 14px; background: color-mix(in srgb, var(--bg) 70%, var(--panel)); width: fit-content; max-width: 100%; }
+  .loopbox > .lbl { position: absolute; left: 12px; top: 8px; font-family: var(--cond); font-weight: 600; font-size: 14.5px; letter-spacing: 0.02em; color: var(--ink-2); }
+  .loopbox > .lbl::before { content: "↻ "; color: var(--ink-3); }
+
+  .note { color: var(--ink-2); font-size: 15px; max-width: 74ch; }
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: 16px 28px; }
+  .facts div { display: grid; gap: 4px; align-content: start; }
+  .facts b { font-family: var(--cond); font-weight: 600; font-size: 17px; }
+  .facts p { color: var(--ink-2); font-size: 15px; }
+
+  footer { color: var(--ink-3); font-size: 13.5px; max-width: 84ch; border-top: 1px solid var(--grid); padding-top: 14px; }
+
+  @media (max-width: 760px) {
+    :root { --node-w: 100%; }
+    .dec-row { grid-template-columns: minmax(0, 1fr); grid-template-areas: "node" "br" "ml"; }
+    .br { padding-left: 44px; padding-top: 22px; margin-top: 0; }
+    .br::before { left: 30px; top: 0; width: 0; height: 100%; border-top: 0; border-left: 2px dashed var(--yes); }
+    .br::after { display: none; }
+    .br > .bl { left: 44px; top: 2px; }
+    .dec-row > .ml { margin-top: 6px; }
+    .loopbox { width: 100%; padding-inline: 10px; }
+  }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Quake 2 on the Sega Saturn · the engine · October 2026</div>
+    <h1>What happens each frame, and each tick</h1>
+    <p class="lede">The game runs as a loop of frames, 25 a second on PAL and up to 30 on NTSC, and inside it Quake 2's game ticks at its own 10 a second. Every decision below is a branch in the code: the box under each says where. The <a href="timeline.html">Saturn Frame Timeline</a> shows the same frame against the clock.</p>
+  </header>
+
+  <section id="map">
+    <div class="section-head"><h2>How it nests</h2><p>Each name opens its chart. The frame calls the game step when the game runs; the game step runs the ticks that are due; a monster's tick runs the AI of its animation's frame.</p></div>
+    <div class="map">
+      <div class="row"><a href="#frame">The frame</a><span class="when">main.c · every frame</span><span class="why">input, menus, your move, the effects, the drawing, the hand-over</span></div>
+      <div class="lvl">
+        <div class="row"><a href="#alongside">Alongside: the slave and the DSP</a><span class="when">their own loops</span><span class="why">the monsters' list, half the drawing, the next move; models, lights, textures</span></div>
+        <div class="row"><a href="#step">The game step</a><span class="when">g_frame · when the game's running</span><span class="why">your weapon, then whichever ticks are due</span></div>
+        <div class="lvl">
+          <div class="row"><a href="#tick">The world tick</a><span class="when">g_tick · 10 a second</span><span class="why">triggers, pickups, thinks</span></div>
+          <div class="row"><a href="#mon">A monster tick</a><span class="when">g_tick_monsters · 10 a second, in 8 groups</span><span class="why">each monster's next animation frame</span></div>
+          <div class="lvl">
+            <div class="row"><a href="#frameai">The animation frame</a><span class="when">M_MoveFrame</span><span class="why">which frame, then its AI and its extra</span></div>
+            <div class="lvl">
+              <div class="row"><a href="#idle">Idle, and finding you</a><span class="when">ai_stand · FindTarget</span></div>
+              <div class="row"><a href="#run">Chasing</a><span class="when">ai_run</span></div>
+              <div class="row"><a href="#attack">Deciding to attack</a><span class="when">ai_checkattack · M_CheckAttack</span></div>
+              <div class="row"><a href="#move">Moving</a><span class="when">M_MoveToGoal · SV_NewChaseDir · SV_StepDirection · SV_movestep</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="row"><a href="#events">Outside the ticks: hits, pain, death, waking up</a><span class="when">g_damage · whenever something lands</span></div>
+    </div>
+    <div class="legend" aria-hidden="true">
+      <span><i class="lg step"></i>a step</span>
+      <span><i class="lg dec"></i>a decision: <b style="color:var(--yes);font-weight:500">yes</b> to the side, no straight on</span>
+      <span><i class="lg call"></i>runs another chart</span>
+      <span><i class="lg loop"></i>repeats</span>
+      <span><i class="lg term"></i>start, or where it ends</span>
+    </div>
+  </section>
+
+  <section id="frame">
+    <div class="section-head">
+      <h2>The frame</h2>
+      <p class="kicker">src/main.c, the master SH-2</p>
+      <p>Everything starts here. The coloured edge says which processor does a step when it isn't the master.</p>
+    </div>
+    <div class="scroll"><div class="flow" data-flow="frame"></div></div>
+  </section>
+
+  <section id="alongside">
+    <div class="section-head">
+      <h2>Alongside: the slave and the DSP</h2>
+      <p>Both run their own loops, started by the master's signals. Neither has to be waited for in the usual frame.</p>
+    </div>
+    <div class="stack">
+      <div id="slave"><h3>The slave SH-2</h3><p class="kicker">slave_main, src/main.c</p><div class="scroll"><div class="flow" data-flow="slave"></div></div></div>
+      <div id="dsp"><h3>The SCU DSP</h3><p class="kicker">engine/xformm.dsp, walls0-2.dsp, make.dsp</p><div class="scroll"><div class="flow" data-flow="dsp"></div></div></div>
+    </div>
+  </section>
+
+  <section id="step">
+    <div class="section-head">
+      <h2>The game step</h2>
+      <p class="kicker">game_step, src/main.c; g_frame, src/g_main.c</p>
+      <p>Quake 2's game thinks in tenths of a second. The frames don't fall on tenths, so each clock collects the frames' time and runs a tick for every tenth it has. The monsters are split into eight groups whose tenths are spread across the tick, so a frame does an even share of them instead of all of them every fourth frame.</p>
+    </div>
+    <div class="scroll"><div class="flow" data-flow="step"></div></div>
+  </section>
+
+  <section id="ticks">
+    <div class="stack">
+      <div id="tick">
+        <div class="section-head"><h2>The world tick</h2><p class="kicker">g_tick, src/g_main.c</p><p>Everything that isn't a monster's AI: triggers, pickups, and the entities waiting to do something later.</p></div>
+        <div class="scroll"><div class="flow" data-flow="tick"></div></div>
+      </div>
+      <div id="mon">
+        <div class="section-head"><h2>A monster tick</h2><p class="kicker">g_tick_monsters, src/g_main.c</p><p>One group's monsters, every eighth entity. Most of a fight's time goes in the AI it calls and the traces that does.</p></div>
+        <div class="scroll"><div class="flow" data-flow="mon"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="frameai">
+    <div class="section-head">
+      <h2>The animation frame</h2>
+      <p class="kicker">M_MoveFrame, src/g_ai.c</p>
+      <p>A monster is always in a move: a run of animation frames from its <code>m_*.c</code> table, each with an AI function, how far it steps, and an extra (a shot, a swing, a sound). The move's end function picks what comes next. That table is the monster: the gunner's says when its chaingun fires, the parasite's when its tongue bites.</p>
+    </div>
+    <div class="scroll"><div class="flow" data-flow="frameai"></div></div>
+  </section>
+
+  <section id="ai">
+    <div class="stack">
+      <div id="idle">
+        <div class="section-head"><h2>Idle, and finding you</h2><p class="kicker">ai_stand; FindTarget, src/g_ai.c</p></div>
+        <div class="scroll"><div class="flow" data-flow="idle"></div></div>
+        <div class="scroll" id="find"><div class="flow" data-flow="find"></div></div>
+      </div>
+      <div id="run">
+        <div class="section-head"><h2>Chasing</h2><p class="kicker">ai_run, src/g_ai.c</p></div>
+        <div class="scroll"><div class="flow" data-flow="run"></div></div>
+        <div class="section-head"><h3>The other two</h3><p>ai_charge: turn to face the enemy, and step if the frame says to. ai_move: step straight ahead by the frame's distance (pains, deaths, a flyer backing off as it fires).</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="attack">
+    <div class="section-head">
+      <h2>Deciding to attack</h2>
+      <p class="kicker">ai_checkattack, M_CheckAttack, src/g_ai.c</p>
+      <p>Asked every frame of a chase. One trace answers both "can it see you" and "is the shot clear". A monster that decides to attack turns first and starts its attack move once it's facing you.</p>
+    </div>
+    <div class="scroll"><div class="flow" data-flow="attack"></div></div>
+  </section>
+
+  <section id="move">
+    <div class="section-head">
+      <h2>Moving</h2>
+      <p class="kicker">M_MoveToGoal, SV_NewChaseDir, SV_StepDirection, SV_movestep, SV_flystep, src/g_ai.c</p>
+      <p>Quake's monsters don't path-find: each tick they step towards their goal, and when a step is blocked they try other directions in a fixed order. A step is a box trace through the level, which is why a crowd of blocked monsters is the dearest thing in a fight.</p>
+    </div>
+    <div class="stack">
+      <div id="goal"><h3>Towards the goal</h3><div class="scroll"><div class="flow" data-flow="goal"></div></div><div class="scroll" id="chase"><div class="flow" data-flow="chase"></div></div></div>
+      <div id="stepdir"><h3>A step</h3><div class="scroll"><div class="flow" data-flow="stepdir"></div></div></div>
+    </div>
+  </section>
+
+  <section id="events">
+    <div class="section-head">
+      <h2>Outside the ticks: hits, pain, death, waking up</h2>
+      <p class="kicker">g_damage, src/g_main.c; FoundTarget, src/g_ai.c</p>
+      <p>A hit is handled the moment it lands, whoever's tick or frame it lands in: your hitscan shots in the game step, projectiles and explosions in the effects, the monsters' blows in their ticks.</p>
+    </div>
+    <div class="stack">
+      <div><div class="scroll"><div class="flow" data-flow="damage"></div></div></div>
+      <div class="facts">
+        <div><b>A monster that sees you</b><p>FindTarget makes it the tick's "sight entity": any other monster that can see it this tick wakes too and comes for you, unless it's set to ambush.</p></div>
+        <div><b>A noise you make</b><p>Firing makes you the tick's "sound entity". A monster within 1,000 units hears it, turns towards it and goes to look, through walls; an ambusher must also see you.</p></div>
+        <div><b>A trigger</b><p>Some monsters aren't there until a trigger names them (the flyers on Installation and Comm Center among them): they appear, and come for whoever set it off. Others are told to attack by a trigger's target.</p></div>
+        <div><b>Being hit</b><p>A monster you hurt turns on you at once, whatever it was doing, and its pain move plays at most every three seconds.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>Drawn from the code as of 3 October 2026 (commit 25eb80b). Quake 2's game code is id Software's, ported to fixed point; the names in the boxes are its functions and the port's.</footer>
+</div>
+
+<script>
+(function () {
+  // Each chart is a list of items:
+  //   {s, c, lane}       a step (c: where in the code; lane: the processor, if not the master)
+  //   {go, to, c, lane}  runs another chart (a link)
+  //   {d, b, bl, ml}     a decision: its branch b to the side (labelled bl, "yes"), the main line on (ml, "no")
+  //   {loop, body}       repeats its body
+  //   {start} / {end}    where a chart starts and ends
+  //   {back}             a branch's note on where it goes next
+  //   {cases, head}      a list of calls, one taken
+  const F = {};
+
+  F.frame = [
+    { start: 'A frame starts' },
+    { d: 'Did the slave already make this frame’s move?', c: 'pm_asked, PM_DONE', b: [
+      { s: 'Use the pad it read, and where it moved you' },
+      { back: 'on' } ] },
+    { s: 'Otherwise read the pad', c: 'pad_collect (the SMPC read it in the vblank)' },
+    { d: 'A menu up?', c: 'menu_active', b: [
+      { s: 'Menu input: move, choose, go back, change an option. New game or restart loads the level', c: 'menu_input' },
+      { back: 'on, the game standing still' } ] },
+    { d: 'Dead, or the level done?', c: 'g_player->dead, level_complete', b: [
+      { s: 'Wait for START; then the next level by its exit, keeping your health and weapons, or a restart', c: 'load_level' },
+      { back: 'on' } ] },
+    { d: 'START tapped on its own?', b: [ { s: 'The pause menu' }, { back: 'on' } ] },
+    { d: 'START held with a button?', b: [ { s: 'Debugging: warp to a monster, item, door or trigger; god mode; noclip; every weapon; the benchmark' }, { back: 'on' } ] },
+    { d: 'Showing the benchmark’s fixed views?', c: 'bench_view', b: [ { s: 'Draw that view and time it' }, { end: 'next frame' } ] },
+    { d: 'Two CPUs, and the game during the drawing?', c: 'pre_slave', b: [
+      { s: 'Monsters’ list: which are in view and where; then their light', c: 'g_render_ents, ents_shade, ents_light_dyn', lane: 'slave' },
+      { back: 'on, while the slave works' } ] },
+    { d: 'Playing, and you not moved yet?', c: '!paused && !premoved', b: [
+      { s: 'Doors and lifts move, then you: Quake 2’s movement against the level’s brushes', c: 'movers_update, pmove' },
+      { back: 'on' } ] },
+    { d: 'Game during the drawing switched off?', c: '!game_during_draw (Options)', b: [ { go: 'The game step, now', to: 'step' }, { back: 'on' } ] },
+    { s: 'The camera from you (at the title, turning slowly at the level’s start)', c: 'cam_update' },
+    { s: 'The gun: its animation; the next weapon read from the CD in the background', c: 'view_update' },
+    { s: 'The sky: VDP2’s layer scrolled to your view', c: 'render_sky', lane: 'vdp' },
+    { s: 'Effects: projectiles fly and hit, flashes fade; this frame’s lights, sprites and beams', c: 'fx_update' },
+    { d: 'Monsters’ list left to the master?', c: '!pre_slave', b: [ { s: 'Do it here: the list, their light', c: 'g_render_ents, ents_light' }, { back: 'on' } ] },
+    { s: 'The screen’s tint: under water, a hit’s red, a pickup’s yellow', c: 'VDP2’s colour offset', lane: 'vdp' },
+    { s: 'Ask the slave to make the next frame’s move when it’s done drawing', c: 'PM_REQ' },
+    { go: 'Start the DSP: the models, then its chain', to: 'dsp', c: 'models_to_dsp', lane: 'dsp' },
+    { s: 'The walk: the BSP front to back, each visible face published as it’s found', c: 'walk_asm, src/walk.s' },
+    { go: 'Meanwhile the slave draws from the front', to: 'slave', lane: 'slave' },
+    { d: 'Playing, with the game during the drawing (the default)?', c: 'r_during', b: [ { go: 'The game step', to: 'step' }, { back: 'on' } ] },
+    { s: 'Draw the gun, then faces and models from the back of the list until meeting the slave', c: 'draw_master; face.s, grid.s, cells.s, mdraw.s' },
+    { s: 'Wait for the slave to finish' },
+    { s: 'The texture maker told the frame’s done; any texture it hadn’t made, made here', c: 'mk_finish' },
+    { s: 'The textures the CPUs needed: into VDP1’s VRAM by DMA', c: 'upload_one', lane: 'dma' },
+    { s: 'The status bar and messages', c: 'hud_draw' },
+    { s: 'Hand over: both CPUs’ lists into VDP1 by DMA; the swap at the next vblank VDP1 is free for', c: 'vdp_submit', lane: 'vdp' },
+    { end: 'Next frame' },
+  ];
+
+  F.slave = [
+    { start: 'Wait for the master’s signal' },
+    { d: 'The monsters’ list job?', c: 'PRE_JOB', b: [
+      { s: 'Which monsters are in view, their render records', c: 'g_render_ents' },
+      { s: 'Once the camera’s set: their leaves, their light, the dynamic lights on them', c: 'ents_leaf, ents_shade, ents_light_dyn' },
+      { back: 'back to waiting' } ] },
+    { s: 'Draw from the front of the list as the walk publishes faces: faces, cells, models', c: 'render_slave' },
+    { s: 'Tell the master it’s done', c: 'signal_master' },
+    { d: 'Asked for the next frame’s move?', c: 'PM_REQ', b: [ { s: 'Read the pad; doors, lifts and you move', c: 'premove: movers_update, pmove' }, { back: 'on' } ] },
+    { end: 'Back to waiting' },
+  ];
+
+  F.dsp = [
+    { start: 'Started by the master' },
+    { s: 'The models: each one’s two frames blended and turned into view, 16 vertices at a time; a count after each, which the CPUs poll', c: 'xformm.dsp' },
+    { d: 'A light lit, and faces drawn last frame?', c: 'dw_frame', b: [
+      { s: 'Pick the faces the lights reach', c: 'walls0.dsp' },
+      { s: 'Lay out each one’s grid', c: 'walls1.dsp' },
+      { s: 'Light every grid point, for the next frame', c: 'walls2.dsp' },
+      { back: 'on' } ] },
+    { d: 'Room for the texture maker on this level?', c: 'mk_block', b: [
+      { loop: 'Until the master’s end flag', body: [
+        { d: 'A new job on either CPU’s list?', b: [ { s: 'Tile and mask in, 32 words made, out to the upload’s slot', c: 'make.dsp' }, { back: 'on' } ] },
+        { s: 'Wait 200 cycles (the cart’s bus is the CPUs’ too)' } ] },
+      { s: 'Write how many it made', c: 'state word: done' },
+      { back: 'on' } ] },
+    { s: 'Load the models’ program back', c: 'DMA into program RAM' },
+    { end: 'Stop' },
+  ];
+
+  F.step = [
+    { start: 'The game step' },
+    { d: 'B held, and your weapon ready?', c: 'g_player_fire', b: [
+      { s: 'Fire: bullets and pellets traced at once, or a bolt, grenade or rocket launched; a noise monsters hear' },
+      { back: 'on' } ] },
+    { s: 'You into the game’s entity 0 from your move; the doors’ and lifts’ boxes for traces', c: 'g_solids_update' },
+    { s: 'The world’s clock gains the frame’s time', c: 'level.acc += dt (40 ms on PAL)' },
+    { loop: 'While a tenth of a second has built up (3 at most)', body: [ { go: 'The world tick', to: 'tick', c: 'g_tick' } ] },
+    { s: 'Each of the 8 monster groups’ clocks gains it too: they’re an eighth of a tick apart, so about 3 come due in a PAL frame', c: 'level.mon_acc[g]' },
+    { loop: 'For each group, while its tenth has built up (3 at most)', body: [ { go: 'A monster tick for that group', to: 'mon', c: 'g_tick_monsters(g)' } ] },
+    { s: 'The ticks’ sounds go to the 68000, each to start at its own moment', c: 's_lag, s_queue_flush' },
+    { end: 'Back to the frame' },
+  ];
+
+  F.tick = [
+    { start: 'The world tick' },
+    { s: 'The clock moves on a tenth; who monsters look for: you, unless you’re dead', c: 'level.time, sight_client' },
+    { s: 'Triggers you’re inside fire: relays, counters, doors, secrets, the exit', c: 'g_touch_triggers' },
+    { s: 'Items you touch are picked up', c: 'g_touch_items' },
+    { d: 'The thinkers list overflowed (48)?', c: 'g_thinkers_full', b: [
+      { s: 'Look through every entity for a think that’s due, run it, and make the list again' },
+      { end: 'Tick done' } ] },
+    { loop: 'For each entity on the thinkers list', body: [
+      { d: 'Its time not come yet?', c: 'nextthink', b: [ { back: 'stays on the list' } ] },
+      { s: 'Off the list; its think runs: a door’s wait, a delayed relay, a timer, a barrel’s explosion, an item coming back', c: 'e->think' },
+      { s: 'It may put itself, or another, back on' } ] },
+    { end: 'Tick done' },
+  ];
+
+  F.mon = [
+    { start: 'A monster tick for one group' },
+    { s: 'The group’s clock moves on a tenth (the game’s time while it runs)', c: 'level.mon_time[g]' },
+    { loop: 'For every eighth entity, from the group’s first', body: [
+      { d: 'Not a monster, or not there until triggered?', c: 'kind, inactive', b: [ { end: 'next one' } ] },
+      { d: 'No enemy, and out of your view (not in your PVS)?', c: 'r_leaf_in_pvs', b: [
+        { d: 'Its tick to skip (every other one)?', c: 'FL_IDLE_ODD', b: [ { end: 'next one' } ] },
+        { back: 'on' } ] },
+      { s: 'Keep where it was: place, facing, frame. The renderer blends from them to the new ones', c: 'old_origin, old_yaw, old_frame' },
+      { d: 'Dead, and its death move over?', c: '!e->move', b: [ { end: 'next one' } ] },
+      { go: 'Its animation frame: which, its AI, its extra', to: 'frameai', c: 'M_MoveFrame' },
+      { d: 'In the air, or moved without a step that found the floor?', c: 'on_ground, FL_STEPPED', b: [
+        { s: 'Ground check; falls under gravity. Flyers never fall', c: 'monster_physics' }, { back: 'on' } ] },
+      { d: 'Moved?', b: [ { s: 'Which leaf it’s in now, for the renderer', c: 'level_leaf' }, { back: 'on' } ] },
+      { s: 'Its box for others’ traces brought up to date', c: 'solid_box' } ] },
+    { end: 'Group done' },
+  ];
+
+  F.frameai = [
+    { start: 'M_MoveFrame' },
+    { d: 'Told to jump to a frame of this move?', c: 'nextframe', b: [ { s: 'Go to it' }, { back: 'to its AI' } ] },
+    { d: 'On the move’s last frame, and it has an end?', c: 'endfunc', b: [
+      { s: 'The end picks the next move: an attack or a pain back to running, a death to lying still', c: 'gunner_run, parasite_dead…' },
+      { d: 'Dead with no move left?', b: [ { end: 'A body: done' } ] },
+      { back: 'on' } ] },
+    { d: 'The frame outside the move (a new one)?', b: [ { s: 'Start at its first frame' }, { back: 'to its AI' } ] },
+    { d: 'Holding the frame (a burst of fire)?', c: 'AI_HOLD_FRAME', b: [ { back: 'stays on it' } ] },
+    { s: 'Otherwise the next frame, round to the first after the last' },
+    { cases: [
+      { t: 'ai_stand: idle, looking for you', to: 'idle' },
+      { t: 'ai_run: chasing, maybe attacking', to: 'run' },
+      { t: 'ai_charge: facing you to attack', to: 'run' },
+      { t: 'ai_move: a step straight ahead', to: 'run' } ], head: 'The frame’s AI, with its step (none if holding)' },
+    { s: 'The frame’s extra: a shot, a swing, a grenade, a sound, the parasite’s drain, the flyer’s blades', c: 'frames[i].think' },
+    { end: 'Back to the monster tick' },
+  ];
+
+  F.idle = [
+    { start: 'ai_stand' },
+    { d: 'A step this frame?', b: [ { s: 'Walk it', c: 'M_walkmove' }, { back: 'on' } ] },
+    { d: 'Standing its ground (an order, or only for now)?', c: 'AI_STAND_GROUND', b: [
+      { d: 'Has an enemy?', b: [
+        { s: 'Face it; if it was only standing for now and you’ve moved off, run again' },
+        { go: 'Attack now?', to: 'attack', c: 'ai_checkattack' },
+        { end: 'done' } ] },
+      { back: 'look for you' } ] },
+    { go: 'Look for you', to: 'find', c: 'FindTarget' },
+    { end: 'done' },
+  ];
+
+  F.find = [
+    { start: 'FindTarget' },
+    { s: 'Who: a monster that found you this tick (unless this one ambushes), else a noise you made this tick, else you', c: 'sight_entity, sound_entity' },
+    { d: 'That’s already its enemy?', b: [ { end: 'found' } ] },
+    { d: 'Idle and not a noise, and not its look this tick (every third, staggered)?', b: [ { end: 'not now' } ] },
+    { d: 'Heard, not seen?', b: [
+      { d: 'Over 1,000 units (or an ambusher that can’t see you)?', b: [ { end: 'nothing' } ] },
+      { s: 'Turn towards the noise; its enemy is whoever made it' },
+      { back: 'to FoundTarget' } ] },
+    { d: 'Too far, out of your PVS, hidden by a trace, or not in front of it (near: unless you’ve been firing)?', c: 'range, r_leaf_in_pvs, visible, infront', b: [ { end: 'nothing' } ] },
+    { s: 'You’re its enemy' },
+    { s: 'FoundTarget: others that see it wake too; it hunts you (runs, or holds its ground), faces you, and waits a second before attacking', c: 'FoundTarget, HuntTarget' },
+    { s: 'Its sight sound, if it saw you' },
+    { end: 'found' },
+  ];
+
+  F.run = [
+    { start: 'ai_run' },
+    { d: 'Chasing a noise?', c: 'AI_SOUND_TARGET', b: [
+      { d: 'Within 64 units of it?', b: [ { s: 'Hold its ground for now' }, { end: 'done' } ] },
+      { go: 'Move towards it', to: 'move' },
+      { go: 'Look for you', to: 'find' },
+      { back: 'on if found, else done' } ] },
+    { go: 'Attack now?', to: 'attack', c: 'ai_checkattack' },
+    { d: 'Attacking (or it stood down)?', b: [ { end: 'done' } ] },
+    { d: 'Can it see you?', c: 'enemy_vis', b: [ { go: 'Move towards you', to: 'move' }, { s: 'Remember where you were' }, { end: 'done' } ] },
+    { d: 'Lost you more than 20 seconds ago?', c: 'search_time', b: [ { go: 'Move on', to: 'move' }, { s: 'Stop searching' }, { end: 'done' } ] },
+    { s: 'Head for where it last saw you', c: 'last_sighting, goal_marker' },
+    { go: 'Move towards there', to: 'move' },
+    { end: 'done' },
+  ];
+
+  F.attack = [
+    { start: 'ai_checkattack' },
+    { d: 'Enemy dead or gone?', b: [ { s: 'Forget it, and stand' }, { end: 'stop' } ] },
+    { s: 'One trace, eye to eye: can it see you, and is the shot clear (no monster in the way)?', c: 'g_trace, MASK_OPAQUE | WINDOW | MONSTER' },
+    { s: 'Your range (melee under 80 units, near under 500, mid under 1,000, far), in front or not, the way to you', c: 'range, infront, enemy_yaw' },
+    { d: 'Already decided to attack?', c: 'AS_MISSILE', b: [
+      { s: 'Turn to face you' },
+      { d: 'Facing you, within 45°?', b: [ { s: 'Its attack move starts', c: 'self->attack' }, { back: 'stop' } ] },
+      { end: 'stop' } ] },
+    { d: 'Can’t see you?', b: [ { end: 'no: chase' } ] },
+    { d: 'Something in the way of the shot?', c: 'M_CheckAttack', b: [ { end: 'no: chase' } ] },
+    { d: 'In melee reach?', b: [
+      { d: 'Easy skill, three times in four?', b: [ { end: 'no' } ] },
+      { s: 'Decided: attack' },
+      { end: 'yes: it turns and attacks next frame' } ] },
+    { d: 'No attack of its own, too soon after the last, or far?', c: 'attack_finished', b: [ { end: 'no: chase' } ] },
+    { s: 'A chance: holding its ground 40%, near 10%, mid 2%. Half on easy, double on hard' },
+    { d: 'The roll under it?', c: 'frandom', b: [ { s: 'Decided: attack; the next not for up to 2 seconds' }, { end: 'yes' } ] },
+    { end: 'no: chase' },
+  ];
+
+  F.goal = [
+    { start: 'M_MoveToGoal' },
+    { d: 'In the air, and not a flyer?', b: [ { end: 'no move: it’s falling' } ] },
+    { d: 'Already touching its enemy?', c: 'SV_CloseEnough', b: [ { end: 'no move' } ] },
+    { s: 'A step the way it’s facing, skipped one time in four so it wanders a little', c: 'SV_StepDirection(ideal_yaw)' },
+    { d: 'No step?', b: [
+      { d: 'Its whole search failed last tick?', c: 'chase_fail', b: [ { end: 'stands this tick' } ] },
+      { go: 'Find another way', to: 'chase', c: 'SV_NewChaseDir' },
+      { back: 'done' } ] },
+    { end: 'done' },
+  ];
+
+  F.chase = [
+    { start: 'SV_NewChaseDir' },
+    { s: 'Try in turn until a step works: the diagonal straight at the goal; the nearer axis, then the other; the way it was going; all eight ways in a random order; and only then straight back', c: 'up to 12 steps, each a box trace' },
+    { d: 'None worked?', b: [ { s: 'Stand, facing the old way; note the failure, so it stands next tick too and searches again after' }, { back: 'done' } ] },
+    { end: 'done' },
+  ];
+
+  F.stepdir = [
+    { start: 'SV_StepDirection' },
+    { s: 'Turn towards the direction at its turn speed: 20° a tick, the flyer 10°', c: 'M_ChangeYaw' },
+    { d: 'Does it fly?', c: 'FL_FLY', b: [
+      { s: 'Lean 8 units up or down towards its goal, and trace the box there; blocked, try level', c: 'SV_flystep' },
+      { d: 'Into water, or blocked both ways?', b: [ { end: 'no step' } ] },
+      { back: 'moved: on' } ] },
+    { s: 'Walking: the box lifted 18 units (a stair), and traced down 36', c: 'SV_movestep' },
+    { d: 'Stuck in something, or into water?', b: [ { end: 'no step' } ] },
+    { d: 'Nothing under it (off a ledge)?', b: [ { end: 'no step (unless half off already)' } ] },
+    { s: 'Stand where the trace found the floor' },
+    { d: 'Its corners over a drop?', c: 'M_CheckBottom', b: [ { s: 'Back where it was' }, { end: 'no step' } ] },
+    { s: 'On the ground: a step' },
+    { d: 'Still more than 45° off the direction?', b: [ { s: 'Undo the step: it turns first' }, { back: 'on' } ] },
+    { end: 'done' },
+  ];
+
+  F.damage = [
+    { start: 'A hit lands', c: 'g_damage' },
+    { d: 'Already dead?', b: [
+      { d: 'A monster’s body?', b: [ { s: 'It takes the damage; past its gib health it’s in pieces', c: 'g_gib' }, { back: 'done' } ] },
+      { end: 'done' } ] },
+    { d: 'You?', b: [
+      { s: 'Armour takes its share; health down; a red flash; a pain sound at most every 0.7 s', c: 'g_armor_absorb' },
+      { d: 'Health gone?', b: [ { end: 'dead: START restarts' } ] },
+      { end: 'done' } ] },
+    { s: 'Its health down' },
+    { d: 'Health gone?', b: [
+      { s: 'A kill; what it targets fires (a door, say)', c: 'G_UseTargets' },
+      { d: 'At or under its gib health?', b: [ { end: 'in pieces' } ] },
+      { s: 'Its death: a sound, the death move, then a body. The flyer explodes', c: 'self->die' },
+      { end: 'done' } ] },
+    { d: 'You hit it, and it wasn’t after you?', b: [ { s: 'It turns on you', c: 'FoundTarget' }, { back: 'on' } ] },
+    { s: 'Its pain: the hurt skin under half health; a pain move and sound at most every 3 seconds', c: 'self->pain' },
+    { end: 'done' },
+  ];
+
+  // ---- drawing them ----
+  function h(tag, cls, html) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (html != null) e.innerHTML = html;
+    return e;
+  }
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const LANE = { slave: 'Slave', dsp: 'DSP', dma: 'DMA', vdp: 'VDP' };
+
+  function text(it, label) {
+    let t = '';
+    if (it.lane && LANE[it.lane]) t += `<span class="chip ${it.lane}">${LANE[it.lane]}</span>`;
+    t += label;
+    return `<span>${t}</span>` + (it.c ? `<span class="c">${esc(it.c)}</span>` : '');
+  }
+
+  function item(it) {
+    const w = h('div', 'it');
+    if (it.start != null) {
+      w.appendChild(h('div', 'node term start', text(it, esc(it.start))));
+    } else if (it.end != null) {
+      w.appendChild(h('div', 'node term', esc(it.end)));
+    } else if (it.back != null) {
+      w.appendChild(h('span', 'back', '↩ ' + esc(it.back)));
+    } else if (it.go != null) {
+      const n = h('div', 'node call' + (it.lane ? ' lane lane-' + it.lane : ''), text(it, `<a href="#${it.to}">${esc(it.go)}</a>`));
+      w.appendChild(n);
+    } else if (it.cases) {
+      const n = h('div', 'node cases');
+      n.appendChild(h('div', 'head', esc(it.head)));
+      it.cases.forEach(cs => n.appendChild(h('div', 'case', `<a href="#${cs.to}">${esc(cs.t)}</a>`)));
+      w.appendChild(n);
+    } else if (it.loop != null) {
+      const box = h('div', 'loopbox');
+      box.appendChild(h('div', 'lbl', esc(it.loop)));
+      box.appendChild(flow(it.body));
+      w.appendChild(box);
+    } else if (it.d != null) {
+      w.classList.add('dec-row');
+      w.appendChild(h('div', 'node dec', text(it, esc(it.d))));
+      const br = h('div', 'br');
+      br.appendChild(h('span', 'bl', esc(it.bl || 'yes')));
+      br.appendChild(flow(it.b));
+      w.appendChild(br);
+      w.appendChild(h('span', 'ml', esc(it.ml || 'no')));
+    } else {
+      w.appendChild(h('div', 'node' + (it.lane ? ' lane lane-' + it.lane : ''), text(it, esc(it.s))));
+    }
+    return w;
+  }
+
+  function flow(list) {
+    const f = h('div', 'flow');
+    list.forEach(it => f.appendChild(item(it)));
+    return f;
+  }
+
+  document.querySelectorAll('[data-flow]').forEach(el => {
+    const list = F[el.dataset.flow];
+    if (!list) return;
+    const f = flow(list);
+    el.replaceWith(f);
+  });
+})();
+</script>
+</body>
+</html>

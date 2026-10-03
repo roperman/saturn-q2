@@ -70,10 +70,22 @@ PY
     [ -f cd/ABS.TXT ] || printf '%s' "$name" > cd/ABS.TXT
     [ -f cd/BIB.TXT ] || printf '%s' "$name" > cd/BIB.TXT
     [ -f cd/CPY.TXT ] || printf '(c) 2026' > cd/CPY.TXT
+    # the boot sector: Jo Engine's, with this game's product number and title in its header if
+    # build.sh gives them (DISC_ID, DISC_TITLE: what the BIOS and optical drive emulators such as
+    # SAROO know the disc by, so it can have settings of its own; the rest of it as it is)
+    python3 - "$REPO/vendor/joengine/Compiler/COMMON/IP.BIN" obj/IP.BIN "${DISC_ID:-}" "${DISC_TITLE:-}" <<'PY'
+import sys
+ip = bytearray(open(sys.argv[1], "rb").read())
+if sys.argv[3]:
+    ip[0x20:0x2A] = sys.argv[3].encode("ascii")[:10].ljust(10)          # product number
+if sys.argv[4]:
+    ip[0x60:0xD0] = sys.argv[4].encode("ascii")[:112].ljust(112)        # title
+open(sys.argv[2], "wb").write(ip)
+PY
     mkisofs -quiet -sysid "SEGA SATURN" -volid "$name" -volset "$name" -sectype 2352 \
         -publisher "HOMEBREW" -preparer "HOMEBREW" -appid "$name" \
         -abstract cd/ABS.TXT -copyright cd/CPY.TXT -biblio cd/BIB.TXT \
-        -generic-boot "$REPO/vendor/joengine/Compiler/COMMON/IP.BIN" -full-iso9660-filenames -o game.iso cd
+        -generic-boot obj/IP.BIN -full-iso9660-filenames -o game.iso cd
     printf 'FILE "game.iso" BINARY\n  TRACK 01 MODE1/2048\n    INDEX 01 00:00:00\n' > game.cue
     echo "built: $(pwd)/game.cue  ($(stat -c %s cd/0.bin) bytes)"
 }

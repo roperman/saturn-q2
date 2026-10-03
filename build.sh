@@ -72,6 +72,10 @@ build_overlays()
     done
 }
 POST_LINK=build_overlays
+# the disc's product number and title, in its boot sector's header (SAROO's saroocfg.txt knows
+# it by "[Q2-SATURN V1.000]": README.md, Running)
+DISC_ID="Q2-SATURN"
+DISC_TITLE="QUAKE II"
 # built small (engine/build.inc.sh): start-up, menus, saving, the CD, trigger targets,
 # the level loading, the boot-time timings, the HUD, the sounds, the items
 COLD="main.c menu.c bup.c cd.c g_target.c level.c cycles.c hud.c sound.c g_items.c ${COLD_MORE:-}" \

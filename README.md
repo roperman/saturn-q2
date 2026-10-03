@@ -147,6 +147,17 @@ on the 4 MB RAM cart (`-ss.cart extram4`), which the game needs: without it
 it says so and stops.
 
 On a Saturn it needs the 4 MB RAM cart and a way to boot the disc image.
+`game.iso` holds only each sector's 2,048 bytes of data; optical drive
+emulators want whole sectors, so `tools/mkbin.py game.iso out` makes a
+BIN/CUE of them (Mode 1, 2,352 bytes a sector, with their error
+correction: fine for burning too). On a **SAROO**: the two files in a
+folder of their own under `SAROO/ISO/` on its SD card (the folder's name is
+what its menu shows), and its 4 MB cart turned on for the game in
+`SAROO/saroocfg.txt`, which knows the disc by the product number in its
+boot header (`DISC_ID` in `build.sh`):
+
+    [Q2-SATURN V1.000]
+    exmem_4M
 
 ## Controls
 

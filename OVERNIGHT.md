@@ -2627,7 +2627,75 @@ waits that long for the first face).
 Where it stands: the fight NTSC 38.0 / 36.5 ms, 141 of 527 pictures a
 frame late (section 56's 38.7 / 37.1, 160 of 517); the static benchmark
 179.3 ms of CPU over its six views (185.6). The identical-output ideas
-from the review are used up; what's left of a face's ~2,500 cycles is the
-setup (~1,000, `src/face.s`, not yet broken down by part), the grid and
-the cells, and the game's tick (10 ms on the master during the draw, 26
-at its worst, which is where the late pictures come from).
+from the review are used up; what's left of a face's cycles is the setup
+(`src/face.s`: ~425 instructions and the record's two LWRAM lines, ~600
+cycles, counted in section 59), the grid and the cells, and the game's
+tick (10 ms on the master during the draw, 26 at its worst, which is
+where the late pictures come from: section 59).
+
+## 59. The game's tick: where it went, and the traces that can't be cheaper
+
+Roper asked about the items (nothing but monsters, rockets, grenades, gibs,
+lifts, doors and the gun moves; the items spin in place) and whether their
+matrix work could go to the DSP: it's there already, every model's vertex
+transform is `xformm.dsp`'s (section 43); what the CPU keeps per vertex is
+the divide and the screen position, per polygon the facing test, the sort
+and the command. A static item has nothing to keep between frames, the
+camera having moved.
+
+**The tick, profiled** (`OPT="-DFIGHT_BENCH -DTICK_PROF"`: each monster's
+time by the move it's in, the worst one, the rest of a tick by part). In
+the fight: standing monsters 38 us each (~10 a frame, out of the room),
+running ones ~3 ms each (their box traces: the worst single monster's
+tick 7.5 ms, 16 traces, SV_NewChaseDir's eight tries when blocked), and the
+tick's other part 1.45 ms: triggers 0.09, items 0.14, and the rest the
+thinks: the scan of every record for one due (~0.4 ms, the records in
+low work RAM or on the cart) and the thinks themselves (~0.7: the round
+room's dozen func_timers fire target_splashes every few seconds, and
+`G_UseTargetName` scanned every record for the name, ~1 ms a use).
+
+- The records with a think pending are a list now (`g_think_at` puts one
+  on; `g_tick` takes it off as it runs or lapses; a full scan only if the
+  list overflows, rebuilding it).
+- Each targetname has a chain of its records, built at `g_init` in record
+  order, and a use walks that (`CHAIN_CHECK`: 125 uses in the fight, 0
+  differences from the scan).
+- The tick's other part: 1.45 -> 0.45 ms; the worst think 2.5 -> 0.4 ms.
+- The late pictures were frames where several running monsters ticked
+  together: 8 staggered groups instead of 4 (`MON_GROUPS`, game.h; each
+  monster still at 10 Hz, its phase alone differs). The fight's worst game
+  time 26.6 -> 15.9 ms; 16 groups no better (21.9).
+
+The fight NTSC 37.8/36.4 ms, 137 late -> **37.3/35.8, 122 of 537 late**;
+PAL 40.0/38.1, 3 late -> **39.9/37.6, 0 of 502 late**. All three levels
+load (HWRAM 128/160/48 bytes left; the chains and the list ~1.2 KB of
+LWRAM: Installation 5.7 KB left).
+
+**The box traces** (14 a frame, ~480 us each: gathering the box's leaves
+196, clipping their brushes 175, the movers 23, the entities 83) are what
+a running monster's tick is, and two ways of making the gather cheaper
+were tried and lost:
+
+- A cache of the gathered leaves per entity, for a box 48 units bigger
+  each way (a monster's next tries and next ticks inside it): hits 60%,
+  but a miss gathers a region three times the leaves, and the clip then
+  tests their brushes too: traces 7.3 -> 11.2 ms a frame. The gather's cost
+  is the tree's splits near the box, which grow with the box, not the
+  descent from the root. (Roper remembered this being tried before.)
+- Sectors: a grid of 128-unit cells over the world baked with the leaves
+  overlapping each (62-78 KB a level, on the cart), the gather a lookup
+  of the cells the box touches. Gather 196 -> 72 us, but the clip 173 ->
+  543: a leaf's bounds are a loose box round an odd convex shape, so a
+  cell lists two or three times the leaves the walk finds; filtered by
+  each leaf's bounds against the box it's 131 + 284, still more than the
+  walk's 371. Finer cells cost eight times the table, and the dense
+  places where fights happen are where a grid is worst and the BSP's walk
+  adapts. Both out; the BSP walk stays.
+
+**face.s, counted:** ~425 instructions a face plus the record's two LWRAM
+lines, ~600 cycles, which is what the profile says (setup 7.4 ms over 325
+faces); no hidden block. What's left of the tick is the running monsters'
+traces, which are the game's (Quake's `SV_NewChaseDir` tries eight
+directions when blocked, every tick while it is): a cap on retries, or
+standing monsters out of the PVS ticking at 5 Hz (~0.2 ms a frame), would
+change the game a little and are Roper's call.

@@ -36,7 +36,9 @@ HWRAM's left (section 43): 35.1 ms, 104 of 545 (the coarse mesh nearer: no gain 
 its monsters far already; section 44). The gunners, berserkers, the tank
 and the gibs (sections 50-56) took it to 37.1 ms, 160 of 517; a review of
 the whole code (section 57: two Z buckets, the walk, the step's ground
-trace) to 36.6 ms, 142 of 526 (PAL 38.1, 3 of 500). The walls' dynamic lights are mostly the DSP's now
+trace) to 36.6 ms, 142 of 526 (PAL 38.1, 3 of 500); the game's tick
+profiled (section 59: thinks as a list, targets by chain, the monsters
+in 8 groups) to 35.8 ms, 122 of 537 (PAL 37.6, 0 of 502). The walls' dynamic lights are mostly the DSP's now
 (section 34): what's left is the game's tick (10 ms a frame on average, ~26
 at its slowest), the slave's drawing (~33 ms, the monsters' 6 of it) and
 the half-transparent water and glass. Section 57 ends with what was looked

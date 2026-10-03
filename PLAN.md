@@ -33,10 +33,17 @@ held, 14 of 494); 36.5 ms and 142 of 526 since the traces' brush sides
 traces from 7.4 to 6.4 ms; the models' light after the slave's hand-off
 (section 42): 35.3 ms, 110 of 542; the far monsters' vertices first and the DSP's list in what
 HWRAM's left (section 43): 35.1 ms, 104 of 545 (the coarse mesh nearer: no gain in the fight,
-its monsters far already; section 44). The walls' dynamic lights are mostly the DSP's now
-(section 34): what's left is the game's tick (11 ms a frame on average, ~30
-at its slowest), the slave's drawing (~33 ms, the monsters' 4.9 of it) and
-the half-transparent water and glass.
+its monsters far already; section 44). The gunners, berserkers, the tank
+and the gibs (sections 50-56) took it to 37.1 ms, 160 of 517; a review of
+the whole code (section 57: two Z buckets, the walk, the step's ground
+trace) to 36.6 ms, 142 of 526 (PAL 38.1, 3 of 500). The walls' dynamic lights are mostly the DSP's now
+(section 34): what's left is the game's tick (10 ms a frame on average, ~26
+at its slowest), the slave's drawing (~33 ms, the monsters' 6 of it) and
+the half-transparent water and glass. Section 57 ends with what was looked
+at and not done, with what each would cost: the next pixel-identical wins
+need the bake's layout changed (the faces' cells and lights as one run,
+the normals as a run) or cart; the rest is the look (MODEL_FAR, a medium
+mesh for the tank).
 
 Where a frame goes (`OPT=-DR_PROFILE`, both CPUs, the static benchmark): the
 faces' setup and grids 17.5 ms, the cells 16, the models 5.5, the BSP walk

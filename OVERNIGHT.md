@@ -2458,3 +2458,127 @@ gun slots each; low work RAM 106.4 / 7.1 / 18.5 KB left, the cart ~860 /
 built with the gibs left out it's 38.5 / 36.9, so ~0.2 ms is the code's
 new layout and the rest the gunners' grenades now drawn every frame. PAL
 40.3 / 38.5 ms, 12 of 496 late.
+
+## 57. A review of the code: bugs, and what was left to win
+
+Roper asked for a look over the whole thing for anything that would make it
+quicker without changing the look or the game, and for bugs. Five readings
+of the code (the world's drawing, the models, the game's tick, the frame
+loop and the two CPUs' hand-offs, the assembly loops), each claim checked
+against the code before anything was touched, each change measured, and
+every change to the renderer compared pixel by pixel on the six views
+(`tools/abcompare.sh`). Where it started: the fight NTSC 38.7 / 37.1 ms,
+160 of 517 pictures a frame late; the static benchmark 185.6 ms of CPU
+over its six views, 204.5 of frame.
+
+**Bugs** (fixed, in the game):
+
+- `vlen` overflowed past ~1,180 units on a side (units x 32, squared in 32
+  bits), so `range()`, `infront()` and radius damage went wrong across a
+  level: a monster far off could count as near, and fire.
+- The sight sound played twice on seeing you (FoundTarget's and
+  FindTarget's), and on being heard, shot or triggered; Quake plays it once,
+  on sight.
+- A triggered spawn kept the leaf (and the blend origin) of where it was
+  placed, not where it dropped to, so it could be drawn in the wrong PVS.
+- `M_CheckAttack` had none of Quake's skill scaling: half the chance on
+  easy (and three in four chances in reach passed), double on hard.
+- A body was solid only through its death animation, so "a body shot
+  again" (section 56) only gibbed then. Now a dead monster stays solid for
+  shots and blasts (Quake's CONTENTS_DEADMONSTER in MASK_SHOT) and nothing
+  walks into it. Tried: a soldier dead to the blaster, the next bolts into
+  its body: in pieces.
+
+In the renderer:
+
+- The screen culls were spheres of 48 and 64 units round a model's origin;
+  the tank reaches 72 above its, so its top vanished when its origin was
+  low in the view. Each model's reach over its frames is found as it's
+  parsed (`model_parse`) and the culls use that where it's bigger.
+- A brush model was listed in the leaf its centre started in and never
+  relisted: a lift or door was skipped once its start's leaf was out of
+  the view's PVS. Relisted when it's moved.
+- A leaf's box was tried against the view's planes before anything in it
+  was listed, but a model reaches 32-48 units past its origin: one poking
+  into the view from a leaf whose box is just outside it was missing for
+  the frame. The box test is gone (the leaf's faces come by its nodes; what
+  it holds culls itself).
+- The Gouraud tables were split half and half between the writers; the
+  slave can't want more than one a command (1,300), so the master gets
+  1,500 for its cells, the gun's polygons and the overlays. Running out is
+  counted (the stats' `G`) rather than drawn with the last table.
+- The lagged dynamic lights were skipped by this frame's count rather than
+  the lagged count: the same only with the DSP walls on (latent).
+- The frame stamps across the u16 wrap, every 36 minutes: a slot used last
+  frame read as two back, and an axis stamped 65,534 frames ago could
+  match.
+- The 68000's command ring was posted to from both CPUs (the slave's
+  premove: steps, jumps, splashes, movers), a read-modify-write of its
+  index that was safe only by timing. The move code's sounds are queued
+  and the master posts them as it takes the move, which is also when the
+  move shows.
+- `tools/bake_md2.py` refuses a model over MAX_MVERTS / MAX_MPOLYS (a
+  silent clamp before: stale vertices drawn).
+
+**Speed, kept** (each pixel-identical on the six views):
+
+- Only two Z buckets are used (one a CPU, each in painter's order), but 512
+  were reset, copied uncached and chained every frame, all of it serial:
+  `-DZBUCKETS=2`. Static CPU 185.6 -> 182.0, frame 204.5 -> 200.8 (~0.6 ms
+  a frame).
+- The walk: a node's faces tested a byte (eight) at a time, the leaf box
+  test gone, the scratch registers saved once by a wrapper: walk 47.1 ->
+  45.2 over the six (WALK_CHECK: 0 diffs).
+- No blend (lerp 0, about half the models): the DSP stream takes the first
+  frame's terms as they are and model_xf skips the second's. A resting gib
+  keeps its leaf.
+- The game: a monster whose step found the floor doesn't trace for the
+  ground again (Quake's groundentity from the step); the player's
+  step-slide skips the raised pass when the first went the whole way clear
+  (three traces a frame while walking); a moving mover tests the player's
+  box once a frame, not twice. (The fight bench shows none of these: its
+  player stands still and its monsters mostly shoot.)
+- A crop's four corners share their edge points (16 multiplies, not 24):
+  static CPU 181.4 -> 180.7.
+- The face setup's step multiplies interleaved so no result is read at
+  once: nothing measurable. Mednafen's SH-2 doesn't seem to charge the
+  multiplier's stalls (the divider's wait it does: `src/cycles.c`), so
+  stall-covering can't be measured here; kept, as it's identical and can
+  only help a real machine.
+
+Where it ended: the fight NTSC 38.0 / 36.6 ms, 142 of 526 late; PAL 40.0 /
+38.1, 3 of 500; the static benchmark 181.0 CPU, 199.9 frame. The three
+levels load as before (HWRAM 128 / 160 / 48 bytes left).
+
+**Looked at, not done** (for Roper to pick from):
+
+- The slave isn't idle before the walk after all: it waits 142 us for the
+  first face (`SLAVE US: FIRST`), its 2.6 ms of dynamic lighting filling
+  the window; moving work onto it would delay its drawing.
+- The normal index of each vertex read from the frame on the cart at a
+  stride of 4 (a 75-cycle miss every 4 vertices): ~0.3 ms if baked as a
+  run after the vertices, at 166 KB more cart on Installation (248 KB
+  left), 106 on Comm Center, 48 on Outer Base. Roper's call.
+- Each face's cells and lights as one run in low work RAM (the bake, the
+  level loader, both renderers' indexing): maybe 0.5-0.8 ms a frame off
+  the misses; Installation's 7 KB of LWRAM left rules out any padding.
+- Pre-scaled vertex indices in the polygons and the texture record's SIZE
+  word baked: ~0.35 ms of the models' time, a bake format bump touching
+  every reader.
+- The walk's `cull` inlined (~0.4 ms of the master's) costs ~430 bytes of
+  HWRAM code: Installation has 160.
+- Not worth it on the arithmetic: a deferred read of the trace's divides
+  (a pending-check on each of ~94 sides a trace costs what hiding ~20
+  divides saves); the model polygons' multiply stalls (the loads that would
+  hide them are wasted on the half that face away); a think-time skip of
+  the game's entity scan (~0.1 ms).
+- An item at the two CPUs' meeting point can be drawn by both (documented):
+  harmless unless translucency is on.
+- `M_CheckBottom`'s four corner descents as one slab query would change
+  edge cases; `SV_NewChaseDir`'s eight tries when blocked are the game's
+  worst tick (26 ms) and are Quake's.
+- The red one-pixel line in Outer Base's first corridor (a seam between
+  two faces, there with one CPU too): not found.
+- Not Quake's, left: G_UseTargets runs on every monster death (Quake's
+  monster_death_use returns without a target); a triggered spawn ignores
+  the ambush flag.

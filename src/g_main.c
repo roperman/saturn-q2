@@ -1028,6 +1028,15 @@ static void         g_tick_monsters(int g)
 
         if (e->kind != EK_MONSTER || e->inactive)
             continue;
+#ifndef NO_IDLE_HALF
+        if (!e->enemy && !r_leaf_in_pvs(e->leaf))
+        {
+            /* standing, out of the view's PVS (it can't be seen): every other tick (settings.h) */
+            e->flags ^= FL_IDLE_ODD;
+            if (e->flags & FL_IDLE_ODD)
+                continue;
+        }
+#endif
         for (k = 0; k < 3; ++k)
             e->old_origin[k] = e->origin[k];
         e->old_yaw = e->yaw;

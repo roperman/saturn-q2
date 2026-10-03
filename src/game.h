@@ -70,6 +70,7 @@ typedef struct
 /* flags */
 #define FL_PARTIALGROUND (1)
 #define FL_STEPPED      (2)                 /* (this tick: its own step put it on the ground) */
+#define FL_IDLE_ODD     (4)                 /* (standing out of sight: this tick's the one it skips) */
 
 /* kinds */
 #define EK_FREE         (0)
@@ -164,6 +165,7 @@ struct g_ent_s
     void            (*sight)(g_ent *self);
     void            (*pain)(g_ent *self, g_ent *other, int damage);
     void            (*die)(g_ent *self, g_ent *attacker, int damage, const s32 *point);
+    s32             chase_fail;             /* the tick its whole search for a way failed (M_MoveToGoal) */
 };
 #define G_SHORT         (__builtin_offsetof(g_ent, old_origin))
 _Static_assert(G_SHORT % 16 == 0, "g_ent: the short ones a whole number of lines");

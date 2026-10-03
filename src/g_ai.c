@@ -163,10 +163,33 @@ static bool         SV_StepDirection(g_ent *ent, int yaw, s32 dist)
 
 #define DI_NODIR        (-1)
 
+#ifdef TICK_PROF
+u32                 tp_chase[8];            /* (the search: found on the nth try, 1-6, 7+; [0] gave up) */
+static int          tp_tries;
+#define TRY(x)      (++tp_tries, (x))
+#else
+#define TRY(x)      (x)
+#endif
+#if CHASE_TRIES > 0
+static int          chase_tries;            /* (settings.h CHASE_TRIES: this tick's so far) */
+#define CAPPED      (++chase_tries > CHASE_TRIES)
+#else
+#define CAPPED      (0)
+#endif
+
 static void         SV_NewChaseDir(g_ent *actor, const s32 *goal, s32 dist)
 {
     int             d[3], tdir, olddir, turnaround;
     s32             dx, dy;
+#if CHASE_TRIES > 0
+    chase_tries = 0;
+#endif
+#ifdef TICK_PROF
+    tp_tries = 0;
+#define FOUND       do { ++tp_chase[tp_tries < 7 ? tp_tries : 7]; return; } while (0)
+#else
+#define FOUND       return
+#endif
 
     olddir = (actor->ideal_yaw & 0xFFFF) / ANG(45) * ANG(45);
     turnaround = (olddir + ANG(180)) & 0xFFFF;
@@ -181,8 +204,8 @@ static void         SV_NewChaseDir(g_ent *actor, const s32 *goal, s32 dist)
             tdir = d[2] == ANG(90) ? ANG(45) : ANG(315);
         else
             tdir = d[2] == ANG(90) ? ANG(135) : ANG(215);
-        if (tdir != turnaround && SV_StepDirection(actor, tdir, dist))
-            return;
+        if (tdir != turnaround && !CAPPED && TRY(SV_StepDirection(actor, tdir, dist)))
+            FOUND;
     }
     /* try the other directions */
     if ((rng() & 3 & 1) || iabs(dy) > iabs(dx))
@@ -191,27 +214,35 @@ static void         SV_NewChaseDir(g_ent *actor, const s32 *goal, s32 dist)
         d[1] = d[2];
         d[2] = tdir;
     }
-    if (d[1] != DI_NODIR && d[1] != turnaround && SV_StepDirection(actor, d[1], dist))
-        return;
-    if (d[2] != DI_NODIR && d[2] != turnaround && SV_StepDirection(actor, d[2], dist))
-        return;
+    if (d[1] != DI_NODIR && d[1] != turnaround && !CAPPED && TRY(SV_StepDirection(actor, d[1], dist)))
+        FOUND;
+    if (d[2] != DI_NODIR && d[2] != turnaround && !CAPPED && TRY(SV_StepDirection(actor, d[2], dist)))
+        FOUND;
     /* there's no direct path to the player, so pick another direction */
-    if (olddir != DI_NODIR && SV_StepDirection(actor, olddir, dist))
-        return;
+    if (olddir != DI_NODIR && !CAPPED && TRY(SV_StepDirection(actor, olddir, dist)))
+        FOUND;
     if (rng() & 1)
     {
         for (tdir = 0; tdir <= ANG(315); tdir += ANG(45))
-            if (tdir != turnaround && SV_StepDirection(actor, tdir, dist))
-                return;
+            if (tdir != turnaround && !CAPPED && TRY(SV_StepDirection(actor, tdir, dist)))
+                FOUND;
     }
     else
     {
         for (tdir = ANG(315); tdir >= 0; tdir -= ANG(45))
-            if (tdir != turnaround && SV_StepDirection(actor, tdir, dist))
-                return;
+            if (tdir != turnaround && !CAPPED && TRY(SV_StepDirection(actor, tdir, dist)))
+                FOUND;
     }
-    if (turnaround != DI_NODIR && SV_StepDirection(actor, turnaround, dist))
-        return;
+    if (turnaround != DI_NODIR && !CAPPED && TRY(SV_StepDirection(actor, turnaround, dist)))
+        FOUND;
+#if CHASE_TRIES > 0
+    if (chase_tries > CHASE_TRIES)
+        return;                             /* (capped: the rest next tick; not a failure) */
+#endif
+#ifdef TICK_PROF
+    ++tp_chase[0];
+#endif
+    actor->chase_fail = level.time;
     actor->ideal_yaw = olddir;              /* can't move */
     if (!M_CheckBottom(actor))
         actor->flags |= FL_PARTIALGROUND;
@@ -244,7 +275,13 @@ static void         M_MoveToGoal(g_ent *ent, s32 dist)
         return;
     /* bump around... */
     if ((rng() & 3) == 1 || !SV_StepDirection(ent, ent->ideal_yaw, dist))
+    {
+        /* (the whole search failed last tick, up to twelve tries: it stands this tick as it did
+           then, and searches again the next; nothing that could move is held up) */
+        if (ent->chase_fail == level.time - FRAMETIME)
+            return;
         SV_NewChaseDir(ent, goal_point(ent), dist);
+    }
 }
 
 bool                M_walkmove(g_ent *ent, int yaw, s32 dist)

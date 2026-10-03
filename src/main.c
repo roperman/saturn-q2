@@ -1834,6 +1834,13 @@ void                main(void)
                 vdp_printf(8, y, RGB(255, 255, 120), "WORST %dUS %c%c%c%c TR%d", tp_worst, NC(tp_worst_name, 0),
                            NC(tp_worst_name, 1), NC(tp_worst_name, 2), NC(tp_worst_name, 3), tp_worst_tr);
                 y += 9;
+                {
+                    extern u32 tp_chase[8];
+
+                    vdp_printf(8, y, RGB(255, 255, 120), "CHASE %d %d %d %d %d %d %d+ UP%d", tp_chase[1],
+                               tp_chase[2], tp_chase[3], tp_chase[4], tp_chase[5], tp_chase[6], tp_chase[7], tp_chase[0]);
+                    y += 9;
+                }
                 for (k = 0; k < 8 && tp_name[k]; ++k, y += 9)
                     vdp_printf(8, y, RGB(160, 255, 160), "%c%c%c%c N%d %dUS %dUS/F", NC(tp_name[k], 0),
                                NC(tp_name[k], 1), NC(tp_name[k], 2), NC(tp_name[k], 3), tp_n[k],

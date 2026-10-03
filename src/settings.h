@@ -43,6 +43,23 @@
 /* (Options) NO_WATER: the water's waves and ripple of light off. */
 /* #define NO_WATER */
 
+/* NO_IDLE_HALF: a monster standing out of the view's PVS (it can't be seen)
+   thinks at 10 Hz as the rest do, rather than every other tick; at 5 Hz it
+   notices you up to 0.1 s later and costs ~0.2 ms a frame less in a fight
+   (OVERNIGHT.md 59). */
+/* #define NO_IDLE_HALF */
+
+/* CHASE_TRIES: a blocked monster's search for a way round (Quake's
+   SV_NewChaseDir: the diagonal towards you, the two axes, its old direction,
+   then every direction) tries at most this many a tick, standing till the
+   next if none worked; 0 is Quake's whole search (up to twelve, a box trace
+   each: the fight's worst frames). In the fight 40% of blocked monsters
+   find their way on the 5th try or later, so 4 holds those up a tick
+   (OVERNIGHT.md 59 has the numbers). */
+#ifndef CHASE_TRIES
+#define CHASE_TRIES     (0)
+#endif
+
 /* ---- latency against speed ---- (each one off is slower) */
 
 /* NO_GAME_DURING_DRAW: (Options, and START + UP) the game's tick before the

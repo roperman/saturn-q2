@@ -80,11 +80,12 @@ full-resolution textures. [PLAN.md](PLAN.md) has what's next.
 
 In Mednafen (PAL, 50 Hz), most of the benchmark's views run at 25 fps and
 the open ones at 50. The fight benchmark (a room of monsters, all of
-Quake's) holds 25 fps: its frames are 39.9 ms, of which the CPUs are busy
-37.6, and none of its 502 pictures takes a frame longer. On NTSC the aim
+Quake's) holds 25 fps: its frames are 39.8 ms, of which the CPUs are busy
+37.1, and none of its 502 pictures takes a frame longer. On NTSC the aim
 is a steady 30 fps, which needs that under 33.3 ms: the fight's CPUs are
-busy 35.8 ms on average, and 122 of its 537 pictures take a frame longer
-(a quieter room runs at 30). The per-change numbers are in OVERNIGHT.md.
+busy about 36 ms on average, and ~125 of its ~535 pictures take a frame
+longer (a quieter room runs at 30). The per-change numbers are in
+OVERNIGHT.md; `src/settings.h` has the build-time trade-offs.
 
 ## Building
 

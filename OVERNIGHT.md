@@ -2694,8 +2694,28 @@ were tried and lost:
 
 **face.s, counted:** ~425 instructions a face plus the record's two LWRAM
 lines, ~600 cycles, which is what the profile says (setup 7.4 ms over 325
-faces); no hidden block. What's left of the tick is the running monsters'
-traces, which are the game's (Quake's `SV_NewChaseDir` tries eight
-directions when blocked, every tick while it is): a cap on retries, or
-standing monsters out of the PVS ticking at 5 Hz (~0.2 ms a frame), would
-change the game a little and are Roper's call.
+faces); no hidden block.
+
+**The two game changes, tried** (Roper: "can try those two"):
+
+- A monster standing out of the view's PVS (it can't be seen) thinks every
+  other tick: the standing monsters' 392 -> 165 us a frame in the fight.
+  It notices you up to 0.1 s later; a noise is seen by FindTarget for two
+  ticks, so none is missed. On by default; `NO_IDLE_HALF` in settings.h.
+- The blocked monsters' searches, counted (`CHASE` on the TICK_PROF line:
+  on which try a way was found): of ~1,900 in the fight, 92 on the first,
+  52 the second, 813 the third (the other axis), 381 the fourth, 279 the
+  fifth, 315 the seventh or later, and none gave up. So a cap holds up
+  the 40% that need a fifth try or more. Tried as `CHASE_TRIES=4`
+  (settings.h, 0 = Quake's whole search, the default): CPU 35.3 ms, the
+  game 9.5 -> 7.8, its worst frame 17.8 -> 12.3, late pictures 130 -> 105
+  of 545; but the capped monsters mostly cap again the next tick (the
+  counts for the first four tries didn't grow), so in a scrum they stand
+  till the crowd moves rather than flowing round it. Left off. A monster
+  whose whole search failed (none in the fight; one wedged behind a crate
+  does it every tick, up to twelve tries) stands the next tick and
+  searches the one after: kept, as it changes nothing that could move.
+
+Where it ended: the fight NTSC 37.5/36.1 ms, 130 of 533 late (the fight's
+chances put runs between 35.8 and 36.1 ms and 122 and 130 late now); PAL
+39.8/37.1, 0 of 502 late.

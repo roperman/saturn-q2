@@ -38,7 +38,9 @@ and the gibs (sections 50-56) took it to 37.1 ms, 160 of 517; a review of
 the whole code (section 57: two Z buckets, the walk, the step's ground
 trace) to 36.6 ms, 142 of 526 (PAL 38.1, 3 of 500); the game's tick
 profiled (section 59: thinks as a list, targets by chain, the monsters
-in 8 groups) to 35.8 ms, 122 of 537 (PAL 37.6, 0 of 502). The walls' dynamic lights are mostly the DSP's now
+in 8 groups, idle ones out of sight at 5 Hz) to ~36 ms, ~125 of ~535
+(PAL 37.1, 0 of 502); `CHASE_TRIES` (settings.h) buys ~1 ms more at the
+cost of blocked monsters standing in a crowd. The walls' dynamic lights are mostly the DSP's now
 (section 34): what's left is the game's tick (10 ms a frame on average, ~26
 at its slowest), the slave's drawing (~33 ms, the monsters' 6 of it) and
 the half-transparent water and glass. Section 57 ends with what was looked

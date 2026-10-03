@@ -17,7 +17,8 @@
 ! leaf's box isn't tried: its faces come by its nodes, and the box guarded
 ! only what's in it, which culls itself (and a model poking into the view
 ! from a leaf whose box is out of it was lost). r8-r12 are the walk's
-! scratch, saved once by the wrapper, not in every node.
+! scratch, saved once by the wrapper, not in every node; the box test is
+! inline in the node (no call).
 
         .text
         .align  2
@@ -58,8 +59,9 @@ W_LEXTRA = 160                          ! leaf_ent leaf_spr leaf_model, the C fo
         cmp/eq  r1,r0
 .endm
 
-! one of the view's side planes against the box at r1 (maxs 6 bytes on): r7 at its record
-.macro  PLANE bit
+! one of the view's side planes against the box at r1 (maxs 6 bytes on): r7 at its record;
+! the box wholly outside it: to \out
+.macro  PLANE bit, out
         mov     r5,r0
         tst     #\bit,r0
         bt      89f                     ! not across it
@@ -84,7 +86,7 @@ W_LEXTRA = 160                          ! leaf_ent leaf_spr leaf_model, the C fo
         add     r2,r3
         cmp/ge  r0,r3
         bt      88f
-        bra     .Lout                   ! (too far for BF)
+        bra     \out                    ! (too far for BF)
         nop
 88:
         ! the nearest: inside, and so's all of it (the plane comes off the mask)
@@ -113,21 +115,6 @@ W_LEXTRA = 160                          ! leaf_ent leaf_spr leaf_model, the C fo
         mov     r0,r5
 89:     add     #24,r7
 .endm
-
-! is the box at r1 outside one of the planes in r5? T. The planes it's wholly
-! inside come off r5. Uses r0 r2 r3 r7 and MACL
-cull:
-        mov     r6,r7
-        add     #W_FR,r7
-        PLANE   1
-        PLANE   2
-        PLANE   4
-        PLANE   8
-        rts
-        clrt
-.Lout:
-        rts
-        sett
 
 _walk_asm:
         mov.l   r8,@-r15
@@ -164,15 +151,16 @@ _walk_asm:
         add     r1,r4
         tst     r5,r5
         bt      1f
+        ! its box against the planes still in the mask (those it's wholly inside come off it),
+        ! here rather than called: a call's PR and return a node
         mov     r4,r1
         add     #10,r1                  ! its box
-        sts.l   pr,@-r15
-        bsr     cull
-        nop
-        lds.l   @r15+,pr
-        bf      1f
-        rts                             ! out of the view
-        nop
+        mov     r6,r7
+        add     #W_FR,r7
+        PLANE   1, .Lret
+        PLANE   2, .Lret
+        PLANE   4, .Lret
+        PLANE   8, .Lret
 1:
         ! which side of its plane the camera's on
         mov.w   @r4,r0

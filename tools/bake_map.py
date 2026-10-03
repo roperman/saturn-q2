@@ -113,6 +113,7 @@ class Baker:
         self.wals = {}
         self.tiles = {}                         # (tex, tx, ty) -> tile index
         self.tile_data = []                     # [(indices N*N, lut[16])]
+        self.masks, self.mask_ids = [], {}      # the variants' masks: 16 rows of 16 bits (bit x of the crop's row y)
         self.textures = []                      # (kind, ...) -> texture table entries
         self.tex_ids = {}                       # key -> texture index
         self.stats = defaultdict(int)
@@ -179,15 +180,16 @@ class Baker:
         return self.texture(("tileT", t), lambda: (t, N, N, None, True, 1))
 
     def tex_variant(self, t, mask, x0, y0, w, h):
-        """the tile cropped to (x0, y0, w, h), texels outside the mask transparent"""
+        """the tile cropped to (x0, y0, w, h), texels outside the mask transparent: made as it's
+        uploaded (gen 3) from the tile and a mask, 16 rows of 16 bits (the crop's row y, bit x)"""
         N = self.N
-        idx = self.tile_data[t][0]
-        data = []
-        for y in range(y0, y0 + h):
-            for x in range(x0, x0 + w):
-                data.append(idx[y * N + x] if mask[y * N + x] else 0)
-        key = ("var", t, x0, y0, w, h, bytes(data))
-        return self.texture(key, lambda: (t, w, h, data, False, 0))
+        rows = tuple(sum(1 << x for x in range(w) if mask[(y0 + y) * N + x0 + x]) for y in range(h)) + (0,) * (16 - h)
+        if rows not in self.mask_ids:
+            self.mask_ids[rows] = len(self.masks)
+            self.masks.append(rows)
+        key = ("var", t, x0, y0, w, h, rows)
+        self.tex_tile(t)
+        return self.texture(key, lambda: (t, w, h, None, False, 3, (x0, y0, self.mask_ids[rows])))
 
     # ---- faces ----
 
@@ -442,7 +444,7 @@ class Baker:
                         # cropped, but exactly its grid cell: as a whole tile's, with the texture's
                         # colour table (and whether it's transposed), where its rows start (in 8
                         # bytes), its width / 8 and how many rows (q_cell_fast)
-                        lt, w, h, data, tr, gen = self.textures[c[0]]
+                        lt, w, h, data, tr, gen = self.textures[c[0]][:6]
                         assert (c[1] * w) % 16 == 0
                         cdata.append(struct.pack(">2H4B", c[0] | CELL_EXACT, lt | (TEX_TRANSPOSED if tr else 0),
                                                  c[1], c[1] * w // 16, w >> 3, c[2]))
@@ -502,9 +504,12 @@ class Baker:
             self.texture(("quart", t), lambda t=t: (t, h, N * 2, None, False, 2))
         lump("quarts", struct.pack(">I", quart0))
         # textures: 4bpp, rows of w/2 bytes; each starts on 8 bytes (srca). One made as it's
-        # uploaded has its tile's offset, with how in the top bits (TEX_GEN_SHIFT)
+        # uploaded (src/render.c tex_make) has how in the top bits of its offset (TEX_GEN_SHIFT:
+        # 1 transposed, 2 quartered, 3 a masked crop: its mask's number, y0, x0 below) and its
+        # tile from its colour table's number (tileofs: each tile's offset)
         tex_table, tex_blob, offs = [], bytearray(), {}
-        for i, (t, w, h, data, transposed, gen) in enumerate(self.textures):
+        for i, tex in enumerate(self.textures):
+            t, w, h, data, transposed, gen = tex[:6]
             if gen:
                 continue
             offs[i] = len(tex_blob)
@@ -512,9 +517,21 @@ class Baker:
                 tex_blob.append((data[k] << 4) | data[k + 1])
             while len(tex_blob) & 31:
                 tex_blob.append(0)
-        for i, (t, w, h, data, transposed, gen) in enumerate(self.textures):
-            ofs = offs[self.tex_ids[("tile", t)]] | (gen << 28) if gen else offs[i]    # (its tile's own entry's)
+        for i, tex in enumerate(self.textures):
+            t, w, h, data, transposed, gen = tex[:6]
+            if gen == 3:
+                x0, y0, mid = tex[6]
+                assert mid < 65536 and x0 < 16 and y0 < 16
+                ofs = (3 << 28) | (mid << 12) | (y0 << 8) | (x0 << 4)
+            elif gen:
+                ofs = gen << 28
+            else:
+                ofs = offs[i]
             tex_table.append(struct.pack(">IHBB", ofs, t | (TEX_TRANSPOSED if transposed else 0), w, h))
+        lump("tileofs", struct.pack(">%dI" % len(self.tile_data), *[offs[self.tex_ids[("tile", t)]] for t in range(len(self.tile_data))]))
+        lump("masks", b"".join(struct.pack(">16H", *rows) for rows in self.masks))
+        print("  textures: %d, %d made as uploaded (%d masks)" % (len(self.textures),
+              sum(1 for tex in self.textures if tex[5]), len(self.masks)))
         lump("textures", b"".join(tex_table))
         lump("texdata", bytes(tex_blob))
         lump("luts", b"".join(struct.pack(">16H", *lut) for _, lut in self.tile_data))
@@ -595,7 +612,8 @@ class Baker:
              if portals else b"")
         order = ["planes", "nodes", "leafs", "marks", "faces", "cells", "lights", "textures", "texdata", "luts",
                  "vis", "models", "start", "brushes", "brushsides", "leafbrushes", "movers", "facevis", "sky", "spawns",
-                 "leaflight", "entities2", "strings", "axes", "quarts", "lodfaces", "lodcells", "lodlights", "starts", "portals", "cportals"]
+                 "leaflight", "entities2", "strings", "axes", "quarts", "lodfaces", "lodcells", "lodlights", "starts", "portals", "cportals",
+                 "tileofs", "masks"]
         counts = {"planes": len(b.planes), "nodes": len(b.nodes), "leafs": len(b.leafs), "marks": len(b.leaffaces),
                   "faces": len(faces), "cells": ncells, "lights": nlights, "textures": len(self.textures),
                   "texdata": len(tex_blob), "luts": len(self.tile_data), "vis": b.numclusters,
@@ -604,7 +622,8 @@ class Baker:
                   "facevis": len(rows), "sky": 0, "spawns": len(spawns), "leaflight": len(b.leafs),
                   "entities2": len(erecs), "strings": len(estrings), "axes": len(axes),
                   "quarts": len(self.tile_data), "lodfaces": len(lods), "lodcells": nlc, "lodlights": nll,
-                  "starts": len(starts), "portals": len(portals), "cportals": len(portals) and len(first)}
+                  "starts": len(starts), "portals": len(portals), "cportals": len(portals) and len(first),
+                  "tileofs": len(self.tile_data), "masks": len(self.masks)}
         # the file: what the game reads off the cart first, then TAIL, in its order: what it copies
         # to work RAM as the level loads (src/level.c), and gives back to the cart from the first
         # of those it copied to the end (the most likely to fit last)

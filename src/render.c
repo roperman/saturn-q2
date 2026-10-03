@@ -764,25 +764,52 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
 /* A texture the file doesn't hold (tools/bake_map.py: the pixels were stored again for every
    transposed and quartered tile, 90-135 KB a level): made from its tile's 16 x 16 texels (two
    to a byte, 8 bytes a row) into dst, 128 bytes */
-#define GEN_SLOTS       (32)                /* a frame's, a CPU's (more: copied now, or no slot) */
+#define GEN_SLOTS       (64)                /* a frame's, a CPU's (more: copied now, or no slot) */
 #define GEN_ENTRY       (128)
 #define GEN_RING_BYTES  (4 * GEN_SLOTS * GEN_ENTRY)
 
-static void         tex_make(u8 *dst, int gen, const u8 *tile)
+static void         tex_make(u8 *dst, const q_tex *tx, const u8 *tile)
 {
-    int             x, y;
+    int             gen = (int)(tx->ofs >> TEX_GEN_SHIFT), x, y;
 
-    if (gen == 1)
+    if (gen == 3)
     {
-        /* transposed: the texel at (x, y) is the tile's at (y, x) */
-        for (y = 0; y < 16; ++y)
-            for (x = 0; x < 16; x += 2)
-            {
-                u32 a = (tile[x * 8 + y / 2] >> (y & 1 ? 0 : 4)) & 15;
-                u32 b = (tile[(x + 1) * 8 + y / 2] >> (y & 1 ? 0 : 4)) & 15;
+        /* a crop of w x h from (x0, y0), the texels outside its face's polygon transparent
+           (0): the mask's bit x of row y says which are in. A row at a time: four bits of the
+           mask make two bytes of nibble masks (nib4), the crop's bytes are the tile row's from
+           x0 / 2 (shifted a nibble if x0 is odd), eight texels a store */
+        static const u16 nib4[16] = { 0x0000, 0xF000, 0x0F00, 0xFF00, 0x00F0, 0xF0F0, 0x0FF0, 0xFFF0,
+                                      0x000F, 0xF00F, 0x0F0F, 0xFF0F, 0x00FF, 0xF0FF, 0x0FFF, 0xFFFF };
+        const u16   *mask = lv.masks + ((tx->ofs >> 12) & 0xFFFF) * 16;
+        int         x0 = (int)(tx->ofs >> 4) & 15, y0 = (int)(tx->ofs >> 8) & 15, wb = tx->w >> 1, h = tx->h, k;
 
-                dst[y * 8 + x / 2] = (u8)(a << 4 | b);
+        for (y = 0; y < h; ++y)
+        {
+            const u8    *s = tile + (y0 + y) * 8 + (x0 >> 1);
+            u32         *d = (u32 *)(dst + y * wb), m = mask[y];
+
+            for (k = 0; k < wb; k += 4)
+            {
+                u32 v = x0 & 1 ? ((u32)(u8)(s[k] << 4 | s[k + 1] >> 4) << 24) | ((u32)(u8)(s[k + 1] << 4 | s[k + 2] >> 4) << 16)
+                                 | ((u32)(u8)(s[k + 2] << 4 | s[k + 3] >> 4) << 8) | (u8)(s[k + 3] << 4 | s[k + 4] >> 4)
+                               : (u32)s[k] << 24 | (u32)s[k + 1] << 16 | (u32)s[k + 2] << 8 | s[k + 3];
+
+                *d++ = v & ((u32)nib4[(m >> (k * 2)) & 15] << 16 | nib4[(m >> (k * 2 + 4)) & 15]);
             }
+        }
+    }
+    else if (gen == 1)
+    {
+        /* transposed: the texel at (x, y) is the tile's at (y, x): a row of it from a column of
+           the tile, the column's nibble (y odd: the low) the same all along */
+        for (y = 0; y < 16; ++y)
+        {
+            const u8    *col = tile + (y >> 1);
+            int         sh = y & 1 ? 0 : 4;
+
+            for (x = 0; x < 16; x += 2)
+                dst[y * 8 + x / 2] = (u8)(((col[x * 8] >> sh) & 15) << 4 | ((col[(x + 1) * 8] >> sh) & 15));
+        }
     }
     else
     {
@@ -794,11 +821,11 @@ static void         tex_make(u8 *dst, int gen, const u8 *tile)
 }
 
 /* ...into this CPU's ring: the upload's source */
-static const void   *tex_generate(r_ctx *x, int gen, const u8 *tile)
+static const void   *tex_generate(r_ctx *x, const q_tex *tx, const u8 *tile)
 {
     u8              *dst = x->gen_ring + (((u32)frame & 3) * GEN_SLOTS + (u32)x->gen_n++) * GEN_ENTRY;
 
-    tex_make(dst, gen, tile);
+    tex_make(dst, tx, tile);
     return dst;
 }
 
@@ -856,8 +883,8 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
     if (t < lv.ntextures)
     {
         tx = &lv.textures[t];
-        src = lv.texdata + (tx->ofs & TEX_OFS_MASK);
         gen = (int)(tx->ofs >> TEX_GEN_SHIFT);  /* (made from its tile as it goes: tex_make) */
+        src = lv.texdata + (gen ? lv.tile_ofs[tx->lut & 0x7FFF] : tx->ofs);
         bytes = (u32)tx->w * tx->h / 2;
     }
     else
@@ -918,17 +945,23 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
     }
     if (gen)
     {
+        u32 t0 = frt_read();
+
+        ++x->st.made;
         if (x->gen_n < GEN_SLOTS)
-            src = tex_generate(x, gen, src);
+            src = tex_generate(x, tx, src);
         else
         {
             u32 buf[GEN_ENTRY / 4];         /* (the ring's share for this frame used up: made here, copied now) */
 
-            tex_make((u8 *)buf, gen, src);
+            tex_make((u8 *)buf, tx, src);
             memcpy((u8 *)VDP1_VRAM + vram, buf, bytes);
             ++x->st.uploads;
+            ++x->st.made_now;
+            x->st.made_us += frt_to_us((frt_read() - t0) & 0xFFFF);
             return (s32)vram;
         }
+        x->st.made_us += frt_to_us((frt_read() - t0) & 0xFFFF);
     }
     tex_upload(x, vram, src, bytes, late);
     ++x->st.uploads;
@@ -6788,6 +6821,9 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         rs.culled += s->culled;
         rs.near += s->near;
         rs.uploads += s->uploads;
+        rs.made += s->made;
+        rs.made_now += s->made_now;
+        rs.made_us += s->made_us;
         rs.nocache += s->nocache;
         rs.late += s->late;
         r_full[i] += s->nocache > 0;

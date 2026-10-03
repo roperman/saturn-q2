@@ -323,6 +323,8 @@ bool                level_load(const char *name)
     lv.portals = (const q_portal *)(b + h[58]);
     lv.nportals = (int)h[59];
     lv.cportals = (const u16 *)(b + h[60]);
+    lv.tile_ofs = (const u32 *)(b + h[62]);
+    lv.masks = (const u16 *)(b + h[64]);
     cart_next = CART_BASE + (((u32)size + 2047) & ~2047u);
     hw_next = (u8 *)(((u32)_bss_end + 15) & ~15u);
     lw_next = (u8 *)(((u32)_lwtext_end + 15) & ~15u);   /* (after the code that lives there) */

@@ -105,8 +105,9 @@ typedef struct { s16 lo[3], hi[3]; } q_portal;
 #define FF_BACK         (64)                    /* on its plane's back */
 #define FF_LOD          (128)                   /* it has a coarse grid (q_lodface) */
 #define TEX_TRANSPOSED  (0x8000)
-#define TEX_GEN_SHIFT   (28)                    /* q_tex.ofs's top bits: made from its tile as it's uploaded
-                                                   (1 transposed, 2 quartered: render.c tex_make); the rest the tile's */
+#define TEX_GEN_SHIFT   (28)                    /* q_tex.ofs's top bits: made from its tile (lv.tile_ofs[lut]) as it's
+                                                   uploaded (render.c tex_make): 1 transposed, 2 quartered, 3 a crop
+                                                   masked to its face (its mask << 12 | y0 << 8 | x0 << 4 below) */
 #define TEX_OFS_MASK    (0x0FFFFFFF)
 #define CELL_EMPTY      (0xFFFF)
 #define CONTENTS_SOLID  (1)
@@ -154,6 +155,8 @@ typedef struct
     const q_start   *starts;
     int             nstarts;
     const q_portal  *portals;               /* (none: nportals 0) */
+    const u32       *tile_ofs;              /* each tile's texels' offset in texdata (the textures made as they're uploaded) */
+    const u16       *masks;                 /* the masked crops' masks: 16 rows of 16 bits each */
     const u16       *cportals;              /* each cluster's first in the list (and one after the last), then the list:
                                                the other cluster and the portal, each */
     int             nportals;
@@ -370,6 +373,8 @@ void                hud_draw(void);
 typedef struct
 {
     int             faces, cells, culled, near, uploads, nocache, dropped, leaf, cluster, nodes, proj, gverts, seen;
+    int             made, made_now;         /* textures made as uploaded (tex_make); those copied at once (the ring full) */
+    u32             made_us;                /* ...the making's time */
     int             models, mpolys, nfast, nslow, nexact, pieces, faces_out, cells_all, cells_384, cells_512, muploads, mcpu, mdsp, ns_dl, ns_crop, ns_exact, g_same, g_flat, occ_faces, occ_cells, occ_occluders, ns_small;
     u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys, t_mwait, t_masm, t_mnorm;
     u32             us_rwpre, t_dltest, t_dlsum;    /* (FIGHT_BENCH: render_world to the slave's signal; the world's dynamic lights) */

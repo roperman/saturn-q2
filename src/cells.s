@@ -350,62 +350,76 @@ _cells_asm:
         .align  1
 .Lmask: .short  0x3FFF
 
-! one corner of a crop: fa (u) and fb (v) across the grid cell A B C D
-! (r4 r5 r6 r7, packed x << 16 | y), out to dst. Uses r0-r3
-.macro  CROPCORNER fa, fb, dst
-        ! along the top and bottom edges to the crop's column, then down it to its row
+! A crop's corners across the grid cell A B C D (r4 r5 r6 r7, packed x << 16 | y):
+! along the top and bottom edges to the crop's column (fa), then down it to its
+! row (fb). The two columns' edge points are found once each (EDGES, four words
+! pushed: tx bx ty by), then each corner takes two multiplies (CORNER); the
+! sums are those of the one-corner version, in the same order. Both use r0-r3
+
+.macro  EDGES fa
         swap.w  r4,r0
         exts.w  r0,r0                   ! xA
         swap.w  r5,r1
         exts.w  r1,r1
         sub     r0,r1                   ! xB - xA
         mul.l   \fa,r1
+        swap.w  r7,r2
+        exts.w  r2,r2                   ! xD
+        swap.w  r6,r3
+        exts.w  r3,r3
+        sub     r2,r3                   ! xC - xD
         sts     macl,r1
+        mul.l   \fa,r3
         shlr16  r1
         exts.w  r1,r1
         add     r0,r1                   ! tx
-        swap.w  r7,r0
-        exts.w  r0,r0                   ! xD
-        swap.w  r6,r2
-        exts.w  r2,r2
-        sub     r0,r2                   ! xC - xD
-        mul.l   \fa,r2
-        sts     macl,r2
-        shlr16  r2
-        exts.w  r2,r2
-        add     r0,r2                   ! bx
-        sub     r1,r2
-        mul.l   \fb,r2
-        sts     macl,r2
-        shlr16  r2
-        exts.w  r2,r2
-        add     r1,r2                   ! x
-        shll16  r2
+        mov.l   r1,@-r15
+        sts     macl,r3
+        shlr16  r3
+        exts.w  r3,r3
+        add     r2,r3                   ! bx
+        mov.l   r3,@-r15
         exts.w  r4,r0                   ! yA
         exts.w  r5,r1
         sub     r0,r1
         mul.l   \fa,r1
+        exts.w  r7,r2                   ! yD
+        exts.w  r6,r3
+        sub     r2,r3
         sts     macl,r1
+        mul.l   \fa,r3
         shlr16  r1
         exts.w  r1,r1
         add     r0,r1                   ! ty
-        exts.w  r7,r0                   ! yD
-        exts.w  r6,r3
+        mov.l   r1,@-r15
+        sts     macl,r3
+        shlr16  r3
+        exts.w  r3,r3
+        add     r2,r3                   ! by
+        mov.l   r3,@-r15
+.endm
+
+! a corner, into r2: the column's edge points at \e on the stack (by ty bx tx), down by fb
+.macro  CORNER e, fb
+        mov.l   @(\e+12,r15),r1         ! tx
+        mov.l   @(\e+8,r15),r2          ! bx
+        sub     r1,r2
+        mul.l   \fb,r2
+        mov.l   @(\e+4,r15),r0          ! ty
+        mov.l   @(\e,r15),r3            ! by
         sub     r0,r3
-        mul.l   \fa,r3
-        sts     macl,r3
-        shlr16  r3
-        exts.w  r3,r3
-        add     r0,r3                   ! by
-        sub     r1,r3
+        sts     macl,r2
         mul.l   \fb,r3
+        shlr16  r2
+        exts.w  r2,r2
+        add     r1,r2                   ! x
+        shll16  r2
         sts     macl,r3
         shlr16  r3
         exts.w  r3,r3
-        add     r1,r3                   ! y
+        add     r0,r3                   ! y
         extu.w  r3,r3
         or      r3,r2
-        mov.l   r2,\dst
 .endm
 
 ! |a - b| of the halves of two packed points (x: hi, y: lo) under INTERP_PX, or the C. Uses r0-r2
@@ -585,13 +599,19 @@ _cells_asm:
         mov.l   @(G_XY+G_SIZE,r0),r5
         mov.l   @(G_XY+G_SIZE,r1),r6
         mov.l   @(G_XY,r1),r7
-        CROPCORNER r10, r12, "@(12,r9)" ! (fa0, fb0): A
-        CROPCORNER r11, r8, "@(20,r9)"  ! (fa1, fb1): C
-        CROPCORNER r11, r12, "@-r15"    ! (fa1, fb0): B, and
-        CROPCORNER r10, r8, "@-r15"     ! (fa0, fb1): D aside
+        EDGES   r10                     ! the columns' edge points: fa0's at @(16,r15), fa1's at @(0,r15)
+        EDGES   r11
+        CORNER  16, r12                 ! (fa0, fb0): A
+        mov.l   r2,@(12,r9)
+        CORNER  0, r8                   ! (fa1, fb1): C
+        mov.l   r2,@(20,r9)
+        CORNER  0, r12                  ! (fa1, fb0): B, and
+        mov     r2,r11
+        CORNER  16, r8                  ! (fa0, fb1): D aside
+        add     #32,r15                 ! (the edge points done with)
         ! B and D: the other way round if the texture's rows run down the cell
-        mov.l   @r15+,r1                ! D
-        mov.l   @r15+,r0                ! B
+        mov     r2,r1                   ! D
+        mov     r11,r0                  ! B
         tst     r13,r13
         bt      7f
         mov     r0,r2

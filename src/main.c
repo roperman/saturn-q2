@@ -242,6 +242,55 @@ static __attribute__((cold)) void bt_watch(void)
     bt_line(166, buf);
 }
 
+/* (a CPU exception: illegal instruction 4, illegal slot 6, CPU address error 9, DMA address error 10)
+   where it happened, on the trace's layer, for good: the exception's number, the CPU (by its stack),
+   the PC and SR the CPU stacked, PR, and r0-r7 as they were. The stubs below save r0-r7 and PR
+   under the stacked PC and SR, then call here */
+__attribute__((cold)) void bt_crash(u32 vec, const u32 *sp)
+{
+    char            buf[48];
+    const u32       *pcsr = sp + 9;         /* (the stub's pushes: r0-r7, PR; then the CPU's: PC, SR) */
+    u32             s = (u32)sp;
+
+    bt_fmt(buf, "CRASH %s V%d PC %08X SR %08X", s >= 0x060FC000 ? "MASTER" : "SLAVE", vec, pcsr[0], pcsr[1]);
+    bt_line(76, buf);
+    bt_fmt(buf, "PR %08X SP %08X", sp[8], s + 44);
+    bt_line(86, buf);
+    bt_fmt(buf, "R0 %08X %08X %08X %08X", sp[7], sp[6], sp[5], sp[4]);
+    bt_line(96, buf);
+    bt_fmt(buf, "R4 %08X %08X %08X %08X", sp[3], sp[2], sp[1], sp[0]);
+    bt_line(106, buf);
+    for (;;)
+        ;
+}
+
+/* the stubs: r0-r7 and PR pushed (r7 last, so sp[0] is r7 ... sp[7] r0, sp[8] PR), then bt_crash(vec, sp) */
+#define BT_STUB(n) \
+    __asm__("        .text\n        .align  2\n_bt_exc" #n ":\n" \
+            "        sts.l   pr,@-r15\n        mov.l   r0,@-r15\n        mov.l   r1,@-r15\n" \
+            "        mov.l   r2,@-r15\n        mov.l   r3,@-r15\n        mov.l   r4,@-r15\n" \
+            "        mov.l   r5,@-r15\n        mov.l   r6,@-r15\n        mov.l   r7,@-r15\n" \
+            "        mov     #" #n ",r4\n        mov     r15,r5\n" \
+            "        mov.l   1f,r0\n        jsr     @r0\n        nop\n" \
+            "        .align  2\n1:      .long   _bt_crash\n")
+BT_STUB(4);
+BT_STUB(6);
+BT_STUB(9);
+BT_STUB(10);
+extern void         bt_exc4(void), bt_exc6(void), bt_exc9(void), bt_exc10(void);
+
+/* this CPU's exception vectors (by its VBR) to the stubs */
+__attribute__((cold)) void bt_crash_handlers(void)
+{
+    u32             *vbr;
+
+    __asm__ volatile ("stc vbr,%0" : "=r" (vbr));
+    vbr[4] = (u32)bt_exc4;
+    vbr[6] = (u32)bt_exc6;
+    vbr[9] = (u32)bt_exc9;
+    vbr[10] = (u32)bt_exc10;
+}
+
 /* (vdp_submit stuck waiting for the swap) VDP1's state on two lines above the trace: its end flags,
    the command it's on and the last, its mode, the SCU DMA's status, the swap interrupt's fields
    since the last swap; then the command it's on (control, link, size, the corners) */
@@ -817,6 +866,13 @@ void                slave_main(void)
         __asm__ volatile ("ldc %0,sr" : : "r" (0xE0));          /* level 15 through */
     }
 #endif
+#ifdef BOOT_TRACE
+    {
+        extern void bt_crash_handlers(void);
+
+        bt_crash_handlers();                    /* (the slave's own vectors) */
+    }
+#endif
     signal_master();                            /* hello */
     for (;;)
     {
@@ -1252,6 +1308,7 @@ void                main(void)
         bt_line(186, bt_dsp);               /* (expected: 1 106 211 316 twice: from HWRAM, from the cart) */
         vdp_stall_hook = bt_stall;
         vdp_set_field_hook(bt_watch);
+        bt_crash_handlers();
     }
 #endif
     BT(0, 33);
@@ -1375,6 +1432,10 @@ void                main(void)
         if (*(volatile u32 *)UNCACHED(&bt_frame) == 100)
             for (;;)
                 ;                           /* (OPT="-DBOOT_TRACE -DWATCH_TEST": stuck, for the watchdog) */
+#endif
+#ifdef CRASH_TEST
+        if (*(volatile u32 *)UNCACHED(&bt_frame) == 100)
+            __asm__ volatile (".word 0xFFFF");      /* (OPT="-DBOOT_TRACE -DCRASH_TEST": an illegal instruction) */
 #endif
 #endif
         BT(0, 1);

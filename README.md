@@ -248,6 +248,7 @@ Build switches (`OPT=-D... ./build.sh`) and scripts in `tools/`:
 |---|---|
 | `tools/bench.sh` | the static benchmark: six views, both CPUs' time (START + R in the game) |
 | `OPT=-DFIGHT_BENCH`, `tools/fight.sh` | the fight benchmark |
+| `OPT=-DHW_BENCH` | for a real Saturn: START + R runs the benchmark's views held, then turned, then the fight; the results on one screen to photograph (A: each view's) |
 | `OPT=-DR_PROFILE` | where the time goes, part by part |
 | `tools/compare.sh` | the benchmark's views with the assembly on and off, pixel by pixel |
 | `OPT=-DONE_CPU` | everything on the master (fixed drawing order, for comparing builds) |

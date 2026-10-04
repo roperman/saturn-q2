@@ -25,6 +25,12 @@
 #define DSP_MAKER
 #endif
 
+/* (OPT=-DHW_BENCH, for a real Saturn: the benchmark's views held, turned, and the fight, in one run,
+   on one screen: src/main.c. It has the fight's counting) */
+#if defined(HW_BENCH) && !defined(FIGHT_BENCH)
+#define FIGHT_BENCH
+#endif
+
 #define FIX(x)          ((s32)((x) * 65536))
 
 static inline s32   imin(s32 a, s32 b) { return a < b ? a : b; }
@@ -190,6 +196,8 @@ void                btrace(int cpu, int step);     /* (OPT=-DBOOT_TRACE: main.c;
 extern int          level_tries;
 void                level_ram_test(u32 *out);
 void                cart_timing(void);
+int                 r_dsp_jobs(void);       /* (the DSP's jobs after the models': 1 the texture maker, 2 the walls) */
+int                 r_tex_slots(void);      /* (the texture cache's slots, both CPUs') */
 int                 level_sector_check(const char *name, u32 k, u32 *head);
 
 /* level.c */

@@ -571,9 +571,23 @@ static const s32    bench_demo2[][5] = {
 };
 #define NBENCH          (6)                 /* views in each */
 static const s32    (*bench_views)[5];
-#ifdef TURN_BENCH
+#ifdef HW_BENCH
+/* (OPT=-DHW_BENCH, for a real Saturn, which can't save a picture: START + R runs the views held,
+   then each turned full circle (textures and all, as TURN_BENCH), then the fight (FIGHT_BENCH's),
+   and shows the three on one screen till START + R runs it again) */
+static bool         bench_turn;             /* (the views turning) */
+static int          hb_stage;               /* 1 the views held, 2 turning, 3 the fight, 4 done */
+static bool         hb_go;                  /* (the fight's start, as START + R starts it in FIGHT_BENCH) */
+/* (low work RAM: a level with the walls' and the maker's buffers has ~100 bytes of high to spare) */
+__attribute__((section(".lwdata"))) static u32 hb_v[2][NBENCH + 1][3] = { { { 0 } } };  /* held, turned: each
+                                               view's CPU, frame (0.1 ms), walk or uploads; all */
+__attribute__((section(".lwdata"))) static u32 hb_late[2] = { 0 }, hb_made[2][3] = { { 0 } };  /* late uploads;
+                                               textures made by the DSP, the CPU, bad reads */
+# define BENCH_FRAMES   (bench_turn ? 92 : 16)
+#elif defined(TURN_BENCH)
 /* (OPT=-DTURN_BENCH: at each view a full turn in 90 frames, textures and all:
    the first column is then the texture uploads a frame, not the walk) */
+# define bench_turn     (true)
 # define BENCH_FRAMES   (92)
 #elif defined(SKY_VIEWS)
 /* (OPT=-DSKY_VIEWS: the benchmark's views the sky from demo1's yard, level and looking up, 6 s each,
@@ -582,8 +596,10 @@ static const s32    bench_sky[][5] = {
     { -300, 1400, -82, 0x0000, 0 }, { -300, 1400, -82, 0x4000, 0 }, { -300, 1400, -82, 0x8000, -0x0C00 },
     { -300, 1400, -82, 0xC000, -0x1800 }, { -164, 1396, -82, 0x74A6, 0 }, { -164, 1396, -82, 0x74A6, -0x1400 },
 };
+# define bench_turn     (false)
 # define BENCH_FRAMES   (150)
 #else
+# define bench_turn     (false)
 # define BENCH_FRAMES   (16)
 #endif
 static int          bench_view = -1, bench_frame;
@@ -1301,6 +1317,57 @@ static __attribute__((cold)) void         new_game(void)
 #endif
 }
 
+#ifdef HW_BENCH
+/* (HW_BENCH, the run done) the three on one screen (0.1 ms; uploads a frame turning), and what the
+   level left */
+static __attribute__((cold)) void hb_screen(int page)
+{
+    /* (the text is VDP1's overlay commands, ~400: two pages, A between them; the gun's hidden) */
+    extern bool r_dsp_ok;
+    extern u32 gun_dma_bad;
+    u32         n = fight_n ? fight_n : 1, hw, lw, ca;
+    int         v, t, jobs = r_dsp_jobs(), y = 12;
+    u16         w = RGB(255, 255, 255), hd = RGB(255, 220, 120), g = RGB(160, 255, 160);
+
+    vdp_printf(8, y, hd, "HW BENCH %s %s", VDP2_TVSTAT & 1 ? "PAL" : "NTSC",
+               !r_use_dsp ? "NO DSP" : jobs == 0 ? "DSP MODELS" : jobs == 1 ? "MODELS+MAKER"
+               : jobs == 2 ? "MODELS+WALLS" : "MODELS+WALLS+MAKER");
+    y += 13;
+    if (page)
+    {
+        /* each view: CPU and frame (0.1 ms), held and turned; the walk (0.1 ms) held, uploads x 10 turned */
+        vdp_text(8, y, hd, "  --- HELD ---   -- TURNED --");
+        y += 10;
+        vdp_text(8, y, hd, "V  CPU  FRM WLK |  CPU  FRM UPL");
+        y += 10;
+        for (v = 0; v < NBENCH; ++v, y += 10)
+            vdp_printf(8, y, w, "%d %4d %4d %3d | %4d %4d %3d", v + 1, hb_v[0][v][0], hb_v[0][v][1],
+                       hb_v[0][v][2] / 10, hb_v[1][v][0], hb_v[1][v][1], hb_v[1][v][2]);
+        y += 4;
+        vdp_text(8, y, g, "A: BACK");
+        return;
+    }
+    level_free(&hw, &lw, &ca);
+    for (t = 0; t < 2; ++t, y += 10)
+        vdp_printf(8, y, w, "%s CPU %d FRM %d %s %d", t ? "TURNED" : "HELD  ", hb_v[t][NBENCH][0],
+                   hb_v[t][NBENCH][1], t ? "UPL" : "WALK", hb_v[t][NBENCH][2] / (t ? 1 : 10));
+    vdp_printf(8, y, w, "LATE %d %d MADE %d %d BAD %d", hb_late[0], hb_late[1], hb_made[1][0], hb_made[1][1],
+               hb_made[1][2]);
+    y += 14;
+    vdp_printf(8, y, w, "FIGHT %d.%d CPU %d.%d GAME %d.%d", fight_us / n / 1000, fight_us / n / 100 % 10,
+               fight_cpu / n / 1000, fight_cpu / n / 100 % 10, fight_game / n / 1000, fight_game / n / 100 % 10);
+    y += 10;
+    vdp_printf(8, y, w, "UP 1:%d 2:%d 3:%d 4:%d DROP %d %d", fight_swaps[1], fight_swaps[2], fight_swaps[3],
+               fight_swaps[4] + fight_swaps[5] + fight_swaps[6] + fight_swaps[7], fight_drop[0], fight_drop[1]);
+    y += 14;
+    vdp_printf(8, y, g, "HW %d LW %d CA %d SL %d", hw, lw, ca, r_tex_slots());
+    y += 10;
+    vdp_printf(8, y, g, "DSP %s%s GUN %d", r_dsp_ok ? "OK" : "BAD", r_use_dsp ? " ON" : " OFF", gun_dma_bad);
+    y += 14;
+    vdp_text(8, y, hd, "A: VIEWS  START+R: AGAIN");
+}
+#endif
+
 void                main(void)
 {
     u32             t_last, t0, us_frame = 0, us_cpu = 0;
@@ -1655,10 +1722,18 @@ void                main(void)
                 start_used = true;
             }
 #ifdef FIGHT_BENCH
+#ifdef HW_BENCH
+            if (hb_go && hb_stage == 3)
+#else
             if (pressed(PAD_R) && (pad_now & PAD_START))
+#endif
             {
                 static const s32 at[3] = { FIX(600), FIX(-428), FIX(-96) };
                 int         i;
+
+#ifdef HW_BENCH
+                hb_go = false;
+#endif
 
                 menu_cur = MENU_NONE;           /* (from anywhere: the level afresh, everything in it) */
                 g_skill = -1;
@@ -1731,9 +1806,20 @@ void                main(void)
                 cam.pitch = 0;
                 pad_now &= PAD_START;
             }
-#else
+#endif
+#if !defined(FIGHT_BENCH) || defined(HW_BENCH)
             if (pressed(PAD_R) && (pad_now & PAD_START))
             {
+#ifdef HW_BENCH
+                hb_stage = 1;                   /* (the views held first) */
+                bench_turn = false;
+                fight_done = false;
+                {
+                    extern u32 mk_total[3];
+
+                    memset(mk_total, 0, sizeof(mk_total));
+                }
+#endif
                 menu_cur = MENU_NONE;           /* (from anywhere: the level afresh, everything in it) */
                 g_skill = -1;
                 new_game();
@@ -1838,10 +1924,11 @@ void                main(void)
             cam.pos[1] = FIX(bv[1]);
             cam.pos[2] = FIX(bv[2]);
             cam.yaw = (int)bv[3];
-#ifdef TURN_BENCH
-            cam.yaw = (cam.yaw + bench_frame * (65536 / 90)) & 0xFFFF;
-            view_on = true;                 /* (the turns with the gun up: its textures in the cache too) */
-#endif
+            if (bench_turn)
+            {
+                cam.yaw = (cam.yaw + bench_frame * (65536 / 90)) & 0xFFFF;
+                view_on = true;             /* (the turns with the gun up: its textures in the cache too) */
+            }
             cam.pitch = (int)bv[4];
 #ifdef FAR_LINEUP
             far_lineup(bench_view);
@@ -1889,11 +1976,10 @@ void                main(void)
             {
                 u32 *a = bench_acc[bench_view];
 
-#ifdef TURN_BENCH
-                a[0] += (u32)rs.uploads * 100;
-#else
-                a[0] += (u32)rs.nodes;
-#endif
+                if (bench_turn)
+                    a[0] += (u32)rs.uploads * 100;
+                else
+                    a[0] += (u32)rs.nodes;
                 a[1] += rs.t_face;
                 a[2] += rs.t_grid;
                 a[3] += us_cpu;
@@ -1945,6 +2031,43 @@ void                main(void)
                     bench_done = true;
                     counts_at_end();
                     pmove_spawn(pl.origin);
+#ifdef HW_BENCH
+                    {
+                        /* (this run of views kept; then the views turned, or the fight) */
+                        extern u32 mk_total[3];
+                        int     v, t = bench_turn, n = BENCH_FRAMES - 2;
+
+                        memset(hb_v[t][NBENCH], 0, sizeof(hb_v[t][NBENCH]));
+                        for (v = 0; v < NBENCH; ++v)
+                        {
+                            hb_v[t][v][0] = bench_acc[v][3] / (u32)n / 100;
+                            hb_v[t][v][1] = bench_acc[v][4] / (u32)n / 100;
+                            hb_v[t][v][2] = bench_acc[v][0] * 10 / (u32)n / 100;   /* (0.01 ms; uploads x 10) */
+                            hb_v[t][NBENCH][0] += hb_v[t][v][0];
+                            hb_v[t][NBENCH][1] += hb_v[t][v][1];
+                            hb_v[t][NBENCH][2] += hb_v[t][v][2];
+                        }
+                        hb_late[t] = at_end[12];
+                        memcpy(hb_made[t], mk_total, sizeof(mk_total));
+                        bench_done = false;
+                        if (!t)
+                        {
+                            bench_turn = true;
+                            bench_view = 0;
+                            bench_frame = 0;
+                            memset(bench_acc, 0, sizeof(bench_acc));
+                            memset(bench_drop, 0, sizeof(bench_drop));
+                            counts_reset();
+                            memset(mk_total, 0, sizeof(mk_total));
+                            hb_stage = 2;
+                        }
+                        else
+                        {
+                            hb_stage = 3;
+                            hb_go = true;           /* (the fight, as START + R would) */
+                        }
+                    }
+#endif
                 }
             }
             continue;
@@ -2060,6 +2183,10 @@ void                main(void)
         if (pre_slave)
             PRE_CAM = 1 + ents_pvs();
         view_on = bench_view < 0 && !(paused && menu_at_title());
+#ifdef HW_BENCH
+        if (hb_stage == 4)
+            view_on = false;                /* (the screen's text wants the overlay's commands) */
+#endif
         BT(0, 7);
         view_update(paused ? 0 : dt);
         PRE(2);
@@ -2166,6 +2293,7 @@ void                main(void)
             hud_draw();
         if (paused)
             menu_draw();
+#ifndef HW_BENCH
         if (bench_done)
         {
             u32 tot[5] = { 0, 0, 0, 0, 0 };
@@ -2234,7 +2362,18 @@ void                main(void)
 #endif
             }
         }
-#ifdef FIGHT_BENCH
+#endif
+#ifdef HW_BENCH
+        if (hb_stage == 4)
+        {
+            static int page;
+
+            if (pressed(PAD_A))
+                page ^= 1;
+            hb_screen(page);
+        }
+#endif
+#if defined(FIGHT_BENCH) && !defined(HW_BENCH)  /* (HW_BENCH: its own screen instead) */
         if (fight_done)
         {
             u32 n = fight_n ? fight_n : 1;
@@ -2883,6 +3022,9 @@ void                main(void)
                     }
                     fight_frames = -1;
                     fight_done = true;
+#ifdef HW_BENCH
+                    hb_stage = 4;                   /* (its screen, not the fight's) */
+#endif
 #ifdef MF_PROF
                     {
                         extern u32 mf_t[4], mf_v[4], mf_m[4];

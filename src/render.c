@@ -2388,6 +2388,22 @@ static __attribute__((cold)) void walls_test(void)
 #endif
 #endif
 
+/* (HW_BENCH's screen) the DSP's jobs after the models': 1 the texture maker, 2 the walls; the
+   texture cache's slots */
+int                 r_dsp_jobs(void)
+{
+#if defined(DSP_WALLS) || defined(WALLS_TEST)
+    return (mk_block != NULL) | (dw_prog != NULL) << 1;
+#else
+    return mk_block != NULL;
+#endif
+}
+
+int                 r_tex_slots(void)
+{
+    return ctx[0].nslots + ctx[1].nslots;
+}
+
 /* a new level (main.c, with the portals'): the buffers */
 __attribute__((cold)) void r_wall_level(void)       /* (a level's start: built small) */
 {

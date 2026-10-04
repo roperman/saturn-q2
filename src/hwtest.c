@@ -20,7 +20,7 @@
 #include "hwtest.h"                         /* (obj/gen: engine/hwtest.dsp, assembled) */
 
 #define ITERS           (512)               /* 8 operations each: 4096 */
-#define NT              (52)
+#define NT              (60)
 #define PER_PAGE        (15)
 #define HT_PAGES        ((NT + PER_PAGE - 1) / PER_PAGE)   /* (4: main.c's HB_PAGES counts them) */
 #define LWB             ((u8 *)0x00240000)  /* low work RAM, cart, VDP1 VRAM, VDP2 VRAM, sound RAM: */
@@ -41,6 +41,7 @@ static const char   ht_names[NT][14] __attribute__((section(".lwrodata"))) = {
     "MISS HW+DSPRH", "MISS HW+DSPWH", "MISSCRT+DSPRC", "MISS HW+DSPRC", "MISS HW+DMA",
     "HIT+DMA", "MISS HW+SLVH", "MISSCRT+SLVC", "MISS HW+SLVC",
     "MISSH+DSPWH16", "MISSH+DSPWH8", "MISSH+DSPRH16", "MISSC+DSPRC16", "MISSH+SLVLW", "MISSL+SLVLW", "MISSL+SLVH",
+    "LD USE", "CODE 1K", "CODE 8K", "CODE8K+SLVH", "CODE8K+SLVLW", "ST HW+SLVH", "ST HW+SLVLW", "ST HW+DSPWH",
 };
 static u8           *hwb;                   /* high work RAM: 64 KB to read, 64 KB a DMA's destination,
                                                128 KB the background's (a DMA's source, the DSP's, the slave's) */
@@ -76,6 +77,16 @@ static u32          ht_cpu(int k)
         cache_purge();
         t = frt_read();
         LOOP8("mov.l @%0,r0\n add #16,%0\n");
+        break;
+    case 52:                                /* a load's value used by the next instruction */
+        b = *(volatile const u32 *)a;
+        t = frt_read();
+        LOOP8("mov.l @%0,r0\n add r0,r1\n");
+        break;
+    case 57: case 58: case 59:              /* stores, the other CPU or the DSP busy */
+        b = *(volatile const u32 *)UNCACHED(a);
+        t = frt_read();
+        LOOP8("mov.l %2,@%0\n");
         break;
     case 41:                                /* hits, a DMA going */
         b = *(volatile const u32 *)a;
@@ -147,6 +158,27 @@ static u32          ht_cpu(int k)
         LOOP8("");
         break;
     }
+    return (frt_read() - t) & 0xFFFF;
+}
+
+/* straight-line code of n instructions (add #1,r1) in high work RAM, built at hwb + 256 KB and run
+   calls times: FRT ticks. 1 KB fits the 4 KB cache (shared with data); 8 KB misses a line every 8
+   instructions, as the drawing's big functions may (OVERNIGHT.md 70) */
+static u32          ht_code(u32 n, int calls)
+{
+    u16             *c = (u16 *)(hwb + 0x40000);
+    void            (*f)(void) = (void (*)(void))c;
+    u32             i, t;
+
+    for (i = 0; i < n; ++i)
+        c[i] = 0x7101;                      /* add #1,r1 */
+    c[n] = 0x000B;                          /* rts */
+    c[n + 1] = 0x0009;                      /* nop */
+    cache_purge();
+    f();                                    /* (once: the 1 KB's in the cache after) */
+    t = frt_read();
+    for (i = 0; i < (u32)calls; ++i)
+        f();
     return (frt_read() - t) & 0xFFFF;
 }
 
@@ -245,9 +277,24 @@ static u32          ht_under(int k)
     case 51:
         slave_go(1);
         break;
+    case 55: case 57:
+        slave_go(1);
+        break;
+    case 56: case 58:
+        slave_go(3);
+        break;
+    case 59:
+        ht_dsp(HWTEST_PROG_WRLOOP, hwb + 131072, 0);
+        break;
+    }
+    if (k == 55 || k == 56)
+    {
+        t = ht_code(4096, 8);
+        slave_stop();
+        return t;
     }
     t = ht_cpu(k);
-    if ((k >= 36 && k <= 39) || (k >= 45 && k <= 48))
+    if ((k >= 36 && k <= 39) || (k >= 45 && k <= 48) || k == 59)
         ht_dsp_stop();
     else if (k <= 41)
         while (scu_dma0_busy())
@@ -319,6 +366,17 @@ void                ht_run(void)
                 ;
             t = (frt_read() - t) & 0xFFFF;
             ht_res[k] = (s32)(t * FRT_DIV * 10 / 4096);
+        }
+        else if (k == 53 || k == 54)
+        {
+            /* code: cycles an instruction (the call's few in it) */
+            t = k == 53 ? ht_code(512, 64) : ht_code(4096, 8);
+            ht_res[k] = (s32)(t * FRT_DIV * 10 / 32768);
+        }
+        else if (k == 55 || k == 56)
+        {
+            t = ht_under(k);
+            ht_res[k] = (s32)(t * FRT_DIV * 10 / 32768);
         }
         else
         {

@@ -125,14 +125,8 @@ u1:     rl8  mov alu,a
         mov P_OUT,ct0
         mov m0,wa0
         mov 0,ct3
-        dma mc3,d0,#16                  ; out, in three bursts: a CPU's miss in work RAM waits for the
-w_o1:   jmp t0,w_o1                     ; rest of the DSP's burst (on a Saturn, ~half a 64-word one: the
-        nop                             ; timing suite, OVERNIGHT.md 69), so shorter ones cost it less
-        dma mc3,d0,#16
-w_o2:   jmp t0,w_o2
-        nop
-        dma mc3,d0,#16
-w_out:  jmp t0,w_out
+        dma mc3,d0,#48                  ; out (in one burst: three of 16 measured slower on a Saturn,
+w_out:  jmp t0,w_out                    ; OVERNIGHT.md 69)
         nop
         mov P_OUT,ct0
         mov m0,a

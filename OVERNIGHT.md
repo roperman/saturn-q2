@@ -3265,3 +3265,37 @@ cell's texture number load, `mov.w @r6,r0`: lv.cells, in low work RAM.
 
 On the card: SUITE 3 (the models' program, 48-word writes) and SUITE 4
 (16-word writes), the rest the same, to measure the bursts on the Saturn.
+
+**On the Saturn, SUITE 3 (48-word writes) against SUITE 4 (16):** the
+fight the same (64.6 / 62.7 ms both), the turns the same (212.4 / 213.3),
+the held views 4% slower with the short bursts (296.9 against 308.4, every
+view a little), though a CPU's miss during the DSP's 16-word writes is
+39.5 cycles against 118.7 for 64: three DMA starts and waits for one cost
+the DSP more than its writes cost the CPUs. Back to 48. (The DSP's 16-word
+cart reads make a CPU's cart miss worse still: 1,987 cycles against
+1,343.) Sound works on the Saturn now (the SCSP's MEM4MB, section 69's
+fix). One of the gun's DMA copies came in shifted again and was caught.
+
+## 70. Mednafen doesn't charge for code the cache misses
+
+The hot spots on the Saturn are spread thin (a function's busiest four
+places hold 15-20% of its samples) and the slowdown against Mednafen
+isn't even: the walk (a compact loop over high work RAM) is 1.2x slower,
+brushes 1.2x, but cells 1.6x, the faces' grid 1.6x, face_asm 2.1x and
+face_cells (3.1 KB of C) 2.9x. The suite now runs straight-line code from
+high work RAM: Mednafen charges 1.0 cycle an instruction for 1 KB of it
+(it fits the 4 KB cache) and for 8 KB (it can't): it doesn't charge for
+instruction fetches the cache misses. On a Saturn each 16-byte line of
+code missed should cost like a data miss (~10 cycles for 8 instructions),
+and a face's path (face_asm, face_cells, the grid, the cells, tex_vram,
+with the cells' and lights' data streaming through the same 4 KB) is far
+bigger than the cache. The suite also times a load's value used at once
+(Mednafen 3.0), the code with the slave missing in work RAM or low work
+RAM, and stores with the slave or the DSP busy.
+
+On the card: SUITE 5 (as SUITE 3 with the new timings), SUITE 6 (render.c
+and model.c built -Os: face_cells 3,180 -> 2,464 bytes, render_world
+4,452 -> 3,832, draw_model 2,552 -> 2,224) and SUITE 7 (all the game's C
+-Os: the code 122.5 -> 112.7 KB, so more hot data in high work RAM too).
+Mednafen: SUITE 7's fight 40.8 / 38.9 ms against 40.4 / 38.5, its held
+views 194.8 against 196.4.

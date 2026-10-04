@@ -3006,3 +3006,18 @@ programs, no maker) 38.3/36.9**, the fastest, and its DSP writes go only
 to high work RAM. So that's the next to try on hardware; the walls'
 programs and the maker need a home for their results the DSP may write
 (high work RAM, or VDP1's VRAM) before they come back.
+
+Then, with the models' program on (`OPT=-DNO_DSP_WALLS`): the self-test
+now has 4 tries a pass and `OPT=-DDSP_SOAK` runs the job 1,000 times at
+each level's start. On the Saturn every try passed and the soak had no
+hang and no wrong result (from work RAM or the cart, watched with or
+without pauses), and the game played with the DSP on for a few minutes,
+then froze. The same with Sega's cart timing (`CART_ASR0=0x23301FF0`):
+the cart's cache miss 149 -> 109 cycles, but the picture went to garbage
+within a minute and it hung, so SAROO does need its own slower timing.
+The Saturn's measured costs (cycles an access, x10, the stats' lines)
+match Mednafen's but for the cart's miss (149 against ~115), MUL (6.0
+against 3.8) and DIV (46.5 against 43.1).
+
+The trace now only keeps each CPU's last 8 steps; the watchdog draws them
+when the frames stop for 2 seconds, so the trace build runs at speed.

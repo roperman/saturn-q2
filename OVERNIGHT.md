@@ -3184,3 +3184,42 @@ miss 116.5 cycles while the slave reads the cart). The profile of the
 fight in Mednafen: the master's walk 8.3 ms a frame (20%), cells 4.9,
 the faces' grid 3.7; the slave's cells 7.8 ms (19%), faces 6.1, the
 faces' grid 5.9.
+
+**The Saturn's** (PAL, the models' program on), against Mednafen's above:
+
+| | Mednafen | Saturn |
+|---|---|---|
+| miss HW / LW / cart | 10.0 / 59.1 / 115.4 | 10.2 / 60.7 / 149.4 |
+| uncached cart, 32 / 16 bits | 29.1 / 29.3 | 38.1 / 38.0 |
+| read VDP1 VRAM | 29.2 | 46.3 |
+| `mul.l` then `sts` at once | 4.0 | **7.1** |
+| ...2 instructions between | 5.0 | 6.0 |
+| `dmuls.l` then `sts` at once / 3 between | 4.0 / 6.5 | **7.1** / 7.0 |
+| `muls.w` then `sts` | 2.0 | 4.0 |
+| divide, waited / 20 instructions between | 43.1 / 43.1 | 46.4 / 46.4 |
+| DMA work RAM to VDP1, cart to work RAM (a word) | 2.1, 28.0 | 2.2, 28.7 |
+| a work RAM miss, the DSP reading work RAM | 10.0 | **48.4** |
+| ...the DSP writing work RAM | 10.1 | **119.6** |
+| a cart miss, the DSP reading the cart | 115.2 | **1343.3** |
+| a work RAM miss, the DSP reading the cart | 10.1 | 10.2 |
+| a work RAM miss, the SCU's DMA (work RAM to VDP1) | 10.0 | 10.2 |
+| a work RAM miss, the slave's work RAM misses / its cart reads | 13.5 / 116.5 | 18.1 / 100.4 |
+
+(Three of the DSP's DMA rates read 0: on a Saturn the DSP's busy flag
+isn't up at once after the start, so the wait ended before it rose; the
+test waits for it now.) Stores, hits and uncached work RAM match. So on a
+Saturn: a multiply's result read at once stalls ~3 cycles (GCC never
+leaves a gap: in render.c 293 of 466 multiplies are read at once, and
+`-fschedule-insns` changes nothing, its SH back end not knowing the
+SH-2's latency); the DSP's DMA into work RAM makes every CPU miss
+5-12x dearer, and its cart reads a CPU's cart miss 9x; a cart access by
+one CPU makes the other's work RAM misses ~100 cycles.
+
+The fight's profile on the Saturn (ms a frame; Mednafen's in brackets):
+the master's walk 10.2 (8.3), cells 8.9 (4.9), faces 7.9 (3.3), the faces'
+grid 6.4 (3.7), face_cells 6.0 (1.8), brushes 3.3 (2.7), leaves 2.1; the
+slave's faces 12.4 (6.1), cells 10.9 (7.8), the faces' grid 9.1 (5.9),
+face_cells 8.9 (3.3), model_shade 2.2, the models' commands 2.1, polygons
+2.0, vertices 1.7. The faces' code is 2-3x slower on the Saturn where the
+walk's 1.2x. A no-DSP suite build (`-DNO_DSP`) is on the card to tell the
+DSP's bus traffic apart from the rest.

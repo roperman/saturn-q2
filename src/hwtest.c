@@ -285,6 +285,12 @@ void                ht_run(void)
             }
             t = frt_read();
             ht_dsp(pcs[k - 31], at, 64);
+            {
+                int r;
+
+                for (r = 0; r < 1000 && !(DSP_PPAF & (1u << 16)); ++r)
+                    ;                       /* (on a Saturn the busy flag isn't up at once: wait for it) */
+            }
             while (DSP_PPAF & (1u << 16))
                 ;
             t = (frt_read() - t) & 0xFFFF;

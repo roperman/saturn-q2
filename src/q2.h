@@ -12,11 +12,12 @@
 #include "sat.h"
 #include "vdp.h"
 
-/* the walls' dynamic lights on the DSP (src/render.c, engine/walls0.dsp, walls1.dsp, walls2.dsp): on
-   unless OPT=-DNO_DSP_WALLS, or with what they can't go with (the walls ahead, the DSP's model
-   lighting, no DSP) */
-#if !defined(NO_DSP_WALLS) && !defined(WALLS_AHEAD) && !defined(DSP_LIGHT) && !defined(NO_DSP)
-#define DSP_WALLS
+/* the walls' dynamic lights on the DSP (src/render.c, engine/walls0.dsp, walls1.dsp, walls2.dsp): off
+   unless OPT=-DDSP_WALLS (the memory they take, high work RAM and VDP1's VRAM, cost more in
+   Mednafen's fight than they save: OVERNIGHT.md 66), and not with what they can't go with (the
+   walls ahead, the DSP's model lighting, no DSP) */
+#if defined(DSP_WALLS) && (defined(NO_DSP_WALLS) || defined(WALLS_AHEAD) || defined(DSP_LIGHT) || defined(NO_DSP))
+#undef DSP_WALLS
 #endif
 /* the textures made by the DSP as they're uploaded (src/render.c mk_*, engine/make.dsp), straight
    into VDP1's VRAM: on unless OPT=-DNO_DSP_MAKER (or no DSP, or its model lighting) */

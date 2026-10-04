@@ -19,7 +19,8 @@ from dspsim import DSP, Mem, s32, load_bin
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CART = 0x02400000                   # (where the level goes, as on the Saturn)
-PROGS = 0x06000000                  # (the rest anywhere else)
+PROGS = 0x05C60000                  # (the programs and walls1's blocks in VDP1's VRAM, on the B-bus, as
+VRAM_BLOCKS = 0x05C40000            # src/render.c puts them; the rest in high work RAM)
 BUF = 0x06010000
 MAXF = 60                           # (walls0.dsp's)
 
@@ -157,10 +158,10 @@ def run_chain(lv, level_bytes, faces, ls, walls_bin, trace=None, seed=1, odd=Fal
     mem.add(PROGS, open(walls_bin, "rb").read())
     lt, lt0 = lights_tables(ls)
     nl = len(ls)
-    at = {}
+    at = {"blocks": VRAM_BLOCKS}
+    mem.add(VRAM_BLOCKS, bytes(4 * 2400))
     addr = BUF
-    for name, words in (("blocks", 2400), ("out", 640), ("list", len(faces) + 1), ("acc", 1 + 2 * MAXF), ("lt", 32),
-                        ("lt0", 33)):
+    for name, words in (("out", 640), ("list", len(faces) + 1), ("acc", 1 + 2 * MAXF), ("lt", 32), ("lt0", 33)):
         at[name] = addr
         mem.add(addr, bytes(4 * words))
         addr += 4 * words + 64

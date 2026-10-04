@@ -3037,3 +3037,68 @@ gun's three DMA copies has its first and last words checked against the
 cart's (two uncached reads); a copy that differs isn't used (the cart is
 read as without the DMA), and counted: the stats' `GUN n`, and the
 watchdog's DSP line.
+
+## 66. The DSP's jobs back, fit for a real Saturn
+
+The texture maker and the walls' lights came off for the Saturn (section
+65): both wrote to the cart. The programs needed no rewriting, only where
+they read and write. The rules: nothing the DSP writes on the cart; nothing
+it reads to know where to write, and no program it loads, on the cart
+either (a DMA read of SAROO's cart has come in a word late).
+
+**The texture maker** writes each texture straight into its slot in VDP1's
+VRAM (a slot's written three frames after it was last drawn, so VDP1's
+done with it; a late slot's texture stays the CPU's), by a B-bus DMA with
+add mode 1: Mednafen writes a word to the B-bus as two halves, each moving
+the address by (1 << mode) & ~1, so mode 2 (+4, right for work RAM) would
+leave gaps (ST-210 No. 19 allows only 001 there too). No upload is queued
+for it, and the ring is only the CPU's now. Its block (its program, the
+counts, the table, two lists of 16 jobs, 14 words each) and the models'
+program it loads back are in high work RAM (`mk_level`, at `render_init`,
+before the hot data). Each job carries the tile's first word XOR its last,
+and the mask's; the maker checks its reads against them, and a failed read
+gives the job back (its list's count of those taken one fewer) and halts
+it for the frame, saying so in a fourth word at the end. `tools/make_sim.py`
+runs it with the new layout, and `--shift` makes a tile or mask read come
+in a word late: the job given back, its slot untouched, the halt said.
+`tools/dspasm.py` takes the DMA's add mode as a fourth operand, and
+`tools/dspsim.py` steps addresses by it as Mednafen does.
+
+**What it costs: high work RAM.** The maker's work cost nothing in the
+fight (a 5x longer pause between its polls changed nothing), but the fight
+was 1 ms slower with it, and wasting the same 4.9 KB of high work RAM in
+the build without it was exactly as slow: what's left of high work RAM
+goes to the hot copies (models, traces, portals), worth ~0.2 ms a KB here.
+So the DSP programs and the 8x8 font, read only as they're loaded, are in
+low work RAM (`.lwrodata`), and the first DSP test programs are behind
+`DSP_SWAP_TEST` / `DSP_OLD_TESTS`: 4.4 KB back.
+
+| fight NTSC | frame / CPU |
+|---|---|
+| no DSP | 39.7 / 38.3 ms |
+| the models' program only | 38.4 / 36.9 |
+| ...and the maker (the default now) | 38.5 / 37.1 |
+| ...and the walls' lights | 39.7 / 38.2 |
+| models, walls and maker | 40.2 / 38.8 |
+
+The static benchmark (CPU, six views): 184.6, 187.7, 192.4, 194.4 ms in the
+same order; late uploads 586, 586, 809, 809. The six views are pixel-
+identical with the maker on and off; it made 3,231 textures to the CPU's
+142 in a minute's play, no read failing its check. All three levels load
+(Comm Center's low work RAM 5.5 KB left; 4.3 with the walls).
+
+**The walls' lights**: the three programs and walls1's blocks for walls2
+(9.6 KB) in VDP1's VRAM (12.4 KB taken before the texture slots), the
+blocks written with add mode 1; the lit lights and picks the CPUs read in
+high work RAM (6 KB, `mk_level`); the faces the CPUs note stay on the cart
+(a read come late there gives wrong faces' light for a frame, no more: the
+DSP's writes are bounded by its own limits, and the CPU masks the indices
+it reads back). `tools/walls_sim.py` (blocks and programs on the B-bus) and
+`OPT=-DWALLS_TEST` (57 faces, 753 points, none different) agree with the C.
+But the memory costs more than the lighting saves, in Mednafen: the walls
+are now off unless `OPT=-DDSP_WALLS`. On the Saturn, whose cart is slower,
+it may come out differently: the card has both.
+
+On the card for testing: J2 (the models' program only), K (with the
+maker; the default), L (with the walls' lights), M (both), and traces of K
+and M.

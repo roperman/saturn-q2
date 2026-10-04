@@ -256,7 +256,11 @@ Build switches (`OPT=-D... ./build.sh`) and scripts in `tools/`:
 | `tools/abcompare.sh` | the six views with a change stashed and not, pixel by pixel |
 | `tools/make_sim.py` | the texture maker's DSP program against the C, in the simulator |
 | `OPT=-DWALLS_TEST`, `tools/walls_sim.py` | the walls' DSP programs against the C, on the Saturn at a level's start, or in `tools/dspsim.py` (a copy of Mednafen's DSP) |
-| `OPT=-DNO_DSP_WALLS` | the walls' dynamic lights all on the CPUs, this frame's |
+| `OPT=-DDSP_WALLS` | the walls' dynamic lights on the DSP, a frame behind (off: on the CPUs, this frame's) |
+| `OPT=-DNO_DSP_MAKER`, `-DNO_DSP` | the textures made by the CPUs only; the DSP not used at all |
+| `OPT=-DSTATS` | the statistics page from the start (the DSP's self-test, its textures made, the gun's DMA checks) |
+| `OPT=-DBOOT_TRACE` | for a real Saturn: each CPU's last steps, drawn when the frames stop for two seconds; crashes |
+| `OPT=-DDSP_SOAK` | the DSP's models job run 1,000 times at each level's start: hangs, wrong results |
 
 `tools/emu.sh` drives Mednafen for these. It uses the real display and
 keyboard, so leave the machine alone while it runs.

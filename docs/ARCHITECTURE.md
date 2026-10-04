@@ -52,10 +52,9 @@ Engine's boot sector. The bakes, each cached by timestamp:
 - **The status bar and menus** (`tools/bake_hud.py` → `HUD.BIN`), **the
   console picture** (`tools/bake_conback.py`).
 - **The DSP programs** (`tools/dspasm.py`, a small assembler for the SCU
-  DSP's instruction set): `engine/*.dsp` → C headers for those the host
-  uploads, and `cd/WALLS.BIN` for the five programs the DSP loads from the
-  cart itself (walls1, walls2, the models', walls0, the texture maker: 1 KB
-  each).
+  DSP's instruction set): `engine/*.dsp` → C headers (kept in low work RAM:
+  they're read only as they're loaded), and `cd/WALLS.BIN` for the walls'
+  three, copied into VDP1's VRAM when the walls' job is on.
 - **The monsters' code** (`build_overlays` in `build.sh`): each monster only
   some levels have (`src/m_gunner.c`, `m_berserk.c`, `m_tank.c`, `m_flyer.c`,
   `m_parasite.c`) is compiled on its own, linked twice against `game.elf` at
@@ -77,9 +76,9 @@ this order: the sky and sound banks aren't here (VDP2 VRAM and sound RAM),
 but the models are (`models_load_all`: the ones the level's entities need,
 the optional ones only if there's room after them for the gun's two slots),
 the monsters' code overlays, the gun's slots (`src/view.c`: the weapon you
-hold and the next one, read from the CD in the background), the walls' DSP
-buffers, the texture maker's ring and lists, the entities if low work RAM is
-full. `OPT=-DLEVEL_TEST` prints what each level leaves.
+hold and the next one, read from the CD in the background), the faces the
+CPUs note for the walls' DSP job (when it's on), the ring of textures the
+CPUs make, the entities if low work RAM is full. `OPT=-DLEVEL_TEST` prints what each level leaves.
 
 ### The level file's lumps
 
@@ -133,7 +132,7 @@ to be signalled. In order, for one frame:
    and pickup flashes).
 4. **The models for the DSP** (`models_to_dsp`): every model that might be
    on screen gets a 25-word header (its two frames' matrices, already
-   weighted by the blend) in a stream on the cart; the DSP is started on it
+   weighted by the blend) in a stream in work RAM; the DSP is started on it
    (`dsp_models`) and transforms vertices block by block while everything
    else goes on, bumping a count the CPUs poll when they need a model. The
    walls' job and the texture maker are chained after it (section 7).
@@ -211,8 +210,9 @@ CPU (`tex_load`). A slot is reused only when VDP1 has finished every frame
 that used it: the list being built, the one in flight, and the one before,
 since two can be in flight. If none are that old, one two frames back is
 taken and its upload goes late, once VDP1 is done with that frame
-(`r_late_uploads`). Uploads are SCU DMA from the cart or the maker's ring,
-not CPU stores (111 cycles a word into VRAM).
+(`r_late_uploads`). Uploads are SCU DMA from the cart or the CPUs' ring of
+made textures, not CPU stores (111 cycles a word into VRAM); the DSP's
+maker writes its textures into their slots itself.
 
 ### Models
 
@@ -302,18 +302,21 @@ assembles `engine/*.dsp` (its header documents the syntax), and
 `tools/dspsim.py` is a Python copy of Mednafen's DSP for testing programs
 off the Saturn (`tools/walls_sim.py`, `tools/make_sim.py`).
 
-Every frame runs a chain of programs, each loading the next from
-`cd/WALLS.BIN` on the cart:
+Every frame runs a chain of programs, each loading the next by the DSP's
+own DMA, from copies in high work RAM (the models', the maker's) or VDP1's
+VRAM (the walls'):
 
 1. **The models** (`xformm.dsp`): started by `models_to_dsp` with the
    models' stream; counts up a word in work RAM as each is done.
-2. **The walls' lights** (`walls0.dsp`, `walls1.dsp`, `walls2.dsp`), when
-   there are dynamic lights: walls0 picks, from the faces the CPUs drew last
-   frame (each CPU notes its whole faces as it draws them, `dw_note`), those
-   any light reaches; walls1 lays each one's grid out; walls2 sums the
-   lights at every grid point and writes the lit Gouraud values the CPUs
-   use the next frame (`dw_find`). The parameters (`dsp_walls_p`, RAM0 words
-   40-63) are the level's constants and this frame's lists.
+2. **The walls' lights** (`walls0.dsp`, `walls1.dsp`, `walls2.dsp`; off
+   unless `OPT=-DDSP_WALLS`), when there are dynamic lights: walls0 picks,
+   from the faces the CPUs drew last frame (each CPU notes its whole faces
+   as it draws them, `dw_note`), those any light reaches; walls1 lays each
+   one's grid out; walls2 sums the lights at every grid point and writes
+   the lit Gouraud values the CPUs use the next frame (`dw_find`). The
+   parameters (`dsp_walls_p`, RAM0 words 40-63) are the level's constants
+   and this frame's lists. walls1's blocks for walls2 are in VDP1's VRAM,
+   the lit values and picks in high work RAM.
 3. **The texture maker** (`make.dsp`, section 7.3), for the rest of the
    frame.
 4. Back to the models' program, which stops.
@@ -321,22 +324,46 @@ Every frame runs a chain of programs, each loading the next from
 Each program keeps its working set in the four data banks and is written
 around the DSP's quirks: a JMP's delay slot always runs, an ALU result
 exists only in the instruction that made it, a bank read by an instruction
-can't be written by it, and the right shift is arithmetic. The host-side
-driver is `engine/dsp.c`.
+can't be written by it, a bank being filled by DMA mustn't be touched till
+it's done, and the right shift is arithmetic. A DMA writes the B-bus (VDP1's
+VRAM) with add mode 1 (each word goes as two halves, each moving the address
+by 2), high work RAM with mode 2. The host-side driver is `engine/dsp.c`.
+
+**What a real Saturn won't do** (Sega's "SCU Final Specifications:
+Precautions", and the RAM cart's bulletin), which Mednafen allows:
+
+- The SCU's DMA, the DSP's included, mustn't write the cart: on the Saturn
+  the bus locks. Nothing the DSP writes is on the cart.
+- A DMA level's registers mustn't be written while it's active, and it's
+  active till its move, standby and held-back flags are all clear
+  (`scu_dma0`'s `D0_ACTIVE`).
+- An indirect DMA's table must start on the power-of-two boundary its size
+  rounds up to (`vdp.c`'s table: the slave stack's bottom KB).
+- The A-bus timing register is written only after a read of the cart.
+
+And on SAROO's cart a DMA read has been seen to arrive a word late, the
+rest shifted. So what the DSP reads to know where to write, and every
+program it loads, is in high work RAM or VRAM; the maker checks the tile
+and mask it reads; and the gun's DMA copies from the cart are checked
+before use (`dma_copy_ok`).
 
 ### 7.3 The texture maker
 
-Each CPU, as `tex_load` finds a texture to make, writes a 12-word job on
-the cart (the tile, the mask, the ring slot, and the crop's rows, words and
-shifts, all worked out by the host) and bumps its count; the maker polls the
-two counts, DMAs the tile (32 words) and mask (8) in, makes the 32 words out
-(a row at a time: the mask's bits through one 16-entry nibble table, the
-second lookup from the same entry's high half, ANDed with the row's words,
-shifted into place when the crop starts inside a word) and DMAs them to the
-slot. At the frame's end the master raises an end flag and waits for the
-maker's state word (its current job done), then makes whatever is left
-itself; the ring slot is the upload's DMA source either way. Section 62 of
-OVERNIGHT.md has the design and the measurements.
+Each CPU, as `tex_load` finds a texture to make (not a late one), writes a
+14-word job into the maker's block in high work RAM (the tile, the mask,
+the texture's slot in VDP1's VRAM, the crop's rows, words and shifts, all
+worked out by the host, and the tile's and mask's first word XOR their
+last) and bumps its count; the maker polls the two counts, DMAs the tile
+(32 words) and mask (8) in from the cart and checks them, makes the 32
+words out (a row at a time: the mask's bits through one 16-entry nibble
+table, the second lookup from the same entry's high half, ANDed with the
+row's words, shifted into place when the crop starts inside a word) and
+DMAs them straight into the slot. A read that fails its check gives the job
+back and stops the maker for the frame. At the frame's end the master
+raises an end flag and waits for the maker's state word (its current job
+done), then makes whatever is left into the CPUs' ring and queues their
+uploads. Sections 62 and 66 of OVERNIGHT.md have the design and the
+measurements.
 
 ## 8. The game
 

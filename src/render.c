@@ -230,6 +230,15 @@ int                 r_model_far = MODEL_FAR;   /* a model beyond this (units) us
 static u16          cell_all[MAX_ROW];      /* the cells' numbers, for the C doing a whole row */
 #define UPQ             (256)               /* texture uploads a CPU can queue in a frame (then it copies them itself) */
 #define MK_JOBS         (16)                /* textures a CPU can list for the DSP to make a frame (mk_job; more: its own) */
+/* the walls' dynamic lights on the DSP (DSP_WALLS: dw_*, engine/walls0.dsp, walls1.dsp, walls2.dsp) */
+#define DW_FACES        (60)                /* faces a frame, at most (walls0.dsp's MAXF) */
+#define DW_BLKW         (2400)              /* their blocks' words (walls1.dsp's MAXBW: one's 75 at most) */
+#define DW_OUTW         (640)               /* their lit lights' words (walls1.dsp's MAXOW: one's 31 at most) */
+#define DW_REC          (256)               /* the faces a CPU notes a frame, at most (dw_rec: 2 a word) */
+#define DW_HW_WORDS     (2 * DW_OUTW + 2 * (1 + 2 * DW_FACES))  /* (mk_level: two frames' lit lights and picks) */
+#define DW_VRAM_BYTES   (3 * 1024 + DW_BLKW * 4)    /* (render_init: walls0, walls1, walls2, then walls1's blocks) */
+static u32          dw_vram __attribute__((unused));    /* VDP1 VRAM: walls0, walls1, walls2, the blocks (0: none) */
+static u32          *dw_hw;                 /* high work RAM: dw_out[2], dw_acc[2] */
 #ifdef NO_DMA_UPLOADS
 bool                r_dma_uploads = false;
 #else
@@ -829,6 +838,16 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
     }
     base += VIEW_MAX_TEX * 32;
     free -= VIEW_MAX_TEX * 32;
+#ifdef DSP_WALLS
+    /* the walls' DSP programs and walls1's blocks (r_wall_level: the DSP's own, so VDP1's VRAM) */
+    dw_vram = 0;
+    if (r_use_dsp && free >= DW_VRAM_BYTES + 256 * (u32)(lv.N * lv.N / 2))
+    {
+        dw_vram = base;
+        base += DW_VRAM_BYTES;
+        free -= DW_VRAM_BYTES;
+    }
+#endif
     /* the rest: tile-sized slots, in two parts, one each CPU's (SPLIT_M% the master's) */
     slot_bytes = (u32)(lv.N * lv.N / 2);
     slot_vram = base;
@@ -992,6 +1011,7 @@ static __attribute__((cold)) void mk_level(void)
 
     mk_block = mk_head = NULL;
     dsp_prog0 = NULL;
+    dw_hw = NULL;
     mk_on = false;
     mk_total[0] = mk_total[1] = mk_total[2] = 0;
     if (!r_use_dsp)
@@ -1000,6 +1020,9 @@ static __attribute__((cold)) void mk_level(void)
 #if defined(DSP_MAKER) || defined(DSP_WALLS)
     dsp_prog0 = level_alloc(256 * 4);       /* (only the maker and the walls' programs load it back) */
     dsp_models_prog(dsp_prog0);
+#endif
+#ifdef DSP_WALLS
+    dw_hw = level_alloc(DW_HW_WORDS * 4);   /* (the walls' lit lights and picks: r_wall_level) */
 #endif
 #ifdef WASTE_TEST
     (void)level_alloc(WASTE_TEST);          /* (a test: what high work RAM's worth to the hot data) */
@@ -1868,8 +1891,8 @@ static u32          wl_words;               /* ...the room for lights each has *
 u32                 wl_stop[3];             /* (why the slave stopped: the next frame, no room, all done) */
 #endif
 
-/* ---- the walls' dynamic lights on the DSP (engine/walls0.dsp, walls1.dsp, walls2.dsp: on unless
-   OPT=-DNO_DSP_WALLS, src/q2.h) ----
+/* ---- the walls' dynamic lights on the DSP (engine/walls0.dsp, walls1.dsp, walls2.dsp: off unless
+   OPT=-DDSP_WALLS, src/q2.h) ----
 
    Three programs, one after another after the models' job: walls0.dsp picks, of the whole faces
    the CPUs drew last frame, those this frame's lights may light (face_dlights' tests, from the
@@ -1880,14 +1903,16 @@ u32                 wl_stop[3];             /* (why the slave stopped: the next 
 #if defined(DSP_WALLS) || defined(WALLS_TEST)
 #include "q2models.h"
 static int          wl_face_setup(r_ctx *x, int fi, const dl_light *L, const q_dlight *ls, int nl);
-#define DW_FACES        (60)                /* faces a frame, at most (walls0.dsp's MAXF) */
-#define DW_BLKW         (2400)              /* their blocks' words (walls1.dsp's MAXBW: one's 75 at most) */
-#define DW_OUTW         (640)               /* their lit lights' words (walls1.dsp's MAXOW: one's 31 at most) */
 #define DW_LIGHTS       (3)
-#define DW_REC          (256)               /* the faces a CPU notes a frame, at most (dw_rec: 2 a word) */
 #define DW_HASH         (128)               /* (dw_find's table) */
-static const u8     *dw_prog;               /* the programs (cd/WALLS.BIN), on the cart */
-static u32          *dw_blocks, *dw_out[2], *dw_rec[2], *dw_acc[2]; /* (on the cart) */
+/* Where it all goes, for a real Saturn (whose SCU DMA mustn't write the cart, and whose DMA reads
+   of SAROO's cart have come in a word late): the three programs and walls1's blocks for walls2 (the
+   DSP's own) in VDP1's VRAM (dw_vram: render_init's, before the texture slots), the lit lights and
+   the picks (the CPUs read them) in high work RAM (dw_hw: mk_level's, before the hot data); the
+   faces the CPUs note (dw_rec) on the cart: a read come late gives wrong faces' lights, no more */
+static const u8     *dw_prog;               /* cd/WALLS.BIN, on the cart (NULL: the walls' job off this level) */
+static u32          *dw_blocks, *dw_out[2], *dw_rec[2], *dw_acc[2];
+#define DW_VADDR(off)   ((((u32)VDP1_VRAM + dw_vram + (off)) & 0x07FFFFFF) >> 2)   /* (the DSP's: >> 2) */
 static s32          *dw_lt, *dw_lt0;        /* walls2.dsp's lights (the first again last); walls0.dsp's, its
                                                constants (on the cart) */
 static u32          dw_fb;                  /* the cart's faces >> 2 (a record's address: + 8 its index) */
@@ -2047,10 +2072,10 @@ static __attribute__((cold)) void dw_level(void)
     dw_p.raw = ((u32)lv.lights_cart & 0x07FFFFFF) >> 2;
     dw_p.n = (u32)lv.N;
     dw_p.rcp = (u32)(65536 / lv.N);
-    dw_p.progf = (((u32)dw_prog + 3072) & 0x07FFFFFF) >> 2;
-    dw_p.prog2 = (((u32)dw_prog + 1024) & 0x07FFFFFF) >> 2;
+    dw_p.progf = DW_VADDR(0);              /* (walls0, walls1, walls2: VDP1's VRAM, r_wall_level's copies) */
+    dw_p.prog2 = DW_VADDR(2048);
     dw_p.planes = ((u32)lv.planes_cart & 0x07FFFFFF) >> 2;
-    dw_p.prog1 = ((u32)dw_prog & 0x07FFFFFF) >> 2;
+    dw_p.prog1 = DW_VADDR(1024);
     dw_p.mkprog = 0;                        /* (r_wall_level: the texture maker's block, if there's one) */
     dw_p.prog0 = ((u32)dsp_prog0 & 0x07FFFFFF) >> 2;   /* (mk_level: high work RAM) */
     dw_p.faces_cart = dw_fb;
@@ -2384,17 +2409,26 @@ __attribute__((cold)) void r_wall_level(void)       /* (a level's start: built s
     wt_res[16] = ca >> 10;
     wt_res[17] = lw >> 10;
 #endif
-    if (r_use_dsp && lw >= DW_HASH * 4 + 4096
-        && ca >= 5120 + (DW_BLKW + 2 * DW_OUTW + 2 * DW_REC + 2 * (1 + 2 * DW_FACES) + 32 + 36) * 4
-                 + 4096 + view)
+    if (r_use_dsp && dw_vram && dw_hw && lw >= DW_HASH * 4 + 4096
+        && ca >= 5120 + (2 * DW_REC + 32 + 36) * 4 + 4096 + view)
     {
-        dw_prog = cart_load("WALLS.BIN");
-        dw_blocks = (u32 *)cart_alloc(DW_BLKW * 4);
+        volatile u32    *v = (volatile u32 *)(VDP1_VRAM + dw_vram);
+        const u32       *wb;
+
+        dw_prog = cart_load("WALLS.BIN");   /* (walls1, walls2, the models', walls0, the maker's) */
+        wb = (const u32 *)dw_prog;
+        for (k = 0; k < 256; ++k)
+        {
+            v[k] = wb[768 + k];             /* walls0 */
+            v[256 + k] = wb[k];             /* walls1 */
+            v[512 + k] = wb[256 + k];       /* walls2 */
+        }
+        dw_blocks = (u32 *)(VDP1_VRAM + dw_vram + 3072);
         for (k = 0; k < 2; ++k)
         {
-            dw_out[k] = (u32 *)cart_alloc(DW_OUTW * 4);
+            dw_out[k] = dw_hw + k * DW_OUTW;
+            dw_acc[k] = dw_hw + 2 * DW_OUTW + k * (1 + 2 * DW_FACES);
             dw_rec[k] = (u32 *)cart_alloc(DW_REC * 4);
-            dw_acc[k] = (u32 *)cart_alloc((1 + 2 * DW_FACES) * 4);
         }
         dw_lt = (s32 *)cart_alloc(32 * 4);
         dw_lt0 = (s32 *)cart_alloc(36 * 4);

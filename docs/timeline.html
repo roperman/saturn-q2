@@ -317,14 +317,14 @@
   <section>
     <div class="section-head">
       <h2>The DSP's frame</h2>
-      <p>The DSP holds one 256-word program at a time. Each of these loads the next itself, by DMA from the RAM cart, so the CPUs start it once a frame and never wait for the chain.</p>
+      <p>The DSP holds one 256-word program at a time. Each of these loads the next itself, by DMA from a copy in work RAM or VDP1's memory, so the CPUs start it once a frame and never wait for the chain. (Never from the RAM cart: on a real Saturn the DSP mustn't write it, and its reads from it can arrive a word late.)</p>
     </div>
     <div class="chain">
       <div class="prog"><b>The models</b><code>xformm.dsp</code><span>Every visible model's two animation frames, blended and turned into view, 16 vertices at a time.</span></div>
       <div class="arrow">→</div>
-      <div class="prog"><b>The walls' lights</b><code>walls0, walls1, walls2</code><span>When a light's lit: picks the faces it reaches from last frame's, and lights their grid points for the next frame.</span></div>
+      <div class="prog"><b>The walls' lights</b><code>walls0, walls1, walls2</code><span>When a light's lit: picks the faces it reaches from last frame's, and lights their grid points for the next frame. Off unless built with it: its memory costs more than it saves.</span></div>
       <div class="arrow">→</div>
-      <div class="prog"><b>The texture maker</b><code>make.dsp</code><span>For the rest of the frame: makes each texture the CPUs list (a tile cut by a 32-byte mask, or split for the near plane).</span></div>
+      <div class="prog"><b>The texture maker</b><code>make.dsp</code><span>For the rest of the frame: makes each texture the CPUs list (a tile cut by a 32-byte mask, or split for the near plane), straight into its slot in VDP1's memory.</span></div>
       <div class="arrow">→</div>
       <div class="prog"><b>Back to the models</b><code>at the frame's end</code><span>The master's end flag: the maker finishes its job, says how many it made, and loads the models' program for next time.</span></div>
     </div>
@@ -361,7 +361,7 @@
       <div><h3>The walk feeds the slave</h3><p>Faces are published one at a time as the walk finds them, so the slave doesn't wait for the whole list. The master takes from the back and the slave from the front, and they meet wherever the work runs out.</p></div>
       <div><h3>The game runs during the drawing</h3><p>Monsters and their traces run on the master while the slave draws. The slave takes more of the list that frame, which balances the two CPUs.</p></div>
       <div><h3>The next move, made early</h3><p>The slave finishes drawing before the master, so it reads the pad and moves you for the next frame then. The next frame starts with that done, about 1.5&nbsp;ms sooner.</p></div>
-      <div><h3>The DSP keeps itself busy</h3><p>Its programs load each other from the cart, so after one start a frame it works through the models, the walls' lights and the textures with no CPU attention.</p></div>
+      <div><h3>The DSP keeps itself busy</h3><p>Its programs load each other from copies in work RAM and video memory, so after one start a frame it works through the models and the textures with no CPU attention.</p></div>
       <div><h3>Everything else runs alongside</h3><p>The DMA, the sound CPU and the SMPC each run on their own. The CPUs only hand them work and collect the results, and never wait for them in the common case.</p></div>
     </div>
   </section>

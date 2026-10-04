@@ -433,15 +433,15 @@
   F.dsp = [
     { start: 'Started by the master' },
     { s: 'The models: each one’s two frames blended and turned into view, 16 vertices at a time; a count after each, which the CPUs poll', c: 'xformm.dsp' },
-    { d: 'A light lit, and faces drawn last frame?', c: 'dw_frame', b: [
+    { d: 'Built with the walls’ job (OPT=-DDSP_WALLS), a light lit, and faces drawn last frame?', c: 'dw_frame', b: [
       { s: 'Pick the faces the lights reach', c: 'walls0.dsp' },
       { s: 'Lay out each one’s grid', c: 'walls1.dsp' },
       { s: 'Light every grid point, for the next frame', c: 'walls2.dsp' },
       { back: 'on' } ] },
     { d: 'Room for the texture maker on this level?', c: 'mk_block', b: [
       { loop: 'Until the master’s end flag', body: [
-        { d: 'A new job on either CPU’s list?', b: [ { s: 'Tile and mask in, 32 words made, out to the upload’s slot', c: 'make.dsp' }, { back: 'on' } ] },
-        { s: 'Wait 200 cycles (the cart’s bus is the CPUs’ too)' } ] },
+        { d: 'A new job on either CPU’s list?', b: [ { d: 'A tile or mask read from the cart that fails its check?', b: [ { s: 'Give the job back; take no more this frame', c: 'make.dsp: fail' }, { back: 'on' } ] }, { s: '32 words made, straight into the texture’s slot in VDP1’s memory', c: 'make.dsp' }, { back: 'on' } ] },
+        { s: 'Wait 1,000 cycles between looks at the lists' } ] },
       { s: 'Write how many it made', c: 'state word: done' },
       { back: 'on' } ] },
     { s: 'Load the models’ program back', c: 'DMA into program RAM' },

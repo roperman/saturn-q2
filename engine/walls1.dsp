@@ -248,27 +248,27 @@ lpa:    mov AX,ct0
         ad2  mov all,mc2
         offsets H+1, I_EV0, I_EV1, BL
 
-        ; the block out
+        ; the block out (to VDP1's VRAM, the host's: the B-bus, add mode 1, +2 a half)
         mov H,ct0
-        dma mc0,d0,9
+        dma mc0,d0,9,1
 w4:     jmp t0,w4
         nop
         mov F,ct0
-        dma mc0,d0,3
+        dma mc0,d0,3,1
 w5:     jmp t0,w5
         nop
         mov AX+3,ct0
-        dma mc0,d0,3
+        dma mc0,d0,3,1
 w6:     jmp t0,w6
         nop
         mov 0,ct2
         mov H+6,ct0
-        dma mc2,d0,m0
+        dma mc2,d0,m0,1
 w7:     jmp t0,w7
         nop
         mov BL,ct1
         mov H+7,ct0
-        dma mc1,d0,m0
+        dma mc1,d0,m0,1
 w8:     jmp t0,w8
         nop
 

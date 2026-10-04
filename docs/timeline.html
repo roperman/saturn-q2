@@ -324,7 +324,7 @@
       <div class="arrow">→</div>
       <div class="prog"><b>The walls' lights</b><code>walls0, walls1, walls2</code><span>When a light's lit: picks the faces it reaches from last frame's, and lights their grid points for the next frame. Off unless built with it: its memory costs more than it saves.</span></div>
       <div class="arrow">→</div>
-      <div class="prog"><b>The texture maker</b><code>make.dsp</code><span>For the rest of the frame: makes each texture the CPUs list (a tile cut by a 32-byte mask, or split for the near plane), straight into its slot in VDP1's memory.</span></div>
+      <div class="prog"><b>The texture maker</b><code>make.dsp</code><span>For the rest of the frame: makes each texture the CPUs list (a tile cut by a 32-byte mask, or split for the near plane), straight into its slot in VDP1's memory. Off unless built with it: on a real Saturn its memory and bus traffic cost more than it saves.</span></div>
       <div class="arrow">→</div>
       <div class="prog"><b>Back to the models</b><code>at the frame's end</code><span>The master's end flag: the maker finishes its job, says how many it made, and loads the models' program for next time.</span></div>
     </div>

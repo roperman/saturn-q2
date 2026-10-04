@@ -3110,3 +3110,34 @@ slower (view 2's master 59.0 ms against 37.4). The cart's misses (149
 cycles against ~115) and the multiplier's stalls Mednafen doesn't model
 are the likely part of it. `OPT=-DHW_BENCH`'s five builds (no DSP to all
 three jobs) are on the card to measure each on the Saturn.
+
+## 67. On a real Saturn, 3: the five DSP setups measured
+
+`OPT=-DHW_BENCH` (START + R: the six views held, the six turned full circle,
+then the fight; one screen) on Roper's PAL Saturn with SAROO, one build
+each:
+
+| build | held CPU | turned CPU | fight frame / CPU | walk (held) |
+|---|---|---|---|---|
+| no DSP | 295.3 | 210.6 | 64.2 / 62.3 | 48.6 |
+| **the models' program** | **290.9** | **209.3** | **63.2 / 61.2** | 55.4 |
+| ...and the maker | 301.4 | 212.2 | 63.7 / 61.7 | 56.0 |
+| ...and the walls | 317.6 | 223.6 | 67.7 / 65.7 | 58.6 |
+| models, walls, maker | 323.1 | 225.6 | 69.0 / 67.1 | 59.4 |
+
+(ms; the views' sums.) The models' program alone is the fastest in all
+three. The maker made 4,586 textures to the CPU's 40 in the turns, no read
+failing its check, and still cost more than it saved: its memory (3.9 KB of
+high work RAM) and its bus traffic. The walls cost ~4 ms a fight frame,
+their 12.4 KB of VRAM costing ~100 texture slots (late uploads turning 925
+-> 1,837). The walk, which the DSP has no part in, is 14% slower with the
+DSP running: its DMA takes the bus from the CPUs, which Mednafen doesn't
+charge them for. So both are off by default now (`OPT=-DDSP_MAKER`,
+`-DDSP_WALLS`); the default is the models' program alone.
+
+The Saturn is ~1.5-1.7x slower than Mednafen across the board (the fight
+63.2 against ~38-40 ms PAL), every fight picture up 3 or 4 fields: the
+cart's misses (149 cycles against ~115), the multiplier's (MUL 6.0 cycles
+against 3.8: Mednafen doesn't stall `sts macl` after a `mul`), and the
+DSP's bus traffic. One of the gun's DMA copies came in shifted in the
+walls+maker run (`GUN 1`) and was thrown away, as section 65's check meant.

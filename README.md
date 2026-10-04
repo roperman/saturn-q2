@@ -258,7 +258,8 @@ Build switches (`OPT=-D... ./build.sh`) and scripts in `tools/`:
 | `tools/make_sim.py` | the texture maker's DSP program against the C, in the simulator |
 | `OPT=-DWALLS_TEST`, `tools/walls_sim.py` | the walls' DSP programs against the C, on the Saturn at a level's start, or in `tools/dspsim.py` (a copy of Mednafen's DSP) |
 | `OPT=-DDSP_WALLS` | the walls' dynamic lights on the DSP, a frame behind (off: on the CPUs, this frame's) |
-| `OPT=-DNO_DSP_MAKER`, `-DNO_DSP` | the textures made by the CPUs only; the DSP not used at all |
+| `OPT=-DDSP_MAKER` | the textures the CPUs make as they're uploaded made by the DSP instead |
+| `OPT=-DNO_DSP` | the DSP not used at all (the models' vertices on the CPUs) |
 | `OPT=-DSTATS` | the statistics page from the start (the DSP's self-test, its textures made, the gun's DMA checks) |
 | `OPT=-DBOOT_TRACE` | for a real Saturn: each CPU's last steps, drawn when the frames stop for two seconds; crashes |
 | `OPT=-DDSP_SOAK` | the DSP's models job run 1,000 times at each level's start: hangs, wrong results |

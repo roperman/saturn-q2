@@ -20,9 +20,10 @@
 #undef DSP_WALLS
 #endif
 /* the textures made by the DSP as they're uploaded (src/render.c mk_*, engine/make.dsp), straight
-   into VDP1's VRAM: on unless OPT=-DNO_DSP_MAKER (or no DSP, or its model lighting) */
-#if !defined(NO_DSP_MAKER) && !defined(DSP_LIGHT) && !defined(NO_DSP)
-#define DSP_MAKER
+   into VDP1's VRAM: off unless OPT=-DDSP_MAKER (on a Saturn it cost more than it saved: OVERNIGHT.md
+   67), and not with no DSP or its model lighting */
+#if defined(DSP_MAKER) && (defined(NO_DSP_MAKER) || defined(DSP_LIGHT) || defined(NO_DSP))
+#undef DSP_MAKER
 #endif
 
 /* (OPT=-DHW_BENCH, for a real Saturn: the benchmark's views held, turned, and the fight, in one run,

@@ -317,8 +317,8 @@ VRAM (the walls'):
    parameters (`dsp_walls_p`, RAM0 words 40-63) are the level's constants
    and this frame's lists. walls1's blocks for walls2 are in VDP1's VRAM,
    the lit values and picks in high work RAM.
-3. **The texture maker** (`make.dsp`, section 7.3), for the rest of the
-   frame.
+3. **The texture maker** (`make.dsp`, section 7.3; off unless
+   `OPT=-DDSP_MAKER`), for the rest of the frame.
 4. Back to the models' program, which stops.
 
 Each program keeps its working set in the four data banks and is written

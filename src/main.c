@@ -2505,6 +2505,27 @@ void                main(void)
 
                 vdp_printf(8, 108, c, "GRID PT%d BAD%d DSP %s%s HEAP %x", cyc[0], grid_bad, r_dsp_ok ? "OK" : "BAD",
                            r_use_dsp ? " ON" : "", level_heap());
+                {
+                    /* the DSP self-test's failed tries (work RAM, the cart) and the status port as the
+                       last stopped; with OPT=-DDSP_SOAK the soak's hangs and wrong results (work RAM,
+                       the cart; then the same watched with pauses), hangs first after a reload, the
+                       status at the first */
+                    extern s32 dsp_fails[2];
+                    extern u32 dsp_fail_ppaf[2], dsp_fail_dsta;
+
+                    vdp_printf(8, 118, c, "DSP TRIES %d %d %x %x DMA %x", dsp_fails[0], dsp_fails[1], dsp_fail_ppaf[0],
+                               dsp_fail_ppaf[1], dsp_fail_dsta);
+#ifdef DSP_SOAK
+                    {
+                        extern s32 soak_hang[4], soak_bad[4], soak_first;
+                        extern u32 soak_ppaf;
+
+                        vdp_printf(8, 128, c, "SOAK H%d %d %d %d W%d %d %d %d F%d %x", soak_hang[0], soak_hang[1],
+                                   soak_hang[2], soak_hang[3], soak_bad[0], soak_bad[1], soak_bad[2], soak_bad[3],
+                                   soak_first, soak_ppaf);
+                    }
+#endif
+                }
 #ifdef WALLS_TEST
                 {
                     extern u32 wt_res[18];

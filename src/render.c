@@ -429,17 +429,78 @@ static s32          *axis_view;             /* the axes in view space: du and it
 #ifdef PPD_TEST
 u32                 ppd_ticks;
 #endif
-/* the DSP self-test's findings (shown by main.c) */
+/* the DSP self-test's findings (shown by main.c): each pass's count, vertex 5's x y z; the tries
+   that failed before it passed (or all 4), and the DSP's status port when the last of those stopped
+   (its PC the low 8 bits, bit 23 its DMA under way) */
 s32                 dsp_test[8];
+s32                 dsp_fails[2];
+u32                 dsp_fail_ppaf[2], dsp_fail_dsta;     /* (and the SCU's DMA status at the last hang) */
+#ifdef DSP_SOAK
+/* (OPT=-DDSP_SOAK, a test for real hardware) the models' job run 1,000 times at each level's start:
+   its vertices from high work RAM or the cart, the DSP watched without a pause or with ~200 cycles
+   between looks; how many hung, came out wrong, and hung as the first job after a program load,
+   and the status port at the first hang */
+s32                 soak_hang[4], soak_bad[4], soak_first;
+u32                 soak_ppaf;
+#endif
+
+/* one job of the test, its vertices at v (two frames of 16, packed): 0 right, 1 never finished
+   (stopped, the program loaded again; *ppaf its status as it was), 2 wrong. res: what it gave */
+static int          dsp_try(const u32 *v, u32 polls, bool polite, s32 *res, u32 *ppaf)
+{
+    u32             *st = dspm_stream, t;
+    const s32       *out = (const s32 *)UNCACHED(dspm_out);
+    volatile u32    *count = (volatile u32 *)UNCACHED(&dspm_count);
+    int             k;
+
+    memset(dspm_out, 0xEE, 48 * 4);
+    *count = 0;
+    for (k = 0; k < 3; ++k, st += 7)
+    {
+        st[0] = (u32)FIX(100 * (k + 1));
+        st[1] = st[2] = st[3] = st[4] = st[5] = st[6] = 0;
+        st[1 + k] = st[4 + k] = FIX(0.5);
+    }
+    st[0] = ((u32)v & 0x07FFFFFF) >> 2;
+    st[1] = ((u32)(v + 16) & 0x07FFFFFF) >> 2;
+    st[2] = 1;
+#ifdef DSP_LIGHT
+    st[3] = 0;                              /* (no lighting) */
+#else
+    st[3] = ((u32)dspm_out & 0x07FFFFFF) >> 2;
+#endif
+    dsp_maker_params(NULL);
+    dsp_models(dspm_stream, dspm_out, 1, &dspm_count);
+    for (t = 0; t < polls && dsp_busy(); ++t)
+        if (polite)
+        {
+            volatile int d;
+
+            for (d = 0; d < 50; ++d)
+                ;
+        }
+    res[0] = dsp_busy() ? -1 : (s32)*count;     /* finished, and counted? 1 */
+    res[1] = out[5] >> 16;                  /* x of vertex 5: 106 */
+    res[2] = out[16 + 5] >> 16;             /* y: 211 */
+    res[3] = out[32 + 5] >> 16;             /* z: 316 */
+    if (res[0] < 0)
+    {
+        *ppaf = DSP_PPAF;
+        dsp_fail_dsta = SCU_DSTA;
+        dsp_init_models();                  /* stuck: reload (stops it) */
+        return 1;
+    }
+    return res[0] == 1 && res[1] == 106 && res[2] == 211 && res[3] == 316 ? 0 : 2;
+}
 
 /* two frames, (k, 2k, 3k) and 2 more, half each, plus (100, 200, 300): from
-   work RAM, then from the cart (where the models are) */
+   work RAM, then from the cart (where the models are); up to 4 tries each (on a real Saturn the
+   one from work RAM has failed, the DSP still going, when Mednafen never does) */
 static void         dsp_selftest(void)
 {
     static u32      in[32] __attribute__((aligned(16)));
     u32             *cart_in = (u32 *)(0x02400000 + 0x3F0000);     /* near the cart's end */
-    volatile u32    *count = (volatile u32 *)UNCACHED(&dspm_count);
-    int             k, pass;
+    int             k, pass, r = 1;
 
     for (k = 0; k < 16; ++k)
     {
@@ -462,41 +523,54 @@ static void         dsp_selftest(void)
     }
 #endif
     dsp_init_models();
+    r_dsp_ok = true;
     for (pass = 0; pass < 2; ++pass)
     {
-        u32         *st = dspm_stream, *v = pass ? cart_in : in;
-        const s32   *out = (const s32 *)UNCACHED(dspm_out);
-        u32         t;
-
-        memset(dspm_out, 0xEE, 48 * 4);
-        *count = 0;
-        for (k = 0; k < 3; ++k, st += 7)
+        dsp_fails[pass] = 0;
+        for (k = 0; k < 4; ++k)
         {
-            st[0] = (u32)FIX(100 * (k + 1));
-            st[1] = st[2] = st[3] = st[4] = st[5] = st[6] = 0;
-            st[1 + k] = st[4 + k] = FIX(0.5);
+            r = dsp_try(pass ? cart_in : in, 2000000, false, &dsp_test[pass * 4], &dsp_fail_ppaf[pass]);
+            if (!r)
+                break;
+            ++dsp_fails[pass];
         }
-        st[0] = ((u32)v & 0x07FFFFFF) >> 2;
-        st[1] = ((u32)(v + 16) & 0x07FFFFFF) >> 2;
-        st[2] = 1;
-#ifdef DSP_LIGHT
-        st[3] = 0;                          /* (no lighting) */
-#else
-        st[3] = ((u32)dspm_out & 0x07FFFFFF) >> 2;
-#endif
-        dsp_maker_params(NULL);
-        dsp_models(dspm_stream, dspm_out, 1, &dspm_count);
-        for (t = 0; t < 2000000 && dsp_busy(); ++t)
-            ;
-        dsp_test[pass * 4 + 0] = dsp_busy() ? -1 : (s32)*count;      /* finished, and counted? 1 */
-        dsp_test[pass * 4 + 1] = out[5] >> 16;                       /* x of vertex 5: 106 */
-        dsp_test[pass * 4 + 2] = out[16 + 5] >> 16;                  /* y: 211 */
-        dsp_test[pass * 4 + 3] = out[32 + 5] >> 16;                  /* z: 316 */
-        if (dsp_busy())
-            dsp_init_models();              /* stuck: reload (stops it) */
+        if (r)
+            r_dsp_ok = false;
     }
-    r_dsp_ok = dsp_test[0] == 1 && dsp_test[1] == 106 && dsp_test[2] == 211 && dsp_test[3] == 316
-            && dsp_test[4] == 1 && dsp_test[5] == 106 && dsp_test[6] == 211 && dsp_test[7] == 316;
+#ifdef DSP_SOAK
+    {
+        int         mode, n, hangs = 0;
+        bool        loaded = false;
+        s32         res[4];
+        u32         ppaf;
+
+        soak_first = 0;
+        soak_ppaf = 0;
+        for (mode = 0; mode < 4; ++mode)
+        {
+            soak_hang[mode] = soak_bad[mode] = 0;
+            for (n = 0; n < 250 && hangs < 16; ++n)
+            {
+                r = dsp_try(mode & 1 ? cart_in : in, mode & 2 ? 20000 : 200000, (mode & 2) != 0, res, &ppaf);
+                if (r == 1)
+                {
+                    if (!hangs++)
+                        soak_ppaf = ppaf;
+                    ++soak_hang[mode];
+                    if (loaded)
+                        ++soak_first;
+                    loaded = true;
+                }
+                else
+                {
+                    loaded = false;
+                    if (r == 2)
+                        ++soak_bad[mode];
+                }
+            }
+        }
+    }
+#endif
     r_use_dsp = r_dsp_ok;
 #ifdef NO_DSP
     r_use_dsp = false;                      /* (OPT=-DNO_DSP: the CPUs do the models' vertices) */

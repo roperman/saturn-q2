@@ -2958,3 +2958,51 @@ work RAM's 48/64/176 bytes left; the tour loads all three.
 
 `tools/mkbin.py` makes the BIN/CUE SAROO wants; `DISC_ID` gives the disc
 its own product number for SAROO's per-game settings.
+
+## 65. On a real Saturn, 2: the SCU's rules, and it runs
+
+After the CD fix the game loaded on the Saturn and then froze solid in the
+first frames: no picture change, no watchdog, the reset button dead.
+Sega's "SCU Final Specifications: Precautions" and the 4 MB cart's
+technical bulletin list rules Mednafen doesn't enforce, and the engine
+broke four:
+
+- **The SCU's DMA writes to the cart.** Not allowed: SCU DMA may read the
+  A-bus but not write it, and the DSP's DMA is SCU DMA. The walls' three
+  programs write their face blocks (9.6 KB), lit lights (5 KB) and face
+  lists (1 KB) to the cart every frame; the texture maker its 32-word
+  textures (a 64 KB ring) and its done counts. On hardware the DSP's
+  write sometimes never finishes, and the bus is held: the CPUs stop at
+  their next A/B-bus access, the field interrupt's too.
+- **Level 0's busy test.** A level's registers mustn't be written while it
+  is active (a hang). It's stopped only when its move, standby and
+  held-back flags are all clear; `scu_dma0` tested the move flag alone, so
+  it could rewrite a level queued behind the DSP's DMA. Now all three.
+- **The indirect table's alignment.** A table must start on the
+  power-of-two boundary its size rounds up to: 64 transfers' 768 bytes
+  need 1 KB; it was 16-byte aligned. In .bss the boundary cost 1.2 KB of
+  padding (high work RAM has none to spare), so it's the slave stack's
+  bottom KB, 0x060F8000 (the slave's stack reaches ~3.6 KB of its 16 in
+  the fight).
+- **The A-bus timing register** is written after a dummy cart read.
+
+Also a test switch, `OPT=-DNO_AB_DMA`: cart-to-VRAM transfers copied by
+the CPU (the rules forbid either CPU touching the A- or B-bus while such
+a DMA runs).
+
+On the Saturn: with the DSP off (`OPT=-DNO_DSP`) and the three fixes the
+game runs, with the cart-to-VRAM DMA (`NO_AB_DMA` off) too. The trace
+build ran but very slowly: each checkpoint redraws a line of text, reading
+the font from VDP1's VRAM, slow on hardware, and the fine checkpoints in
+the DMA calls run hundreds of times a frame. Its DSP self-test failed its
+first pass (the DSP still busy after 2,000,000 polls) and passed the
+second, as on earlier runs: not yet explained (the models' program's
+parameters are all set before it).
+
+The fight (Mednafen, NTSC): the DSP as it was 39.0/37.5 ms (38.7/37.3 at
+the commit before these fixes; 37.6/36.2 at the flyer's), no DSP
+39.7/38.3, **the models' program alone (`OPT=-DNO_DSP_WALLS`: no walls'
+programs, no maker) 38.3/36.9**, the fastest, and its DSP writes go only
+to high work RAM. So that's the next to try on hardware; the walls'
+programs and the maker need a home for their results the DSP may write
+(high work RAM, or VDP1's VRAM) before they come back.

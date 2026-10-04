@@ -3021,3 +3021,19 @@ against 3.8) and DIV (46.5 against 43.1).
 
 The trace now only keeps each CPU's last 8 steps; the watchdog draws them
 when the frames stop for 2 seconds, so the trace build runs at speed.
+
+The freeze (the trace build with the models' DSP, a few minutes in, the
+user's hunch: after firing the blaster): the master waiting for the swap,
+the slave idle, the DSP stopped, no DMA; VDP1 not done, on the first
+overlay command for 20 s. That command was the kept gun's (its control
+word and link right) with the rest garbage: a 248 x 196 texture at the
+end of VRAM, corners thousands of pixels out, and the mode 0x8F where the
+gun's is 0x8C, which is what `dw1 + kp->tex * luts4` gives with a texture
+number in the tens of thousands: the kept records it was made from were
+garbage. They come from the cart by SCU DMA (`view_fetch_start`, into the
+list's spare room), and on this Saturn a DMA read of the cart has come in
+a word late with the rest shifted (the DSP's, at boot). Now each of the
+gun's three DMA copies has its first and last words checked against the
+cart's (two uncached reads); a copy that differs isn't used (the cart is
+read as without the DMA), and counted: the stats' `GUN n`, and the
+watchdog's DSP line.

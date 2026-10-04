@@ -4458,6 +4458,26 @@ static void         view_fetch_start(vdp_writer *w0)
     vf.stage = 1;
 }
 
+/* (a real Saturn, SAROO's cart) an SCU DMA read of the cart has now and then come in a word late,
+   all after it shifted: the DSP's at boot, and a kept gun's records so that the commands made from
+   them hung VDP1 (its colour-table word overflowing into its mode: a texture number of thousands).
+   So each copy's first and last words are checked against the cart's (2 uncached reads); if
+   either differs it isn't used. Counted for the stats */
+u32                 gun_dma_bad;
+
+static bool         dma_copy_ok(const void *dst, const void *src, u32 bytes)
+{
+    const volatile u32 *d = (const volatile u32 *)UNCACHED(dst), *s = (const volatile u32 *)UNCACHED(src);
+    u32             n = bytes >> 2;
+
+    if (n && (d[0] != s[0] || d[n - 1] != s[n - 1]))
+    {
+        ++gun_dma_bad;
+        return false;
+    }
+    return true;
+}
+
 /* (after the walk) ...and its frames, once the records are in */
 static void         view_fetch_more(void)
 {
@@ -4665,7 +4685,7 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         int             n = 0, room, luts32 = m->nluts > 1 ? 32 : 0;
         view_turn       tn;
 
-        if (vf.stage == 3 && vf.m == m)
+        if (vf.stage == 3 && vf.m == m && dma_copy_ok(vf.base, view_keep, vf.rbytes))
         {
             cache_forget(vf.base, vf.rbytes);
             kb = vf.base;
@@ -4790,11 +4810,11 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         const u8    *pa = f0 + 24, *pb = f1 + 24;
         u8          *base;
 
-        if ((vf.stage == 1 || vf.stage == 2) && vf.m == m)
+        if ((vf.stage == 1 || vf.stage == 2) && vf.m == m && dma_copy_ok(vf.base, m->polys, rb))
         {
             base = vf.base;
             cache_forget(base, rb + (vf.stage == 2 ? vf.fbytes : 0));
-            if (vf.stage == 2 && vf.f0 == f0i && vf.f1 == f1i)
+            if (vf.stage == 2 && vf.f0 == f0i && vf.f1 == f1i && dma_copy_ok(base + rb, vf.fsrc, vf.fbytes))
             {
                 pa = base + rb;
                 pb = f1i == f0i ? pa : f1i == f0i + 1 ? pa + m->frame_bytes : pb;

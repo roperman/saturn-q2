@@ -284,7 +284,12 @@ static __attribute__((cold)) void bt_watch(void)
     vdp_debug_state(&q, &fl);
     bt_fmt(buf, "STUCK %ds DSTA %08X", bt_wstuck / 50, SCU_DSTA);
     bt_line(146, buf);
-    bt_fmt(buf, "DSP %08X EDSR %X COPR %04X", DSP_PPAF, (u32)VDP1_EDSR, (u32)REG16(0x25D00014));
+    {
+        extern u32 gun_dma_bad;
+
+        bt_fmt(buf, "DSP %08X EDSR %X COPR %04X GUN %d", DSP_PPAF, (u32)VDP1_EDSR, (u32)REG16(0x25D00014),
+               gun_dma_bad);
+    }
     bt_line(156, buf);
     bt_fmt(buf, "TV %04X QUEUED %d FIELDS %d", (u32)VDP2_TVSTAT, q, fl);
     bt_line(166, buf);
@@ -2545,10 +2550,10 @@ void                main(void)
                        the cart; then the same watched with pauses), hangs first after a reload, the
                        status at the first */
                     extern s32 dsp_fails[2];
-                    extern u32 dsp_fail_ppaf[2], dsp_fail_dsta;
+                    extern u32 dsp_fail_ppaf[2], dsp_fail_dsta, gun_dma_bad;
 
-                    vdp_printf(8, 118, c, "DSP TRIES %d %d %x %x DMA %x", dsp_fails[0], dsp_fails[1], dsp_fail_ppaf[0],
-                               dsp_fail_ppaf[1], dsp_fail_dsta);
+                    vdp_printf(8, 118, c, "DSP TRIES %d %d %x %x DMA %x GUN %d", dsp_fails[0], dsp_fails[1],
+                               dsp_fail_ppaf[0], dsp_fail_ppaf[1], dsp_fail_dsta, gun_dma_bad);
 #ifdef DSP_SOAK
                     {
                         extern s32 soak_hang[4], soak_bad[4], soak_first;

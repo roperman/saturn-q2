@@ -219,14 +219,47 @@ static __attribute__((cold)) void bt_master_step(int step)
     btrace(sp >= 0x060FC000 ? 0 : 1, step);
 }
 
+/* each CPU's last 8 steps and the frame of its last, kept (uncached: the watchdog reads both CPUs').
+   Only kept: drawing a line at each step (VDP1's font read through the B-bus, ~1,500 writes to
+   VDP2) made the game crawl on a Saturn. The watchdog draws them when the frames stop */
+__attribute__((section(".lwdata"))) static u8 bt_hist[2][8] = { { 0 } };
+__attribute__((section(".lwdata"))) static u32 bt_hpos[2] = { 0 }, bt_hframe[2] = { 0 };
+
 __attribute__((cold)) void btrace(int cpu, int step)
 {
-    char            buf[48];
-    u32             f = *(volatile u32 *)UNCACHED(&bt_frame);
+    volatile u32    *pos = (volatile u32 *)UNCACHED(&bt_hpos[cpu]);
+    u32             n = *pos;
 
-    bt_fmt(buf, "%s F%05d %02d %s", cpu ? "SLAVE " : "MASTER", f, step,
-           step >= 0 && step < BT_N ? bt_names[step] : "?");
-    bt_line(196 + cpu * 10, buf);
+    ((volatile u8 *)UNCACHED(bt_hist[cpu]))[n & 7] = (u8)step;
+    *pos = n + 1;
+    ((volatile u32 *)UNCACHED(bt_hframe))[cpu] = *(volatile u32 *)UNCACHED(&bt_frame);
+}
+
+/* the two CPUs' last steps (by name) and the four before each */
+static __attribute__((cold)) void bt_draw_cpus(void)
+{
+    char            buf[48];
+    const volatile u8 *h;
+    u32             n[2];
+    int             cpu, last;
+
+    for (cpu = 0; cpu < 2; ++cpu)
+    {
+        h = (const volatile u8 *)UNCACHED(bt_hist[cpu]);
+        n[cpu] = *(volatile u32 *)UNCACHED(&bt_hpos[cpu]);
+        last = h[(n[cpu] - 1) & 7];
+        bt_fmt(buf, "%s F%05d %02d %s", cpu ? "SLAVE " : "MASTER", ((volatile u32 *)UNCACHED(bt_hframe))[cpu],
+               last, last < BT_N ? bt_names[last] : "?");
+        bt_line(196 + cpu * 10, buf);
+    }
+    h = (const volatile u8 *)UNCACHED(bt_hist[0]);
+    {
+        const volatile u8 *g = (const volatile u8 *)UNCACHED(bt_hist[1]);
+
+        bt_fmt(buf, "BEFORE M %d %d %d %d S %d %d %d %d", h[(n[0] - 2) & 7], h[(n[0] - 3) & 7], h[(n[0] - 4) & 7],
+               h[(n[0] - 5) & 7], g[(n[1] - 2) & 7], g[(n[1] - 3) & 7], g[(n[1] - 4) & 7], g[(n[1] - 5) & 7]);
+    }
+    bt_line(176, buf);
 }
 
 /* (every field, from the swap's timer interrupt) a watchdog: the frame count not moving for two
@@ -255,6 +288,7 @@ static __attribute__((cold)) void bt_watch(void)
     bt_line(156, buf);
     bt_fmt(buf, "TV %04X QUEUED %d FIELDS %d", (u32)VDP2_TVSTAT, q, fl);
     bt_line(166, buf);
+    bt_draw_cpus();
 }
 
 /* (a CPU exception: illegal instruction 4, illegal slot 6, CPU address error 9, DMA address error 10)

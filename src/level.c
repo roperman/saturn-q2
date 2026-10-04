@@ -470,6 +470,19 @@ bool                level_load(const char *name)
     /* the portals (the renderer's flow reads them every frame): low work RAM if there's room */
     lv.portals = hot_spare(lv.portals, (u32)lv.nportals * sizeof(q_portal), false, LW_RESERVE);
     lv.cportals = hot_spare(lv.cportals, ((u32)lv.nclusters + 1 + 4 * (u32)lv.nportals) * 2, false, LW_RESERVE);
+    /* (OPT=-DUNC_LIGHTS, -DUNC_CELLS, -DUNC_FACES, tests for a real Saturn) the walls' data read through
+       the uncached addresses: it's read once a frame, and taking cache lines it pushes the drawing's
+       code out (a code miss there: 7 cycles, ~60 with the other CPU on low work RAM, which Mednafen
+       doesn't charge: OVERNIGHT.md 70); an uncached read also holds the shared bus ~15 cycles, not 60 */
+#ifdef UNC_LIGHTS
+    lv.lights = UNCACHED(lv.lights);
+#endif
+#ifdef UNC_CELLS
+    lv.cells = UNCACHED(lv.cells);
+#endif
+#ifdef UNC_FACES
+    lv.faces = UNCACHED(lv.faces);
+#endif
     {
         const s32 *s = (const s32 *)(b + h[24]);
 

@@ -3351,3 +3351,23 @@ warm cost. Mednafen (ms a fight frame, master + slave): face_asm 9.3 ->
 The pictures as without but for the CPUs' split (279, 3 and 15 pixels in
 three views). On the card as SUITE 9: the Saturn's second runs against
 its first give what code misses cost them.
+
+**SUITE 9 (WARM_TEST) on the Saturn** (ms a fight frame, master + slave):
+face_asm 11.9 + 17.3 = 29.2 against ~19.5 run once, so the second (warm)
+run ~9.7: **~50% of the cold** (Mednafen 75%); grid_face_asm 11.3 + 14.0
+= 25.3 against ~15.3: the second ~10, **~65%** (Mednafen 100%). So on the
+Saturn ~10 ms of the two CPUs' time a fight frame goes on these two
+finding their code and data cold, most of it code (Mednafen charges data
+only), and face_cells and cells_asm surely lose more the same way.
+
+What pushes the drawing's code out is mostly the walls' data, streamed
+once a frame from low work RAM: the light values, cells and face records
+(~2,000-2,700 lines a frame). `OPT=-DUNC_LIGHTS`, `-DUNC_CELLS`,
+`-DUNC_FACES` (level.c) read each through the uncached addresses: no line
+taken, so the code and the hot data stay; and an uncached read holds the
+shared bus ~15 cycles where a line fill holds it ~60. The direct cost:
+an uncached read of low work RAM is 15.5 cycles, where a cached line's
+eight values cost ~9 each. Pixel-identical (ONE_CPU, six views). Mednafen
+with all three: the fight 40.1 / 38.1 (40.4 / 38.5 without), the held
+views 194.9 (196.4): a little faster even there. On the card as SUITE 10
+(lights), 11 (lights, cells), 12 (all three).

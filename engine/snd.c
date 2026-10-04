@@ -52,6 +52,9 @@ bool                snd_init(const char *file)
     snd_stage = 1;
     smpc(0x07);                         /* SNDOFF: the 68000 held in reset */
     snd_stage = 2;
+    REG16(0x25B00400) = 0x020F;         /* the SCSP: MEM4MB (its RAM 4 Mbit, 512 KB: how it addresses it, for
+                                           the 68000 too; Mednafen ignores it), full volume: set before
+                                           anything's loaded, so the 68000's view of its RAM never changes */
     for (i = 0; i < 0x80000 / 2; ++i)
         SND_RAM[i] = 0;
     if (cd_load("SND68K.BIN", (void *)0x25A00000, SND_BANK_BASE) < 64)
@@ -93,6 +96,14 @@ bool                snd_bank(const char *file)
     }
     pad_by_vblank(pads);
     return ready;
+}
+
+/* (the stats) how the start went: the stage reached, whether it's ready, the 68000's word in
+   the mailbox (alive?) and its status, the bank's size in KB */
+u32                 snd_state(void)
+{
+    return (u32)snd_stage | (u32)ready << 4 | (u32)(MBOX[MB_MAGIC] == SND_ALIVE) << 5 | (u32)(MBOX[MB_STATUS] & 15) << 8
+           | (u32)(snd_size > 0 ? snd_size >> 10 : 0) << 16;
 }
 
 void                snd_music(int id)

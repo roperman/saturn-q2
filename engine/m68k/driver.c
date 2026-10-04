@@ -551,7 +551,7 @@ void                    main(void)
         SLOT(i, 0x16) = 0;                  /* (the reverb, if it's started, comes back through 0 and 1) */
     }
     key_exec();
-    SCSP(MVOL) = 0x000F;                    /* 512 KB sound RAM, full volume */
+    SCSP(MVOL) = 0x020F;                    /* MEM4MB (512 KB sound RAM: engine/snd.c sets it first), full volume */
     if (BANK[0] != 'S' || BANK[1] != 'N' || BANK[2] != 'D')
     {
         MBOX[MB_STATUS] = 1;                /* no bank: say so, and sit quietly */

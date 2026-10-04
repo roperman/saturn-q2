@@ -127,7 +127,7 @@ bool                snd_init(const char *file)
         SLOT_REG(i, 0x0C) = 0xFF;
     }
     key_exec();
-    SCSP_MVOL = 0x000F;                 /* 512 KB sound RAM, 16-bit DAC, full volume */
+    SCSP_MVOL = 0x020F;                 /* MEM4MB (512 KB sound RAM), 16-bit DAC, full volume */
     for (i = 0; i < 0x80000 / 2; ++i)
         ram[i] = 0;
     size = cd_load(file, (void *)(SND_RAM + SND_BANK_BASE), 0x7FF00 - SND_BANK_BASE);

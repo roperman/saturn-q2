@@ -2728,6 +2728,14 @@ void                main(void)
                     vdp_printf(8, 118, c, "DSP TRIES %d %d %x %x DMA %x GUN %d", dsp_fails[0], dsp_fails[1],
                                dsp_fail_ppaf[0], dsp_fail_ppaf[1], dsp_fail_dsta, gun_dma_bad);
                     vdp_printf(8, 138, c, "MADE DSP %d CPU %d BAD READS %d", mk_total[0], mk_total[1], mk_total[2]);
+                    {
+                        extern u32 snd_state(void);
+                        u32 ss = snd_state();
+
+                        /* (the sound's start: its stage (4 done), ready, the 68000 alive, its status, the bank) */
+                        vdp_printf(8, 148, c, "SND STAGE %d READY %d ALIVE %d STATUS %d BANK %dK", ss & 15, ss >> 4 & 1,
+                                   ss >> 5 & 1, ss >> 8 & 15, ss >> 16);
+                    }
 #ifdef DSP_SOAK
                     {
                         extern s32 soak_hang[4], soak_bad[4], soak_first;

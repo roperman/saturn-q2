@@ -3313,3 +3313,26 @@ and stores (the cache writes through: every VDP1 command is 8 stores, its
 Gouraud table 2) each wait out the burst. Mednafen charges the stores
 (17.0) and the data misses (35.4) but not the code. The summary as SUITE
 3's: held 296.3, turned 212.4, the fight 64.6 / 62.7.
+
+**Built small, on the Saturn:** SUITE 6 (render.c and model.c -Os) held
+297.7, turned 215.8, the fight 65.2 / 63.3; SUITE 7 (all the C -Os) 301.7,
+215.1, 64.8 / 62.8: no better than SUITE 5 (296.3, 212.4, 64.6 / 62.7).
+
+**What the walls read** (OPT=-DLW_COUNT, Mednafen, the C walk, a frame):
+view 1 435 face records (256 drawn), 2,730 grid points, 1,302 cells; the
+walk 492 nodes, 161 leaves; view 2 489 (334), 3,828, 1,801; view 4 327
+(223), 2,442, 1,167. So ~1,800-2,700 lines of low work RAM a frame: ~4-6
+ms of the bus at 60 cycles, not enough alone for the Saturn's extra ~25.
+The slowdown against Mednafen goes with the code's shape: the walk (one
+tight loop a frame) 1.2x, cells and the grid (loops within a face) 1.6x,
+face_asm (straight-line, once a face) 2.1x, face_cells (3 KB of C, once a
+face) 2.9x: code run once a face is pushed out of the 4 KB cache by
+everything else a face touches before the next face. ~1,500 cycles a face
+in face_asm on the Saturn, ~770 in Mednafen.
+
+`OPT=-DCACHE_OD` (a test): each CPU's cache takes no data lines while it
+draws the walls (CCR OD), so only code is cached. Mednafen, which charges
+nothing for code, shows what the uncached data costs: the fight 70.2 /
+68.8 against 40.4 / 38.5, the held views 392.4 against 196.4. On the card
+as SUITE 8: the Saturn's slowdown from it, against Mednafen's, measures
+what code misses cost there.

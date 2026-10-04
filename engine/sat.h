@@ -212,6 +212,13 @@ static inline void  wait_signal(void)                       /* for the *other* C
         ;
     FRT_FTCSR = 0;
 }
+/* (OPT=-DCACHE_OD, a test) this CPU's cache with data replacement off (CCR OD): data misses don't take
+   a line, so only code does; the lines already held still hit. cache_purge turns it off again */
+static inline void  cache_od(bool on)
+{
+    REG8(0xFFFFFE92) = on ? 0x05 : 0x01;
+}
+
 static inline void  cache_purge(void)
 {
     REG8(0xFFFFFE92) = 0x10;

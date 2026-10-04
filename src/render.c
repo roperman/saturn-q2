@@ -4058,10 +4058,23 @@ static inline bool  portal_face(face_args *fa, int fi)
 }
 #endif
 
+#ifdef LW_COUNT
+/* (OPT=-DLW_COUNT, a measurement: what the walls' drawing reads from low work RAM, and the walk from
+   high, read from a Mednafen save state) per CPU: draw_face calls (a face record each, 32 bytes),
+   faces drawn, their grid points (a light each, 2 bytes), their cells (8 bytes each); the walk's
+   nodes, leaves, faces listed; frames */
+u32                 lwc[2][8];
+#endif
+
 static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
 {
     const q_face    *f = &lv.faces[fi];
     int             r;
+#ifdef LW_COUNT
+    u32             *lc = lwc[x != &ctx[0]];
+
+    ++lc[0];
+#endif
 #ifdef R_PROFILE
     u32             pxf = frt_read();
 #endif
@@ -4092,6 +4105,11 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
         return;
     }
     PROF((x->st.gverts += (x->fa.fnu + 1) * (x->fa.fnv + 1), x->st.seen += x->fa.fnu * x->fa.fnv));
+#ifdef LW_COUNT
+    ++lc[1];
+    lc[2] += (u32)((x->fa.fnu + 1) * (x->fa.fnv + 1));
+    lc[3] += (u32)(x->fa.fnu * x->fa.fnv);
+#endif
     face_cells(x, f, model, r == 2);
 }
 
@@ -5540,7 +5558,11 @@ typedef struct
 }                   walk_ctx;
 void                walk_asm(int n, int mask, const walk_ctx *w);
 static walk_ctx     wctx;
+#ifdef LW_COUNT
+bool                r_walk_asm = false;     /* (the C walk counts what it reads) */
+#else
 bool                r_walk_asm = true;
+#endif
 #ifdef WALK_CHECK
 int                 walk_diff, walk_len, walk_clen, walk_first, walk_what[4], walk_total, walk_frames;
 #endif
@@ -5593,6 +5615,9 @@ static void         walk(int n, u8 mask)
         /* (its box isn't tried: its faces come by its nodes, and what's in it culls itself,
            which a model poking into the view from a leaf whose box is out of it needs) */
         PROF(++wk_leaves);
+#ifdef LW_COUNT
+        ++lwc[0][5];
+#endif
         if (leaf_vis[-(n + 1)] != visframe)
             return;
         walk_leaf_extra(-(n + 1), mask);
@@ -5600,9 +5625,15 @@ static void         walk(int n, u8 mask)
     }
     node = &lv.nodes[n];
     PROF(++wk_nodes);
+#ifdef LW_COUNT
+    ++lwc[0][4];
+#endif
     if (node_vis[n] != visframe || (mask && cull_box(node->mins, node->maxs, &mask)))
         return;
     PROF(wk_ftests += node->numfaces);
+#ifdef LW_COUNT
+    lwc[0][6] += node->numfaces;
+#endif
     pl = &lv.planes[node->plane];
     if (pl->type < 3)
         d = cam.pos[pl->type] - pl->dist;
@@ -6797,6 +6828,9 @@ void                render_slave(void)
     part_begin(x);
     cells_frame(x);
     face_frame(x);
+#ifdef CACHE_OD
+    cache_od(true);                         /* (OPT=-DCACHE_OD: the drawing's code kept in the cache) */
+#endif
     for (;;)
     {
         int n = SHARE->published, hi = SHARE->hi, done = SHARE->walk_done;
@@ -6818,6 +6852,9 @@ void                render_slave(void)
         else if (done && (lo >= hi || lo >= SHARE->published))
             break;
     }
+#ifdef CACHE_OD
+    cache_od(false);
+#endif
     x->st.t_face = frt_to_us((frt_read() - t0) & 0xFFFF);
 }
 
@@ -6860,12 +6897,18 @@ static void         draw_master(void)
         face_frame(x);
         SHARE->hi = hi;
         SHARE->walk_done = 1;
+#ifdef CACHE_OD
+        cache_od(true);
+#endif
         while (hi - 1 >= SHARE->lo && x->w->count <= x->w->cmax - CMD_SPARE)
         {
             SHARE->hi = --hi;               /* claim it, then draw it (its list nearly full: the
                                                slave takes the rest) */
             draw_item(x, hi, false);
         }
+#ifdef CACHE_OD
+        cache_od(false);
+#endif
     }
     x->st.t_face = frt_to_us((frt_read() - t0) & 0xFFFF);
 }
@@ -7137,6 +7180,9 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
     }
     PROF(rs.us_pre = frt_to_us((frt_read() - t0) & 0xFFFF));
     /* the models' vertices: the DSP starts on them now; the gun's records on their way */
+#ifdef LW_COUNT
+    ++lwc[0][7];
+#endif
     BT(0, 11);
     models_to_dsp();
     BT(0, 13);

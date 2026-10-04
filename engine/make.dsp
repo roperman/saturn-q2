@@ -2,11 +2,19 @@
 ; file holds a tile and a mask, not every cell's crop of it), after the models'
 ; job and the walls' lights, for the rest of the frame.
 ;
-; Each CPU lists jobs on the cart as it finds such a texture to upload (its ring
-; slot is the upload DMA's source, taken at the frame's end); this program polls
-; the two lists and makes each into its slot. When the host says the frame's
-; done it writes how many of each list it took (the host makes the rest itself)
-; and loads the models' program back, which stops.
+; Each CPU lists jobs in its block (high work RAM) as it finds such a texture to
+; upload; this program polls the two lists and makes each straight into its
+; slot in VDP1's VRAM. When the host says the frame's done it writes how many of
+; each list it took (the host makes the rest itself, into its ring, and uploads
+; them) and loads the models' program back, which stops.
+;
+; On a real Saturn (SAROO's cart) the SCU's DMA must not write the cart (ST-210
+; No. 01), and a DMA read of the cart has come in a word late with the rest
+; shifted: so all this program writes, and all it reads that says where to
+; write, is in high work RAM or VRAM; the tile and the mask (the cart's) are
+; checked: their first and last words XORed against the host's (J_TX, J_MX).
+; A read that fails it isn't made: the job's given back (its list's count of
+; those taken one fewer) and no more are taken this frame (I_HALT).
 ;
 ; The host's block starts with a copy of this program (RAM0[56]: its address
 ; >> 2, which walls2.dsp and xformm.dsp load it from; walls2.dsp has RAM0's
@@ -25,7 +33,8 @@
 ; 4 x0), k - 1 and 31 - k (the shifts' counts) and 2^k - 1 (the mask for the
 ; second: SR carries the sign down). A crop's mask row's bit x says texel x is
 ; in (0 if not); quartered: the four 8 x 8 quarters one under another, 4 bytes
-; a row. Always 32 words out. (The transposed tile is the CPU's.)
+; a row. Always 32 words out. Then the tile's first and last words XORed, the
+; mask's (a crop's), for the checks. (The transposed tile is the CPU's.)
 ;
 ; Data RAM: RAM0 the job, the counts, the host's; RAM1 the mask then the tile;
 ; RAM2 the nibble table and the row's words; RAM3 the words out.
@@ -42,30 +51,34 @@ I_WIN   = 8                             ; windowed
 I_LSL   = 9                             ; k - 1
 I_LSR   = 10                            ; 31 - k
 I_M     = 11                            ; 2^k - 1
-JOBW    = 12
-I_CNT0  = 12                            ; count0 count1 end, as read
-I_CNT1  = 13
-I_END   = 14
-I_DONE0 = 15                            ; jobs taken from each list, and the state (1 going, 2 done):
-I_DONE1 = 16                            ; the host's, as it starts and as it finishes
-I_STATE = 17
-I_NEXT0 = 18                            ; the next job's address >> 2, each list
-I_NEXT1 = 19
-I_MROW  = 20                            ; the mask's row, the next word's bits lowest
-I_WP    = 21                            ; the row's word (RAM2), then
-I_WORDS = 22                            ; words left in it
+J_TX    = 12                            ; the tile's first word XOR its last
+J_MX    = 13                            ; the mask's (a crop's)
+JOBW    = 14
+I_CNT0  = 14                            ; count0 count1 end, as read
+I_CNT1  = 15
+I_END   = 16
+I_DONE0 = 17                            ; jobs taken from each list, and the state (1 going, 2 done):
+I_DONE1 = 18                            ; the host's, as it starts and as it finishes
+I_STATE = 19
+I_HALT  = 20                            ; 1: a read failed its check, no more taken this frame
+I_NEXT0 = 21                            ; the next job's address >> 2, each list
+I_NEXT1 = 22
+I_MROW  = 23                            ; the mask's row, the next word's bits lowest
+I_WP    = 24                            ; the row's word (RAM2), then
+I_WORDS = 25                            ; words left in it
+I_CUR   = 26                            ; the job's list's count of those taken (I_DONE0 or I_DONE1)
 W_MKP   = 56                            ; this program >> 2 (the host's, after it: + 256)
 W_P0    = 57                            ; the models' program >> 2
 B_CNT   = 256                           ; the block's words from the program: the counts, end,
-B_DONE  = 259                           ; done0 done1 state,
-B_TAB   = 262                           ; the table,
-B_LIST  = 278                           ; list 0
+B_DONE  = 259                           ; done0 done1 state halt,
+B_TAB   = 263                           ; the table,
+B_LIST  = 279                           ; list 0
 TILE    = 16                            ; RAM1: the mask 0..7, the tile 16..47
 S_W0    = 16                            ; RAM2: the table 0..15, the row's words, the window's shifted first
 S_W1    = 17
 S_T     = 18
 S_A     = 19                            ; (a word's first nibble masks)
-JOBS    = 64
+JOBS    = 16
 
 make:   mov W_MKP,ct0
         mov m0,a
@@ -84,6 +97,7 @@ w0:     jmp t0,w0
         mov 0,mc0
         mov 0,mc0
         mov 1,mc0                       ; going
+        mov 0,mc0                       ; (I_HALT)
         mvi B_DONE,pl
         add  mov all,wa0
         mov I_DONE0,ct0
@@ -103,6 +117,10 @@ w1:     jmp t0,w1
         mov m0,a  mov 0,pl
         or
         jmp nz,fin                      ; the frame's done
+        mov I_HALT,ct0
+        mov m0,a  mov 0,pl
+        or
+        jmp nz,idle                     ; (a read failed its check: the host's now)
         mov I_CNT0,ct0
         mov m0,a  mov I_DONE0,ct0
         mov m0,p
@@ -112,6 +130,8 @@ w1:     jmp t0,w1
         mov m0,ra0                      ; its next job
         mov m0,a  mov JOBW,pl
         add  mov all,mc0                ; (the one after)
+        mov I_CUR,ct0
+        mov I_DONE0,mc0
         mov I_DONE0,ct0
         mov m0,a  mov 1,pl
         jmp job
@@ -125,11 +145,13 @@ try1:   mov I_CNT1,ct0
         mov m0,ra0
         mov m0,a  mov JOBW,pl
         add  mov all,mc0
+        mov I_CUR,ct0
+        mov I_DONE1,mc0
         mov I_DONE1,ct0
         mov m0,a  mov 1,pl
         jmp job
         add  mov all,mc0
-idle:   mvi 199,lop                     ; (a pause between polls: the cart's bus is the CPUs' too)
+idle:   mvi 999,lop                     ; (a pause between polls: the cart's bus is the CPUs' too)
         lps
         nop
         jmp poll
@@ -144,7 +166,14 @@ w2:     jmp t0,w2
         mov TILE,ct1
         dma d0,mc1,32                   ; the tile
 w3:     jmp t0,w3
-        nop
+        nop                             ; (CT1 is the DMA's till it's done)
+        mov TILE,ct1
+        mov m1,a  mov TILE+31,ct1       ; its first word XOR its last, as the host read them?
+        mov m1,p  mov J_TX,ct0
+        xor  mov alu,a
+        mov m0,p
+        sub
+        jmp nz,fail
         mov J_KIND,ct0
         mov m0,a  mov 0,pl
         or
@@ -157,6 +186,14 @@ w3:     jmp t0,w3
         mov 0,ct1
         dma d0,mc1,8                    ; the mask
 w4:     jmp t0,w4
+        nop
+        mov 0,ct1
+        mov m1,a  mov 7,ct1             ; (checked as the tile)
+        mov m1,p  mov J_MX,ct0
+        xor  mov alu,a
+        mov m0,p
+        sub
+        jmp nz,fail
         nop
 row:    ; the mask's row: word y / 2, the high half for an even y (SR's carry: y odd)
         mov I_Y,ct0
@@ -250,7 +287,7 @@ word:   mov m0,a  mov 15,pl
 out:    mov J_D,ct0
         mov m0,wa0
         mov 0,ct3
-        dma mc3,d0,32                   ; the 32 words out, to its slot
+        dma mc3,d0,32,1                 ; the 32 words out, into its slot (the B-bus: add 1, +2 a half)
 w5:     jmp t0,w5
         nop
         jmp poll
@@ -284,6 +321,14 @@ q3:     mov mc1,mc3
         jmp out
         nop
 
+fail:   mov I_CUR,ct0                   ; (a read failed its check) not made: given back,
+        mov m0,ct0
+        mov m0,a  mov 1,pl
+        sub  mov all,mc0
+        mov I_HALT,ct0                  ; and no more taken
+        jmp poll
+        mov 1,mc0
+
 fin:    mov I_STATE,ct0                 ; done: how many of each list were made, to the host
         mov 2,mc0
         mov W_MKP,ct0
@@ -291,7 +336,7 @@ fin:    mov I_STATE,ct0                 ; done: how many of each list were made,
         mvi B_DONE,pl
         add  mov all,wa0
         mov I_DONE0,ct0
-        dma mc0,d0,3
+        dma mc0,d0,4                    ; (and I_HALT: whether a read failed its check)
 w6:     jmp t0,w6
         nop
         mov W_P0,ct0                    ; the models' program back (it stops at its 255)

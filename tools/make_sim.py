@@ -20,10 +20,29 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from dspsim import DSP, Mem, load_bin        # noqa: E402
 
 CART = 0x02400000
-JOBS, JOBW = 64, 12
-BLOCK_WORDS = 256 + 6 + 16 + 2 * JOBS * JOBW     # (the program first)
+HWRAM = 0x06040000
+VRAM = 0x05C40000                               # (VDP1's: the slots, on the B-bus)
+JOBS, JOBW = 16, 14
+BLOCK_WORDS = 256 + 7 + 16 + 2 * JOBS * JOBW     # (the program first)
 NIB4 = [0x0000, 0xF000, 0x0F00, 0xFF00, 0x00F0, 0xF0F0, 0x0FF0, 0xFFF0,
         0x000F, 0xF00F, 0x0F0F, 0xFF0F, 0x00FF, 0xF0FF, 0x0FFF, 0xFFFF]
+
+
+class ShiftMem(Mem):
+    """a DMA read of the cart come in a word late, the rest shifted (as seen on a Saturn with
+    SAROO's cart): reads of the ranges in .bad (base, words) give a stale word first, then
+    each word the one before it"""
+    def __init__(self):
+        super().__init__()
+        self.bad = {}
+        self.cur = None
+
+    def r32(self, addr):
+        addr &= 0x07FFFFFF
+        for base, n in self.bad.items():
+            if base <= addr < base + 4 * n:
+                return 0x5EA1F00D if addr == base else super().r32(addr - 4)
+        return super().r32(addr)
 
 
 def tex_make(kind, tile, mask, x0, y0, w, h):
@@ -49,16 +68,18 @@ def tex_make(kind, tile, mask, x0, y0, w, h):
     return bytes(out)
 
 
-def job_words(tile, mask, slot, kind, x0, y0, w, h):
-    """src/render.c's mk_job: a job's 12 words"""
+def job_words(tile, mask, slot, kind, x0, y0, w, h, tb, mb):
+    """src/render.c's mk_job: a job's 14 words (tb, mb: the tile's and the mask's bytes, for the checks)"""
     sh = lambda a: (a & 0x07FFFFFF) >> 2
+    w32 = lambda b, i: struct.unpack_from(">I", b, 4 * i)[0]
+    tx = w32(tb, 0) ^ w32(tb, 31)
     if kind != 3:
-        return [sh(tile), sh(mask), sh(slot), 1, 0, 0, 0, 0, 0, 0, 0, 0]
+        return [sh(tile), sh(tile), sh(slot), 1, 0, 0, 0, 0, 0, 0, 0, 0, tx, 0]
     k, ww = 4 * x0, w // 8
     win = 1 if ww == 1 and 0 < x0 < 8 else 0
     src = 16 + 2 * y0 + (1 if x0 == 8 else 0)
     return [sh(tile), sh(mask), sh(slot), 0, 0, h, src, ww, win, k - 1 if win else 0, 31 - k if win else 0,
-            (1 << k) - 1 if win else 0]
+            (1 << k) - 1 if win else 0, tx, w32(mb, 0) ^ w32(mb, 7)]
 
 
 def main():
@@ -67,24 +88,29 @@ def main():
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--bin", default="obj/make.bin")
     ap.add_argument("--end-at", type=int, default=-1)
+    ap.add_argument("--shift", type=int, default=-1,
+                    help="this job's tile (or, odd: mask) read comes in a word late")
     a = ap.parse_args()
     rnd = random.Random(a.seed)
+    a.jobs = min(a.jobs, 2 * JOBS)
 
-    # the cart: the block (the program, then the host's), then tiles and masks, then the ring
-    # (slots), then the models' program
-    block = CART
-    tiles = block + BLOCK_WORDS * 4
+    # work RAM: the block (the program, then the host's), then the models' program; the cart: the
+    # tiles and masks; VRAM: the slots
+    block = HWRAM
+    p0 = block + BLOCK_WORDS * 4
+    tiles = CART
     masks = tiles + a.jobs * 128
-    ring = masks + a.jobs * 32
-    p0 = ring + a.jobs * 128
-    mem = Mem()
-    mem.add(CART, bytes(p0 + 1024 - CART))
+    ring = VRAM
+    mem = ShiftMem()
+    mem.add(HWRAM, bytes(p0 + 1024 - HWRAM))
+    mem.add(CART, bytes(a.jobs * 160))
+    mem.add(VRAM, bytes(a.jobs * 128))
     for i, w in enumerate(load_bin(a.bin)):
         mem.w32(block + 4 * i, w)                 # (the host copies it to its block's start)
     for i in range(256):
         mem.w32(p0 + 4 * i, 0xF0000000)         # (the models' program: END)
     for i in range(16):
-        mem.w32(block + (256 + 6 + i) * 4, NIB4[i] << 16)
+        mem.w32(block + (256 + 7 + i) * 4, NIB4[i] << 16)
 
     jobs = []
     counts = [0, 0]
@@ -108,8 +134,14 @@ def main():
             mem.w32(ma + 4 * i, mask[2 * i] << 16 | mask[2 * i + 1])
         for i in range(32):
             mem.w32(sa + 4 * i, 0xEEEEEEEE)
-        words = job_words(ta, ma, sa, kind, x0, y0, w, h)
-        at = block + (256 + 22 + lst * JOBS * JOBW + counts[lst] * JOBW) * 4
+        mb = b"".join(struct.pack(">I", mask[2 * i] << 16 | mask[2 * i + 1]) for i in range(8))
+        words = job_words(ta, ma, sa, kind, x0, y0, w, h, tile, mb)
+        if j == a.shift // 2 if a.shift >= 0 else False:
+            if a.shift & 1 and kind == 3:
+                mem.bad[ma] = 8
+            else:
+                mem.bad[ta] = 32
+        at = block + (256 + 23 + lst * JOBS * JOBW + counts[lst] * JOBW) * 4
         for i, w_ in enumerate(words):
             mem.w32(at + 4 * i, w_)
         counts[lst] += 1
@@ -140,12 +172,12 @@ def main():
         n += 1
         if mem.r32(head + 20) != 1:
             continue                            # (not going yet: its start zeroes the counts)
-        t = d.ram[0][15] + d.ram[0][16]
+        t = d.ram[0][17] + d.ram[0][18]
         if t != taken:
             per_job.append(d.cycles - last)
             last = d.cycles
             taken = t
-        if taken >= stop_at and not mem.r32(head + 8):
+        if (taken >= stop_at or d.ram[0][20]) and not mem.r32(head + 8):     # (or it's halted: I_HALT)
             mem.w32(head + 8, 1)
     if not d.ended:
         print("FAIL: didn't end after", n, "steps")
@@ -156,9 +188,21 @@ def main():
         return 1
     print(f"jobs {len(jobs)} (list0 {counts[0]}, list1 {counts[1]}), end after {stop_at}: the DSP took {d0} + {d1}, "
           f"{n} instructions")
-    if a.end_at < 0 and (d0, d1) != tuple(counts):
+    if a.end_at < 0 and a.shift < 0 and (d0, d1) != tuple(counts):
         print("FAIL: not all taken")
         return 1
+    if a.shift >= 0:
+        sj = jobs[a.shift // 2] if a.shift // 2 < len(jobs) else None
+        if sj and sj[1] < (d0, d1)[sj[0]]:
+            print("FAIL: the shifted read's job counted as made")
+            return 1
+        if sj and any(mem.r32(sj[7] + 4 * i) != 0xEEEEEEEE for i in range(32)):
+            print("FAIL: the shifted read's slot written")
+            return 1
+        if mem.r32(head + 24) != 1:
+            print("FAIL: the halt word not written for the host")
+            return 1
+        print(f"  the shifted read's job (list {sj[0]} job {sj[1]}) given back, its slot untouched, halt said")
     bad = 0
     cyc = {2: [], 3: []}
     for (lst, idx, kind, x0, y0, w, h, sa, ref) in jobs:

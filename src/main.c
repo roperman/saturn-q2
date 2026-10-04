@@ -2550,10 +2550,11 @@ void                main(void)
                        the cart; then the same watched with pauses), hangs first after a reload, the
                        status at the first */
                     extern s32 dsp_fails[2];
-                    extern u32 dsp_fail_ppaf[2], dsp_fail_dsta, gun_dma_bad;
+                    extern u32 dsp_fail_ppaf[2], dsp_fail_dsta, gun_dma_bad, mk_total[3];
 
                     vdp_printf(8, 118, c, "DSP TRIES %d %d %x %x DMA %x GUN %d", dsp_fails[0], dsp_fails[1],
                                dsp_fail_ppaf[0], dsp_fail_ppaf[1], dsp_fail_dsta, gun_dma_bad);
+                    vdp_printf(8, 138, c, "MADE DSP %d CPU %d BAD READS %d", mk_total[0], mk_total[1], mk_total[2]);
 #ifdef DSP_SOAK
                     {
                         extern s32 soak_hang[4], soak_bad[4], soak_first;

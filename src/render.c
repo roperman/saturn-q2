@@ -29,6 +29,10 @@
 #include "q2.h"
 #include "sky.h"
 #include "dsp.h"
+#ifdef DSP_MAKER
+#define DSP_PROG_SECTION __attribute__((section(".lwrodata")))  /* (read only at a level's start: low work RAM) */
+#include "make.h"                           /* (obj/gen: engine/make.dsp, assembled) */
+#endif
 
 #define CX              (SCREEN_W / 2)
 #define CY              (SCREEN_H / 2)
@@ -225,6 +229,7 @@ static __attribute__((cold)) void luts_copy(u32 vram_ofs, const u16 *src, u32 n)
 int                 r_model_far = MODEL_FAR;   /* a model beyond this (units) uses its coarse mesh (settings.h) */
 static u16          cell_all[MAX_ROW];      /* the cells' numbers, for the C doing a whole row */
 #define UPQ             (256)               /* texture uploads a CPU can queue in a frame (then it copies them itself) */
+#define MK_JOBS         (16)                /* textures a CPU can list for the DSP to make a frame (mk_job; more: its own) */
 #ifdef NO_DMA_UPLOADS
 bool                r_dma_uploads = false;
 #else
@@ -267,10 +272,13 @@ typedef struct
                                                quarter of it a frame (an upload's source lives till the DMA, two
                                                frames at most) */
     int             gen_n;                  /* ...made this frame */
-    u32             *mk_list;               /* ...those the DSP makes (mk_job): its jobs on the cart, how many this
-                                               frame, each one's texture (mk_finish: the CPU makes what it hadn't) */
+    u32             *mk_list;               /* ...those the DSP makes (mk_job): its jobs (high work RAM), how many
+                                               this frame, each one's texture, ring slot and VRAM (mk_finish: the
+                                               CPU makes what it hadn't into the ring, and uploads it) */
     int             mk_n;
-    u16             mk_tex[64];
+    u16             mk_tex[MK_JOBS];
+    u8              *mk_ring[MK_JOBS];
+    u32             mk_vram[MK_JOBS];
     u16             wl_rec[32];             /* the whole faces it lit this frame (the next frame's, lit ahead: r_wall_ahead) */
     int             wl_nrec;
 #ifdef DSP_WALLS
@@ -332,6 +340,7 @@ static u8           fr_sign[4];
 /* the texture cache */
 static u32          lut_vram;               /* VRAM offset of colour table 0 */
 static u32          slot_vram, slot_bytes;
+static void         mk_level(void);         /* (render_init: the DSP's programs' and the maker's block) */
 static u16          slot_tex[MAX_SLOTS], slot_frame[MAX_SLOTS];
 #define SLOT_NONE       (0xFFFF)            /* slot_tex: none (free now) */
 #define UP_LATE         (0x80000000u)       /* up_dst: into a slot two frames back: not till VDP1's done with that (r_late_uploads) */
@@ -671,6 +680,7 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
         ctx[0].gk[i] = ctx[1].gk[i] = grid_k[i];
     grid_selftest();
     dsp_selftest();
+    mk_level();
     rcp_n = 65536 / lv.N;
     wscale = 65536 / (lv.N * lv.N);
     for (i = 1; i < 64; ++i)
@@ -849,19 +859,27 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
 #define GEN_ENTRY       (128)
 #define GEN_RING_BYTES  (4 * GEN_SLOTS * GEN_ENTRY)
 /* ...by the DSP (engine/make.dsp, after the models' and the walls' jobs, polling till the frame's
-   done): each CPU lists what it wants made (a job: the tile, the mask, the slot, the crop's rows
-   and words worked out for it) on the cart, its ring slot the upload's source as before; at the
-   frame's end the master tells it the frame's done, waits for the job it's on, and makes the rest
-   itself (mk_finish: those listed last, or all if it never got to them). The transposed tile
-   (gen 1, a gather of nibbles) stays the CPU's. The block: a copy of the program (the DSP loads
-   it from there: one word of its RAM says where, which the walls' programs have free), then
-   count0 count1 end done0 done1 state (1 as the maker starts, 2 as it finishes, so the CPU
-   needn't wait for the models' program's reload after), the nibble table, the two lists */
-#define MK_JOBS         (GEN_SLOTS)         /* a list's jobs (one a ring slot) */
-#define MK_JOBW         (12)                /* a job's words */
-#define MK_HEAD         (6)
+   done) straight into the texture's slot in VDP1's VRAM (a slot's written 3 frames after it was
+   last drawn: VDP1's done with it; a late one's the CPU's): each CPU lists what it wants made (a
+   job: the tile, the mask, the slot, the crop's rows and words worked out for it, and each one's
+   first word XOR its last, which the DSP checks its reads against); at the frame's end the master
+   tells it the frame's done, waits for the job it's on, and makes the rest itself into the ring
+   and queues their uploads (mk_finish: those listed last, all if it never got to them, those
+   after a read that failed its check). The transposed tile (gen 1, a gather of nibbles) stays
+   the CPU's. The block, in high work RAM (mk_level: the DSP's DMA mustn't write the cart, and a
+   read of SAROO's cart by DMA has come in a word late): a copy of the program (the DSP loads it
+   from there: one word of its RAM says where, which the walls' programs have free), then count0
+   count1 end done0 done1 state (1 as the maker starts, 2 as it finishes, so the CPU needn't wait
+   for the models' program's reload after) halt (1: a read failed its check), the nibble table,
+   the two lists. Counted since the level's start for the stats: made by the DSP, by the CPU at the
+   frame's end, frames a read failed its check */
+u32                 mk_total[3];
+#define MK_JOBW         (14)                /* a job's words */
+#define MK_HEAD         (7)
 #define MK_BLOCK_WORDS  (256 + MK_HEAD + 16 + 2 * MK_JOBS * MK_JOBW)
-static u32          *mk_block, *mk_head;    /* (on the cart; NULL: no maker); its counts, after the program */
+static u32          *mk_block, *mk_head;    /* (high work RAM; NULL: no maker); its counts, after the program */
+static u32          *dsp_prog0;             /* (high work RAM) the models' program, which the maker loads back */
+static void         tex_upload(r_ctx *x, u32 vram, const void *src, u32 bytes, bool late);
 static bool         mk_on;                  /* this frame's DSP jobs end in the maker (models_to_dsp) */
 static const u16    nib4[16] = { 0x0000, 0xF000, 0x0F00, 0xFF00, 0x00F0, 0xF0F0, 0x0FF0, 0xFFF0,
                                  0x000F, 0xF00F, 0x0F0F, 0xFF0F, 0x00FF, 0xF0FF, 0x0FFF, 0xFFFF };
@@ -925,21 +943,25 @@ static const void   *tex_generate(r_ctx *x, const q_tex *tx, const u8 *tile)
     return dst;
 }
 
-/* ...or listed for the DSP to make into it (engine/make.dsp's job; the count after its words:
-   the cache writes through, in order) */
-static const void   *mk_job(r_ctx *x, const q_tex *tx, const u8 *tile, int t)
+/* ...or listed for the DSP to make straight into its slot in VRAM (engine/make.dsp's job; the
+   count after its words: the cache writes through, in order). Its ring slot kept for the CPU,
+   if the DSP doesn't */
+static void         mk_job(r_ctx *x, const q_tex *tx, const u8 *tile, int t, u32 vram)
 {
     u8              *dst = x->gen_ring + (((u32)frame & 3) * GEN_SLOTS + (u32)x->gen_n++) * GEN_ENTRY;
     u32             *j = x->mk_list + x->mk_n * MK_JOBW;
 
     j[0] = ((u32)tile & 0x07FFFFFF) >> 2;
-    j[2] = ((u32)dst & 0x07FFFFFF) >> 2;
+    j[2] = (((u32)VDP1_VRAM + vram) & 0x07FFFFFF) >> 2;
+    j[12] = ((const u32 *)tile)[0] ^ ((const u32 *)tile)[31];
     if ((tx->ofs >> TEX_GEN_SHIFT) == 3)
     {
         int     x0 = (int)(tx->ofs >> 4) & 15, y0 = (int)(tx->ofs >> 8) & 15, k = 4 * x0;
         bool    win = tx->w == 8 && x0 > 0 && x0 < 8;   /* (the row's 8 texels across its two words) */
+        const u32 *mask = (const u32 *)(lv.masks + ((tx->ofs >> 12) & 0xFFFF) * 16);
 
-        j[1] = ((u32)(lv.masks + ((tx->ofs >> 12) & 0xFFFF) * 16) & 0x07FFFFFF) >> 2;
+        j[1] = ((u32)mask & 0x07FFFFFF) >> 2;
+        j[13] = mask[0] ^ mask[7];
         j[3] = 0;
         j[4] = 0;                           /* (the crop's row: the mask's rows are the crop's, the tile's by I_SRC) */
         j[5] = (u32)tx->h;
@@ -955,14 +977,57 @@ static const void   *mk_job(r_ctx *x, const q_tex *tx, const u8 *tile, int t)
         j[1] = j[0];
         j[3] = 1;
     }
-    x->mk_tex[x->mk_n++] = (u16)t;
+    x->mk_tex[x->mk_n] = (u16)t;
+    x->mk_ring[x->mk_n] = dst;
+    x->mk_vram[x->mk_n++] = vram;
     ((volatile u32 *)UNCACHED(mk_head))[x == &ctx[0] ? 0 : 1] = (u32)x->mk_n;
-    return dst;
+}
+
+/* (a level's start: render_init, before what takes the rest of high work RAM) the maker's block and
+   the models' program's copy, which it loads back after: high work RAM. Then the DSP's RAM0[56]
+   and [57] say where (r_wall_level's walls' parameters say it again each job) */
+static __attribute__((cold)) void mk_level(void)
+{
+    int             k;
+
+    mk_block = mk_head = NULL;
+    dsp_prog0 = NULL;
+    mk_on = false;
+    mk_total[0] = mk_total[1] = mk_total[2] = 0;
+    if (!r_use_dsp)
+        return;
+    dsp_wait();
+#if defined(DSP_MAKER) || defined(DSP_WALLS)
+    dsp_prog0 = level_alloc(256 * 4);       /* (only the maker and the walls' programs load it back) */
+    dsp_models_prog(dsp_prog0);
+#endif
+#ifdef WASTE_TEST
+    (void)level_alloc(WASTE_TEST);          /* (a test: what high work RAM's worth to the hot data) */
+#endif
+#ifdef DSP_MAKER
+    if (lv.N * lv.N / 2 >= 128)                     /* (its 32 words fit a slot) */
+    {
+        mk_block = level_alloc(MK_BLOCK_WORDS * 4);
+        for (k = 0; k < 256; ++k)
+            mk_block[k] = make_prog[k];
+        mk_head = mk_block + 256;
+        for (k = 0; k < MK_HEAD; ++k)
+            mk_head[k] = 0;
+        for (k = 0; k < 16; ++k)
+            mk_head[MK_HEAD + k] = (u32)nib4[k] << 16;
+        for (k = 0; k < 2; ++k)
+            ctx[k].mk_list = mk_head + MK_HEAD + 16 + k * MK_JOBS * MK_JOBW;
+    }
+#else
+    (void)k;
+#endif
+    dsp_chain_params(mk_block, dsp_prog0);
 }
 
 /* (the frame's end, both CPUs' drawing done) the maker's told the frame's done; what it hadn't
    made (the job it's on finished first; all, if the models' or the walls' job kept it from
-   starting: it stops as soon as it does) the CPU makes now, into the same slots. (The DSP goes
+   starting: it stops as soon as it does; those from a read that failed its check on) the CPU
+   makes now, into their ring slots, and queues their uploads (the master's queue). (The DSP goes
    on to load the models' program back: not waited for here, models_to_dsp does) */
 static void         mk_finish(void)
 {
@@ -981,20 +1046,24 @@ static void         mk_finish(void)
             ;
         done[0] = (int)b[3];
         done[1] = (int)b[4];
+        mk_total[0] += (u32)(done[0] + done[1]);
+        mk_total[2] += b[6];
     }
     else
         done[0] = done[1] = 0;
     for (i = 0; i < 2; ++i)
     {
         const r_ctx *c = i ? (const r_ctx *)UNCACHED(&ctx[1]) : &ctx[0];
-        const u32   *j = i ? (const u32 *)UNCACHED(c->mk_list) : c->mk_list;
 
         for (k = done[i]; k < c->mk_n; ++k)
         {
             const q_tex *tx = &lv.textures[c->mk_tex[k]];
+            u8          *dst = (u8 *)UNCACHED(c->mk_ring[k]);
 
-            tex_make((u8 *)(j[k * MK_JOBW + 2] << 2 | 0x20000000), tx, lv.texdata + lv.tile_ofs[tx->lut & 0x7FFF]);
+            tex_make(dst, tx, lv.texdata + lv.tile_ofs[tx->lut & 0x7FFF]);
+            tex_upload(&ctx[0], c->mk_vram[k], dst, (u32)tx->w * tx->h / 2, false);
             ++rs.made_rest;
+            ++mk_total[1];
         }
     }
     rs.mk_us += frt_to_us((frt_read() - t0) & 0xFFFF);
@@ -1119,10 +1188,13 @@ __attribute__((noinline)) s32 tex_load(r_ctx *x, int t)
         u32 t0 = frt_read();
 
         ++x->st.made;
-        if (gen != 1 && mk_on && x->gen_n < GEN_SLOTS && r_dma_uploads && x->nup < UPQ)
+        if (gen != 1 && mk_on && !late && x->mk_n < MK_JOBS && x->gen_n < GEN_SLOTS && slot_bytes >= 128)
         {
-            src = mk_job(x, tx, src, t);    /* (the DSP's, into its slot by the frame's end) */
+            mk_job(x, tx, src, t, vram);    /* (the DSP's, into its slot by the frame's end: no upload) */
             ++x->st.made_dsp;
+            ++x->st.uploads;
+            x->st.made_us += frt_to_us((frt_read() - t0) & 0xFFFF);
+            return (s32)vram;
         }
         else if (x->gen_n < GEN_SLOTS)
             src = tex_generate(x, tx, src);
@@ -1980,7 +2052,7 @@ static __attribute__((cold)) void dw_level(void)
     dw_p.planes = ((u32)lv.planes_cart & 0x07FFFFFF) >> 2;
     dw_p.prog1 = ((u32)dw_prog & 0x07FFFFFF) >> 2;
     dw_p.mkprog = 0;                        /* (r_wall_level: the texture maker's block, if there's one) */
-    dw_p.prog0 = (((u32)dw_prog + 2048) & 0x07FFFFFF) >> 2;
+    dw_p.prog0 = ((u32)dsp_prog0 & 0x07FFFFFF) >> 2;   /* (mk_level: high work RAM) */
     dw_p.faces_cart = dw_fb;
     dw_p.lights0 = ((u32)dw_lt0 & 0x07FFFFFF) >> 2;
 }
@@ -2300,10 +2372,6 @@ __attribute__((cold)) void r_wall_level(void)       /* (a level's start: built s
     wl_b[0] = wl_b[1] = NULL;
     for (k = 0; k < 2; ++k)
         ctx[k].gen_ring = cart_alloc(GEN_RING_BYTES);   /* (the textures made as they're uploaded) */
-    mk_block = mk_head = NULL;
-    mk_on = false;
-    dsp_wait();
-    dsp_maker_params(NULL);
 #if defined(DSP_WALLS) || defined(WALLS_TEST)
     /* the programs and their buffers on the cart, if there's room with the gun's kept drawing and
        as many slots as it would have anyway (after this: view_level_init; demo3's cart has room for
@@ -2317,7 +2385,7 @@ __attribute__((cold)) void r_wall_level(void)       /* (a level's start: built s
     wt_res[17] = lw >> 10;
 #endif
     if (r_use_dsp && lw >= DW_HASH * 4 + 4096
-        && ca >= 5120 + (DW_BLKW + 2 * DW_OUTW + 2 * DW_REC + 2 * (1 + 2 * DW_FACES) + 32 + 36 + MK_BLOCK_WORDS) * 4
+        && ca >= 5120 + (DW_BLKW + 2 * DW_OUTW + 2 * DW_REC + 2 * (1 + 2 * DW_FACES) + 32 + 36) * 4
                  + 4096 + view)
     {
         dw_prog = cart_load("WALLS.BIN");
@@ -2350,23 +2418,8 @@ __attribute__((cold)) void r_wall_level(void)       /* (a level's start: built s
 #endif
     if (dw_prog)
     {
-        /* the texture maker's block: its program (cd/WALLS.BIN's fifth), its table, each CPU's
-           list; the models' and the walls' programs end by loading it */
-        volatile u32    *b;
-
-        mk_block = (u32 *)cart_alloc(MK_BLOCK_WORDS * 4);
-        memcpy(UNCACHED(mk_block), dw_prog + 4096, 1024);
-        mk_head = mk_block + 256;
-        b = (volatile u32 *)UNCACHED(mk_head);
-        for (k = 0; k < MK_HEAD; ++k)
-            b[k] = 0;
-        for (k = 0; k < 16; ++k)
-            b[MK_HEAD + k] = (u32)nib4[k] << 16;
-        for (k = 0; k < 2; ++k)
-            ctx[k].mk_list = mk_head + MK_HEAD + 16 + k * MK_JOBS * MK_JOBW;
-        dw_p.mkprog = ((u32)mk_block & 0x07FFFFFF) >> 2;
-        dsp_walls_params(&dw_p);            /* (the level's numbers in the DSP's RAM from the start: the maker
-                                               loads the models' program back by one of them) */
+        dw_p.mkprog = mk_block ? ((u32)mk_block & 0x07FFFFFF) >> 2 : 0;    /* (mk_level's) */
+        dsp_walls_params(&dw_p);            /* (the level's numbers in the DSP's RAM from the start) */
     }
 #endif
 #ifdef WALLS_AHEAD

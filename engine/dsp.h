@@ -55,6 +55,10 @@ void                dsp_walls_start(void);  /* (the walls alone: no models) */
 /* the texture maker (engine/make.dsp, after the walls' or the models' job): its block (its
    program first; NULL: none, the models' job just ends): RAM0[56], dsp_walls_p's mkprog */
 void                dsp_maker_params(const void *block);
+/* ...and the models' program's copy (xformm.dsp) the maker and walls2.dsp end by loading back: both
+   in high work RAM (a DMA read of SAROO's cart has come in a word late; RAM0[56], [57]) */
+void                dsp_chain_params(const void *block, const void *prog0);
+void                dsp_models_prog(u32 *dst);  /* (xformm.dsp's 256 words, for that copy) */
 void                dsp_maker_start(void);  /* (the maker alone: no models, no walls) */
 void                dsp_walls_word(u32 w);  /* (dsp_walls_p's half) */
 void                dsp_init_faces(void);               /* (a test) faces' grids into view space (xformf.dsp) */

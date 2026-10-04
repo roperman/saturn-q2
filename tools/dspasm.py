@@ -13,6 +13,7 @@ instruction are just written side by side:
             MVI 12,PC,Z               ; conditional MVI
             DMA D0,MC1,48             ; external (RA0) -> data RAM 1, 48 words
             DMA MC2,D0,48             ; data RAM 2 -> external (WA0)
+            DMA MC3,D0,32,1           ; ...with add mode 1 (default 2: +4 a word; the B-bus wants 1)
             DMAH ...                  ; same, but don't advance RA0/WA0
             JMP T0,wait               ; conditions: Z NZ S NS C NC T0 NT0 ZS NZS
             BTM / LPS / END / ENDI / NOP
@@ -171,14 +172,16 @@ def encode(line, labels):
         return w | (imm & 0x1FFFFFF)
     if op in ("DMA", "DMAH"):
         hold = 1 if op == "DMAH" else 0
-        src, dst, cnt = (a.upper() for a in args)
+        src, dst, cnt = (a.upper() for a in args[:3])
+        add_mode = num(args[3], labels) if len(args) > 3 else 2     # (1: the B-bus, +2 a half)
+        if not 0 <= add_mode <= 7:
+            raise AsmError("DMA add mode 0..7")
         if src == "D0":
             direction, ram = 0, DMA_RAM[dst]     # external -> DSP
         elif dst == "D0":
             direction, ram = 1, DMA_RAM[src]     # DSP -> external
         else:
             raise AsmError("DMA needs D0 on one side")
-        add_mode = 2                             # +4 bytes per word
         w = 0xC0000000 | (add_mode << 15) | (hold << 14) | (direction << 12) | (ram << 8)
         if cnt in D1_SRC and D1_SRC[cnt] < 8:
             # count taken from data RAM (format bit)
@@ -317,7 +320,8 @@ def main():
         f.write(f"#define {sym.upper()}_LEN ({len(words)})\n")
         for k, v in sorted(labels.items(), key=lambda kv: kv[1]):
             f.write(f"#define {sym.upper()}_{k.upper()} ({v})\n")
-        f.write(f"static const unsigned int {sym}[{len(words)}] =\n{{\n")
+        f.write("#ifndef DSP_PROG_SECTION\n#define DSP_PROG_SECTION\n#endif\n")
+        f.write(f"static const unsigned int {sym}[{len(words)}] DSP_PROG_SECTION =\n{{\n")
         for i in range(0, len(words), 4):
             f.write("    " + ", ".join(f"0x{w:08X}" for w in words[i:i + 4]) + ",\n")
         f.write("};\n")

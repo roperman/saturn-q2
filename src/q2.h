@@ -18,6 +18,11 @@
 #if !defined(NO_DSP_WALLS) && !defined(WALLS_AHEAD) && !defined(DSP_LIGHT) && !defined(NO_DSP)
 #define DSP_WALLS
 #endif
+/* the textures made by the DSP as they're uploaded (src/render.c mk_*, engine/make.dsp), straight
+   into VDP1's VRAM: on unless OPT=-DNO_DSP_MAKER (or no DSP, or its model lighting) */
+#if !defined(NO_DSP_MAKER) && !defined(DSP_LIGHT) && !defined(NO_DSP)
+#define DSP_MAKER
+#endif
 
 #define FIX(x)          ((s32)((x) * 65536))
 

@@ -2,15 +2,23 @@
 ** SCU DSP host side: program upload and job start (see dsp.h, xform.dsp).
 */
 #include "dsp.h"
+/* the programs, read only as they're loaded (a level's start, a test): low work RAM (.lwrodata,
+   engine/link.ld), high work RAM being the levels' */
+#define DSP_PROG_SECTION __attribute__((section(".lwrodata")))
+#ifdef DSP_SWAP_TEST
 #include "xform.h"
+#endif
+#ifdef DSP_OLD_TESTS
 #include "xformb.h"
 #include "xformp.h"
+#include "xformf.h"
+#endif
 #include "xformm.h"
 #ifdef DSP_LIGHT
 #include "xformml.h"
 #endif
-#include "xformf.h"
 
+#ifdef DSP_SWAP_TEST
 void                dsp_init(void)
 {
     int             i;
@@ -20,7 +28,10 @@ void                dsp_init(void)
     for (i = 0; i < XFORM_PROG_LEN; ++i)
         DSP_PPD = xform_prog[i];
 }
+#endif
 
+#ifdef DSP_OLD_TESTS
+/* (OPT=-DDSP_OLD_TESTS: the first programs, kept for their tests) */
 void                dsp_init_blocks(void)
 {
     int             i;
@@ -41,6 +52,7 @@ void                dsp_init_packed(void)
     for (i = 0; i < XFORMP_PROG_LEN; ++i)
         DSP_PPD = xformp_prog[i];
 }
+#endif
 
 /* xformm.dsp: models' vertices, both frames blended at once */
 void                dsp_init_models(void)
@@ -123,6 +135,21 @@ void                dsp_maker_params(const void *block)
     DSP_PDA = 56;
     DSP_PDD = block ? ((u32)block & 0x07FFFFFF) >> 2 : 0;
 }
+
+void                dsp_chain_params(const void *block, const void *prog0)
+{
+    DSP_PDA = 56;
+    DSP_PDD = block ? ((u32)block & 0x07FFFFFF) >> 2 : 0;
+    DSP_PDD = prog0 ? ((u32)prog0 & 0x07FFFFFF) >> 2 : 0;
+}
+
+void                dsp_models_prog(u32 *dst)
+{
+    int             i;
+
+    for (i = 0; i < XFORMM_PROG_LEN; ++i)
+        dst[i] = xformm_prog[i];
+}
 #endif
 
 #ifdef DSP_LIGHT
@@ -147,6 +174,7 @@ void                dsp_models_lit(const u32 *stream, s32 *out, int models, vola
 }
 #endif
 
+#ifdef DSP_OLD_TESTS
 /* xformf.dsp: faces' grids into view space (a test) */
 void                dsp_init_faces(void)
 {
@@ -157,6 +185,7 @@ void                dsp_init_faces(void)
     for (i = 0; i < XFORMF_PROG_LEN; ++i)
         DSP_PPD = xformf_prog[i];
 }
+#endif
 
 void                dsp_faces(const u32 *jobs, int n, volatile u32 *count, const s32 *axes, const s32 *rows9,
                               const s32 *cam3)

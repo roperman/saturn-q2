@@ -52,6 +52,16 @@ class Mem:
         b, o = self.find(addr)
         struct.pack_into(">I", b, o, v & M32)
 
+    def w16(self, addr, v):
+        b, o = self.find(addr)
+        struct.pack_into(">H", b, o, v & 0xFFFF)
+
+
+def bbus(addr):
+    """the B-bus (VDP1, VDP2, the SCSP): 16 bits wide"""
+    addr &= 0x07FFFFFF
+    return 0x05A00000 <= addr < 0x05FE0000
+
 
 class DSP:
     def __init__(self, mem):
@@ -171,20 +181,27 @@ class DSP:
             count = 256
         if d:
             addr = (self.wa0 << 2) & 0x07FFFFFF
+            step = (1 << add_mode) & ~1
             for _ in range(count):
                 v = self.ram[drw][self.ct[drw]]
                 self.ct[drw] = (self.ct[drw] + 1) & 0x3F
-                self.mem.w32(addr, v)
-                addr += 4
+                if bbus(addr):
+                    self.mem.w16(addr, v >> 16)
+                    self.mem.w16(addr + step, v)
+                    addr += 2 * step
+                else:
+                    self.mem.w32(addr & ~3, v)
+                    addr += step
             if not hold:
                 self.wa0 = (addr + 2) >> 2
         else:
             addr = (self.ra0 << 2) & 0x07FFFFFF
+            step = 4 if bbus(addr) else (1 << (add_mode & 2)) & ~1
             if drw & 4:
                 self.pram = []
             for _ in range(count):
                 v = self.mem.r32(addr)
-                addr += 4
+                addr += step
                 if drw & 4:
                     self.pram.append(v)
                 else:

@@ -584,6 +584,15 @@ __attribute__((section(".lwdata"))) static u32 hb_v[2][NBENCH + 1][3] = { { { 0 
 __attribute__((section(".lwdata"))) static u32 hb_late[2] = { 0 }, hb_made[2][3] = { { 0 } };  /* late uploads;
                                                textures made by the DSP, the CPU, bad reads */
 # define BENCH_FRAMES   (bench_turn ? 92 : 16)
+/* (its pages: the summary, each view's; the CPUs' profiles of the fight (OPT=-DSLAVE_PROF); the
+   timing suite's three (OPT=-DHW_TEST)) */
+# if defined(HW_TEST)
+#  define HB_PAGES      (7)
+# elif defined(SLAVE_PROF)
+#  define HB_PAGES      (4)
+# else
+#  define HB_PAGES      (2)
+# endif
 #elif defined(TURN_BENCH)
 /* (OPT=-DTURN_BENCH: at each view a full turn in 90 frames, textures and all:
    the first column is then the texture uploads a frame, not the walk) */
@@ -948,6 +957,13 @@ void                slave_main(void)
     {
         BT(1, 50);
         wait_signal();
+#ifdef HW_TEST
+        if (*(volatile u32 *)UNCACHED(&ht_slave_req))
+        {
+            ht_slave_run();                     /* (the timing suite's: src/hwtest.c) */
+            continue;
+        }
+#endif
         cache_purge();                          /* the master's list, camera and frame */
         if (PRE_JOB)
         {
@@ -1333,6 +1349,20 @@ static __attribute__((cold)) void hb_screen(int page)
                !r_use_dsp ? "NO DSP" : jobs == 0 ? "DSP MODELS" : jobs == 1 ? "MODELS+MAKER"
                : jobs == 2 ? "MODELS+WALLS" : "MODELS+WALLS+MAKER");
     y += 13;
+#ifdef SLAVE_PROF
+    if (page == 2 || page == 3)
+    {
+        ht_prof_page(page == 2, fight_n, y);    /* (the fight's: the master's, the slave's) */
+        return;
+    }
+#endif
+#ifdef HW_TEST
+    if (page >= 4)
+    {
+        ht_page(page - 4, y);                   /* (the timings, at boot) */
+        return;
+    }
+#endif
     if (page)
     {
         /* each view: CPU and frame (0.1 ms), held and turned; the walk (0.1 ms) held, uploads x 10 turned */
@@ -1344,7 +1374,7 @@ static __attribute__((cold)) void hb_screen(int page)
             vdp_printf(8, y, w, "%d %4d %4d %3d | %4d %4d %3d", v + 1, hb_v[0][v][0], hb_v[0][v][1],
                        hb_v[0][v][2] / 10, hb_v[1][v][0], hb_v[1][v][1], hb_v[1][v][2]);
         y += 4;
-        vdp_text(8, y, g, "A: BACK");
+        vdp_text(8, y, g, "A: NEXT PAGE");
         return;
     }
     level_free(&hw, &lw, &ca);
@@ -1364,7 +1394,7 @@ static __attribute__((cold)) void hb_screen(int page)
     y += 10;
     vdp_printf(8, y, g, "DSP %s%s GUN %d", r_dsp_ok ? "OK" : "BAD", r_use_dsp ? " ON" : " OFF", gun_dma_bad);
     y += 14;
-    vdp_text(8, y, hd, "A: VIEWS  START+R: AGAIN");
+    vdp_text(8, y, hd, "A: NEXT PAGE  START+R: AGAIN");
 }
 #endif
 
@@ -1395,6 +1425,10 @@ void                main(void)
 #endif
     if (cd_init())
         back_ok = cd_load("CONBACK.BIN", (void *)VDP2_VRAM, 0x20000) == 0x20000;
+#ifdef HW_TEST
+    message("QUAKE II", "TIMING THE HARDWARE");
+    ht_run();                                   /* (OPT=-DHW_TEST: the timing suite, before a level's in memory) */
+#endif
     message("QUAKE II", "LOADING DEMO1 ONTO THE RAM CART");
     bench_views = MAP_FILE[4] == '2' ? bench_demo2 : bench_demo1;      /* "DEMO2.MAP" */
 #ifdef SKY_VIEWS
@@ -2369,7 +2403,7 @@ void                main(void)
             static int page;
 
             if (pressed(PAD_A))
-                page ^= 1;
+                page = (page + 1) % HB_PAGES;
             hb_screen(page);
         }
 #endif

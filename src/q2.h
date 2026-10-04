@@ -199,6 +199,11 @@ void                level_ram_test(u32 *out);
 void                cart_timing(void);
 int                 r_dsp_jobs(void);       /* (the DSP's jobs after the models': 1 the texture maker, 2 the walls) */
 int                 r_tex_slots(void);      /* (the texture cache's slots, both CPUs') */
+void                ht_run(void);           /* (OPT=-DHW_TEST: src/hwtest.c) */
+void                ht_slave_run(void);
+void                ht_page(int page, int y);
+void                ht_prof_page(int cpu, u32 frames, int y);
+extern u32          ht_slave_req;
 int                 level_sector_check(const char *name, u32 k, u32 *head);
 
 /* level.c */

@@ -249,6 +249,7 @@ Build switches (`OPT=-D... ./build.sh`) and scripts in `tools/`:
 | `tools/bench.sh` | the static benchmark: six views, both CPUs' time (START + R in the game) |
 | `OPT=-DFIGHT_BENCH`, `tools/fight.sh` | the fight benchmark |
 | `OPT=-DHW_BENCH` | for a real Saturn: START + R runs the benchmark's views held, then turned, then the fight; the results on one screen to photograph (A: each view's) |
+| `OPT="-DHW_BENCH -DSLAVE_PROF -DHW_TEST"` | ...and each CPU's profile of the fight by function (`cd/SYMS.BIN`, `tools/mksyms.py`), and a timing suite run at boot (`src/hwtest.c`): every memory's access, the multiplier and divider, the SCU's and the DSP's DMA, and the CPUs' misses under the others' traffic |
 | `OPT=-DR_PROFILE` | where the time goes, part by part |
 | `tools/compare.sh` | the benchmark's views with the assembly on and off, pixel by pixel |
 | `OPT=-DONE_CPU` | everything on the master (fixed drawing order, for comparing builds) |

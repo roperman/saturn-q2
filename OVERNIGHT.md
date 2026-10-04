@@ -3141,3 +3141,46 @@ cart's misses (149 cycles against ~115), the multiplier's (MUL 6.0 cycles
 against 3.8: Mednafen doesn't stall `sts macl` after a `mul`), and the
 DSP's bus traffic. One of the gun's DMA copies came in shifted in the
 walls+maker run (`GUN 1`) and was thrown away, as section 65's check meant.
+
+## 68. A timing suite and a profile for the Saturn itself
+
+Mednafen's timings were 1.5-1.7x optimistic and turned the DSP's verdicts
+round, so the Saturn's own numbers are wanted for the next speed work.
+`OPT="-DHW_BENCH -DSLAVE_PROF -DHW_TEST"` adds two things to HW_BENCH's
+run, as more pages (A steps through seven):
+
+- **Each CPU's profile of the fight**, by function: the sampling profiler
+  (each CPU's watchdog every 16,384 cycles, 8-byte buckets) summed by the
+  functions in `cd/SYMS.BIN` (written from game.elf by `tools/mksyms.py`
+  at every build), the top 12 with ms a frame and their share.
+- **A timing suite** (`src/hwtest.c`), run at boot before a level's
+  loaded (its memory free, everything idle): 45 timings of 4,096
+  operations each: reads (hits, line misses, uncached) and writes in work
+  RAM, low work RAM, the cart, VDP1's and VDP2's VRAM and sound RAM;
+  `mul`/`dmuls`/`muls.w` with the result read at once or after 2-3
+  instructions; the divider waited on or with 20 instructions between;
+  the SCU's DMA between work RAM, the cart and VDP1; the DSP's
+  (`engine/hwtest.dsp`) reading and writing each; and a CPU's misses
+  while the DSP, the SCU's DMA or the other CPU (a job in `slave_main`)
+  stream at the same time.
+
+Mednafen's figures (cycles; DMA a word), for the Saturn's to be set
+against:
+
+| | | | | | |
+|---|---|---|---|---|---|
+| hit 1.5 | miss HW 10.0 | miss LW 59.1 | miss cart 115.4 | unc. HW 8.1 | unc. LW 15.1 |
+| unc. cart 29.1 | (16) 29.3 | rd VDP1 29.2 | rd VDP2 41.1 | rd sound 49.2 | st HW 3.5 |
+| st LW 13.5 | st cart 25.5 | (16) 12.5 | st VDP1 11.5 | (16) 10.5 | st VDP2 5.5 |
+| st sound16 18.5 | mul+sts 4.0 | +2 5.0 | dmuls+sts 4.0 | +3 6.5 | muls.w 2.0 |
+| div 43.1 | div, 20 between 43.1 | DMA HW-VDP1 2.1 | cart-HW 28.0 | cart-VDP1 28.0 | VDP1-HW 2.0 |
+| DSP rd HW 2.3 | rd cart 28.3 | wr HW 2.3 | wr VDP1 2.3 | rd VDP1 2.3 | |
+| miss HW + DSP rd HW 10.0 | + DSP wr HW 10.1 | cart + DSP rd cart 115.2 | HW + DSP rd cart 10.1 | HW + DMA 10.0 | hit + DMA 1.5 |
+| miss HW + slave HW 13.5 | cart + slave cart 222.1 | HW + slave cart 116.5 | | | |
+
+Mednafen charges a CPU nothing for the DSP's or the SCU's DMA, but a
+cart access by one CPU holds the bus the other's misses need (a work RAM
+miss 116.5 cycles while the slave reads the cart). The profile of the
+fight in Mednafen: the master's walk 8.3 ms a frame (20%), cells 4.9,
+the faces' grid 3.7; the slave's cells 7.8 ms (19%), faces 6.1, the
+faces' grid 5.9.

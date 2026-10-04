@@ -17,7 +17,7 @@ SECTIONS
     .text : ALIGN(4)
     {
         *(.start)
-        *(EXCLUDE_FILE(*level.o *menu.o *cd.o *g_target.o *cycles.o) .text)
+        *(EXCLUDE_FILE(*level.o *menu.o *cd.o *g_target.o *cycles.o *hwtest.o) .text)
         *(.text.hot .text.hot.* .text.startup .text.startup.*)
         *(.rodata .rodata.*)
     } > HWRAM
@@ -30,7 +30,7 @@ SECTIONS
     .lwtext : ALIGN(16)
     {
         __lwtext_start = .;
-        *level.o(.text) *menu.o(.text) *cd.o(.text) *g_target.o(.text) *cycles.o(.text)
+        *level.o(.text) *menu.o(.text) *cd.o(.text) *g_target.o(.text) *cycles.o(.text) *hwtest.o(.text)
         *(.text.unlikely .text.unlikely.*)
         *(.lwdata)                          /* (data kept out of high work RAM: __attribute__((section(".lwdata")))) */
         *(.lwrodata)                        /* (...and read-only data: the DSP's programs, read as they're loaded) */

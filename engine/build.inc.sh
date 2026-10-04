@@ -18,6 +18,7 @@ engine_build()
     python3 "$REPO/tools/dspasm.py" "$ENGINE/xformm.dsp" "$gen/xformm.h" xformm_prog >/dev/null
     python3 "$REPO/tools/dspasm.py" "$ENGINE/xformml.dsp" "$gen/xformml.h" xformml_prog >/dev/null
     python3 "$REPO/tools/dspasm.py" "$ENGINE/xformf.dsp" "$gen/xformf.h" xformf_prog >/dev/null
+    python3 "$REPO/tools/dspasm.py" "$ENGINE/hwtest.dsp" "$gen/hwtest.h" hwtest_prog >/dev/null
     python3 - "$gen/sintab.h" <<'PY'
 import math, sys
 # a quarter of a wave: the rest by symmetry (the same values exactly), 4 KB not 16
@@ -63,6 +64,7 @@ PY
     done
     "$CC" -m2 -nostdlib -nostartfiles -T "$ENGINE/link.ld" -Wl,-Map,game.map -o game.elf $objs -lgcc
     "$OBJCOPY" -O binary game.elf cd/0.bin
+    python3 "$REPO/tools/mksyms.py" game.elf cd/SYMS.BIN     # (the profile's names on a Saturn's screen)
     # (anything built against game.elf before the disc's made: build.sh's code loaded per level)
     if [ -n "${POST_LINK:-}" ]; then
         "$POST_LINK" "$cflags" || return 1

@@ -3299,3 +3299,17 @@ and model.c built -Os: face_cells 3,180 -> 2,464 bytes, render_world
 -Os: the code 122.5 -> 112.7 KB, so more hot data in high work RAM too).
 Mednafen: SUITE 7's fight 40.8 / 38.9 ms against 40.4 / 38.5, its held
 views 194.8 against 196.4.
+
+**The Saturn's (SUITE 5):** CODE 1K 1.0, **CODE 8K 1.9** cycles an
+instruction (Mednafen 1.0 for both): a line of code the cache misses costs
+~7 cycles. With the other CPU reading low work RAM, **8.5** (a code line
+~60 cycles; with it in work RAM 2.4). Stores to work RAM: 3.6 alone, 6.5
+with the other CPU missing in work RAM, **18.7** with it reading low work
+RAM, **48.5** with the DSP writing work RAM. LD USE 3.0 (as Mednafen). So
+both CPUs (and the DSP's writes) share one bus, and a low work RAM access
+(DRAM, ~60 cycles a line) holds it: while one CPU streams the faces,
+cells and lights from low work RAM, the other's code misses, data misses
+and stores (the cache writes through: every VDP1 command is 8 stores, its
+Gouraud table 2) each wait out the burst. Mednafen charges the stores
+(17.0) and the data misses (35.4) but not the code. The summary as SUITE
+3's: held 296.3, turned 212.4, the fight 64.6 / 62.7.

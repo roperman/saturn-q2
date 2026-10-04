@@ -3102,3 +3102,11 @@ it may come out differently: the card has both.
 On the card for testing: J2 (the models' program only), K (with the
 maker; the default), L (with the walls' lights), M (both), and traces of K
 and M.
+
+The first number from the Saturn itself: M's static benchmark (START + R,
+the six views held; walls and maker on, PAL), CPU 300.4 ms and frame 356.3
+ms for the six, where Mednafen gave 194.4 and 231.5: the Saturn ~1.55x
+slower (view 2's master 59.0 ms against 37.4). The cart's misses (149
+cycles against ~115) and the multiplier's stalls Mednafen doesn't model
+are the likely part of it. `OPT=-DHW_BENCH`'s five builds (no DSP to all
+three jobs) are on the card to measure each on the Saturn.

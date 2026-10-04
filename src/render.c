@@ -4094,6 +4094,10 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
     r = face_setup(x, f, model);
 #else
     r = face_asm(&x->fa, fi, model);
+#ifdef WARM_TEST
+    r = face_asm(&x->fa, fi, model);        /* (OPT=-DWARM_TEST, a measurement: again, its code and the face's data
+                                               now in the cache: the profile's extra is the warm cost) */
+#endif
 #endif
     PROF(x->st.p_xform += (frt_read() - pxf) & 0xFFFF);
     if (r == 0)

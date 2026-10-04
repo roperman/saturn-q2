@@ -3336,3 +3336,18 @@ nothing for code, shows what the uncached data costs: the fight 70.2 /
 68.8 against 40.4 / 38.5, the held views 392.4 against 196.4. On the card
 as SUITE 8: the Saturn's slowdown from it, against Mednafen's, measures
 what code misses cost there.
+
+**SUITE 8 (CACHE_OD) on the Saturn:** the fight 102.7 / 100.7 (64.6 /
+62.7 without), the held views 550.5 (296.3): +38 ms a fight frame, where
+Mednafen showed +30. Uncached data costs the Saturn more too, so this
+can't part the two.
+
+`OPT=-DWARM_TEST` (a measurement): draw_face runs face_asm twice (it calls
+grid_face_asm itself, and sets all its inputs each time), the second with
+its code and the face's data in the cache. The profile's extra is the
+warm cost. Mednafen (ms a fight frame, master + slave): face_asm 9.3 ->
+16.3 (the second run 75% of the first: the face's data), grid_face_asm
+9.3 -> 18.6 (100%: its data is work RAM's, and code costs nothing there).
+The pictures as without but for the CPUs' split (279, 3 and 15 pixels in
+three views). On the card as SUITE 9: the Saturn's second runs against
+its first give what code misses cost them.

@@ -20,7 +20,9 @@
 #include "hwtest.h"                         /* (obj/gen: engine/hwtest.dsp, assembled) */
 
 #define ITERS           (512)               /* 8 operations each: 4096 */
-#define NT              (45)
+#define NT              (52)
+#define PER_PAGE        (15)
+#define HT_PAGES        ((NT + PER_PAGE - 1) / PER_PAGE)   /* (4: main.c's HB_PAGES counts them) */
 #define LWB             ((u8 *)0x00240000)  /* low work RAM, cart, VDP1 VRAM, VDP2 VRAM, sound RAM: */
 #define CARTB           ((u8 *)0x02500000)  /* unused at boot */
 #define VDP1B           ((u8 *)0x25C60000)
@@ -38,11 +40,12 @@ static const char   ht_names[NT][14] __attribute__((section(".lwrodata"))) = {
     "DSP RD HW", "DSP RD CART", "DSP WR HW", "DSP WR VDP1", "DSP RD VDP1",
     "MISS HW+DSPRH", "MISS HW+DSPWH", "MISSCRT+DSPRC", "MISS HW+DSPRC", "MISS HW+DMA",
     "HIT+DMA", "MISS HW+SLVH", "MISSCRT+SLVC", "MISS HW+SLVC",
+    "MISSH+DSPWH16", "MISSH+DSPWH8", "MISSH+DSPRH16", "MISSC+DSPRC16", "MISSH+SLVLW", "MISSL+SLVLW", "MISSL+SLVH",
 };
 static u8           *hwb;                   /* high work RAM: 64 KB to read, 64 KB a DMA's destination,
                                                128 KB the background's (a DMA's source, the DSP's, the slave's) */
 u32                 ht_slave_req, ht_slave_busy;    /* (the slave's job: 1 misses in high work RAM, 2 the cart) */
-static u8           *ht_slave_area[3];
+static u8           *ht_slave_area[4];   /* (the slave's job's: 1 high work RAM, 2 the cart, 3 low) */
 
 /* the loop: 8 of op, ITERS times (op sees the address as %0, the value as %2) */
 #define LOOP8(op)                                                                                   \
@@ -68,7 +71,8 @@ static u32          ht_cpu(int k)
         break;
     case 2: case 3: case 4:                 /* misses: a new line each */
     case 36: case 37: case 38: case 39: case 40: case 42: case 43: case 44:
-        a = k == 4 || k == 38 || k == 43 ? CARTB : k == 3 ? LWB : hwb;
+    case 45: case 46: case 47: case 48: case 49: case 50: case 51:
+        a = k == 4 || k == 38 || k == 43 || k == 48 ? CARTB : k == 3 || k == 50 || k == 51 ? LWB : hwb;
         cache_purge();
         t = frt_read();
         LOOP8("mov.l @%0,r0\n add #16,%0\n");
@@ -222,9 +226,28 @@ static u32          ht_under(int k)
     case 44:
         slave_go(2);
         break;
+    case 45:                                /* (shorter bursts: does a miss wait out the DSP's burst?) */
+        ht_dsp(HWTEST_PROG_WRLOOP16, hwb + 131072, 0);
+        break;
+    case 46:
+        ht_dsp(HWTEST_PROG_WRLOOP8, hwb + 131072, 0);
+        break;
+    case 47:
+        ht_dsp(HWTEST_PROG_RDLOOP16, hwb + 131072, 0);
+        break;
+    case 48:
+        ht_dsp(HWTEST_PROG_RDLOOP16, CARTB + 0x100000, 0);
+        break;
+    case 49:                                /* (low work RAM: the faces, cells and lights are there) */
+    case 50:
+        slave_go(3);
+        break;
+    case 51:
+        slave_go(1);
+        break;
     }
     t = ht_cpu(k);
-    if (k >= 36 && k <= 39)
+    if ((k >= 36 && k <= 39) || (k >= 45 && k <= 48))
         ht_dsp_stop();
     else if (k <= 41)
         while (scu_dma0_busy())
@@ -244,6 +267,7 @@ void                ht_run(void)
     hwb = (u8 *)(((u32)_bss_end + 1023) & ~1023u);
     ht_slave_area[1] = hwb + 131072;
     ht_slave_area[2] = CARTB + 0x100000;
+    ht_slave_area[3] = (u8 *)0x00280000;    /* (low work RAM, past what the master reads) */
     cart_timing();                          /* (the cart on: level.c's cart_init does it at a level's load) */
     base = ht_cpu(0);
     for (k = 0; k < NT; ++k)
@@ -312,58 +336,52 @@ void                ht_page(int page, int y)
     u16             w = RGB(255, 255, 255), hd = RGB(255, 220, 120);
     int             k;
 
-    vdp_printf(8, y, hd, "TIMINGS %d/3: CYCLES (DMA: A WORD)", page + 1);
+    vdp_printf(8, y, hd, "TIMINGS %d/%d: CYCLES (DMA: A WORD)", page + 1, HT_PAGES);
     y += 12;
-    for (k = page * 15; k < page * 15 + 15 && k < NT; ++k, y += 10)
+    for (k = page * PER_PAGE; k < page * PER_PAGE + PER_PAGE && k < NT; ++k, y += 10)
         vdp_printf(8, y, w, "%-13s %4d.%d", ht_names[k], ht_res[k] / 10, (ht_res[k] < 0 ? -ht_res[k] : ht_res[k]) % 10);
 }
+
+#endif
 
 #ifdef SLAVE_PROF
 /* (OPT="-DHW_BENCH -DSLAVE_PROF") a CPU's profile of the fight on the screen: its samples (main.c's
    prof_isr: one each 16,384 cycles, by 8 bytes of high work RAM's code) summed by function, by
-   cd/SYMS.BIN's names (tools/mksyms.py), the most first: ms a frame and the share */
+   cd/SYMS.BIN's names (tools/mksyms.py), the most first: ms a frame and the share. And its hot spots:
+   the top functions' busiest 8 bytes, as offsets into each (an instruction's samples land on the
+   one after it, or on the one a stall holds up: tools/mksyms.py's listing finds them) */
 #define PROF_TOP        (12)
+#define HOT_FUNCS       (6)
+#define HOT_SPOTS       (4)
+#define SYM_ADDR(i)     (*(const u32 *)(syms + 4 + (i) * 24))
 static u8           *syms;
 static int          nsyms;
 static u32          *fsum;
 
-void                ht_prof_page(int cpu, u32 frames, int y)
+/* each function's samples (fsum), the total, and the n busiest */
+static int          prof_rank(const volatile u16 *h, u32 *total, int *top, int n)
 {
-    const volatile u16 *h = (const volatile u16 *)(cpu ? 0x202F0000 : 0x202F8000);     /* (master's, slave's) */
-    u32             other = *(volatile u32 *)(cpu ? 0x202E7FFC : 0x202E7FF8), total = other;
-    u16             w = RGB(255, 255, 255), hd = RGB(255, 220, 120);
-    int             top[PROF_TOP], i, k, j;
+    int             i, k, j;
 
     if (!syms)
     {
-        int n;
+        int m;
 
         syms = cart_alloc(32768);
-        n = cd_load("SYMS.BIN", syms, 32768);
-        nsyms = n > 4 ? (int)*(const u32 *)syms : 0;
+        m = cd_load("SYMS.BIN", syms, 32768);
+        nsyms = m > 4 ? (int)*(const u32 *)syms : 0;
         fsum = (u32 *)cart_alloc((u32)(nsyms + 1) * 4);
     }
-    if (!frames)
-        frames = 1;
-    /* each function's: its buckets, its address to the next's */
     for (i = 0; i < nsyms; ++i)
     {
-        u32 lo = *(const u32 *)(syms + 4 + i * 24), hi = i + 1 < nsyms ? *(const u32 *)(syms + 4 + (i + 1) * 24) : 0x06024000;
-        u32 s = 0, b;
+        u32 lo = SYM_ADDR(i), hi = i + 1 < nsyms ? SYM_ADDR(i + 1) : 0x06024000, sum = 0, b;
 
         for (b = (lo - 0x06004000) >> 3; b < (hi - 0x06004000) >> 3 && b < 16384; ++b)
-            s += h[b];
-        fsum[i] = s;
-        total += s;
+            sum += h[b];
+        fsum[i] = sum;
+        *total += sum;
     }
-    vdp_printf(8, y, hd, "%s: %d SAMPLES, ELSEWHERE %d", cpu ? "MASTER" : "SLAVE", total, other);
-    y += 12;
-    if (!nsyms)
-    {
-        vdp_text(8, y, w, "NO SYMS.BIN");
-        return;
-    }
-    for (k = 0; k < PROF_TOP; ++k)
+    for (k = 0; k < n; ++k)
     {
         top[k] = -1;
         for (i = 0; i < nsyms; ++i)
@@ -374,17 +392,83 @@ void                ht_prof_page(int cpu, u32 frames, int y)
                 top[k] = i;
         }
     }
+    return nsyms;
+}
+
+static void         sym_name(int i, char *name)
+{
+    int             k;
+
+    for (k = 0; k < 15 && syms[8 + i * 24 + k]; ++k)
+        name[k] = (char)(syms[8 + i * 24 + k] >= 'a' && syms[8 + i * 24 + k] <= 'z' ? syms[8 + i * 24 + k] - 32
+                         : syms[8 + i * 24 + k]);
+    name[k] = 0;
+}
+
+void                ht_prof_page(int cpu, u32 frames, int y)
+{
+    const volatile u16 *h = (const volatile u16 *)(cpu ? 0x202F0000 : 0x202F8000);     /* (master's, slave's) */
+    u32             other = *(volatile u32 *)(cpu ? 0x202E7FFC : 0x202E7FF8), total = other;
+    u16             w = RGB(255, 255, 255), hd = RGB(255, 220, 120);
+    int             top[PROF_TOP], k;
+    char            name[16];
+
+    prof_rank(h, &total, top, PROF_TOP);
+    if (!frames)
+        frames = 1;
+    vdp_printf(8, y, hd, "%s: %d SAMPLES, ELSEWHERE %d", cpu ? "MASTER" : "SLAVE", total, other);
+    y += 12;
+    if (!nsyms)
+    {
+        vdp_text(8, y, w, "NO SYMS.BIN");
+        return;
+    }
     for (k = 0; k < PROF_TOP && top[k] >= 0; ++k, y += 10)
     {
         u32 s = fsum[top[k]], v = s * 16384u / 2685u * 10 / frames;     /* (26.85 MHz: the fight's 0.1 ms; a frame's 0.01) */
-        char name[16];
 
-        for (i = 0; i < 15 && syms[8 + top[k] * 24 + i]; ++i)
-            name[i] = (char)(syms[8 + top[k] * 24 + i] >= 'a' && syms[8 + top[k] * 24 + i] <= 'z'
-                             ? syms[8 + top[k] * 24 + i] - 32 : syms[8 + top[k] * 24 + i]);
-        name[i] = 0;
+        sym_name(top[k], name);
         vdp_printf(8, y, w, "%-15s %2d.%d MS %2d%%", name, v / 100, v / 10 % 10, total ? s * 100 / total : 0);
     }
 }
-#endif
+
+void                ht_hot_page(int cpu, int y)
+{
+    const volatile u16 *h = (const volatile u16 *)(cpu ? 0x202F0000 : 0x202F8000);
+    u32             total = 0;
+    u16             w = RGB(255, 255, 255), hd = RGB(255, 220, 120), g = RGB(160, 255, 160);
+    int             top[HOT_FUNCS], k;
+    char            name[16];
+
+    prof_rank(h, &total, top, HOT_FUNCS);
+    vdp_printf(8, y, hd, "%s HOT SPOTS: OFFSET (HEX) SAMPLES", cpu ? "MASTER" : "SLAVE");
+    y += 12;
+    for (k = 0; k < HOT_FUNCS && top[k] >= 0; ++k)
+    {
+        u32 lo = SYM_ADDR(top[k]), hi = top[k] + 1 < nsyms ? SYM_ADDR(top[k] + 1) : 0x06024000;
+        u32 b0 = (lo - 0x06004000) >> 3, b1 = (hi - 0x06004000) >> 3, b;
+        int best[HOT_SPOTS], j, i;
+        char line[48], *o = line;
+
+        sym_name(top[k], name);
+        vdp_printf(8, y, g, "%s %d AT %X", name, fsum[top[k]], lo);
+        y += 9;
+        for (j = 0; j < HOT_SPOTS; ++j)
+        {
+            best[j] = -1;
+            for (b = b0; b < b1 && b < 16384; ++b)
+            {
+                for (i = 0; i < j && best[i] != (int)b; ++i)
+                    ;
+                if (i == j && h[b] && (best[j] < 0 || h[b] > h[best[j]]))
+                    best[j] = (int)b;
+            }
+            if (best[j] >= 0)
+                o += fmt(o, "%X:%d ", (u32)best[j] * 8 + 0x06004000 - lo, h[best[j]]);
+        }
+        *o = 0;
+        vdp_text(8, y, w, line);
+        y += 11;
+    }
+}
 #endif

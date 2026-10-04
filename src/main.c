@@ -587,9 +587,9 @@ __attribute__((section(".lwdata"))) static u32 hb_late[2] = { 0 }, hb_made[2][3]
 /* (its pages: the summary, each view's; the CPUs' profiles of the fight (OPT=-DSLAVE_PROF); the
    timing suite's three (OPT=-DHW_TEST)) */
 # if defined(HW_TEST)
-#  define HB_PAGES      (7)
+#  define HB_PAGES      (10)                /* (the summary, the views, 2 profiles, 2 hot spots, 4 timings) */
 # elif defined(SLAVE_PROF)
-#  define HB_PAGES      (4)
+#  define HB_PAGES      (6)
 # else
 #  define HB_PAGES      (2)
 # endif
@@ -1355,11 +1355,16 @@ static __attribute__((cold)) void hb_screen(int page)
         ht_prof_page(page == 2, fight_n, y);    /* (the fight's: the master's, the slave's) */
         return;
     }
+    if (page == 4 || page == 5)
+    {
+        ht_hot_page(page == 4, y);              /* (...their hot spots) */
+        return;
+    }
 #endif
 #ifdef HW_TEST
-    if (page >= 4)
+    if (page >= 6)
     {
-        ht_page(page - 4, y);                   /* (the timings, at boot) */
+        ht_page(page - 6, y);                   /* (the timings, at boot) */
         return;
     }
 #endif

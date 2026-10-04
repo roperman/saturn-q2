@@ -203,6 +203,7 @@ void                ht_run(void);           /* (OPT=-DHW_TEST: src/hwtest.c) */
 void                ht_slave_run(void);
 void                ht_page(int page, int y);
 void                ht_prof_page(int cpu, u32 frames, int y);
+void                ht_hot_page(int cpu, int y);
 extern u32          ht_slave_req;
 int                 level_sector_check(const char *name, u32 k, u32 *head);
 

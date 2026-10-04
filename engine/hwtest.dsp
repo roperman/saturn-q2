@@ -62,3 +62,31 @@ w5:     jmp t0,w5
         jmp nz,wrbn
         nop
         end
+
+; the same traffic in shorter bursts: does a CPU's miss wait for the rest of the DSP's burst?
+rdloop16: mov A_ADDR,ct0                ; reads of 16 words, for ever
+        mov m0,ra0
+        mov 0,ct1
+        dma d0,mc1,16
+w6:     jmp t0,w6
+        nop
+        jmp rdloop16
+        nop
+
+wrloop16: mov A_ADDR,ct0                ; writes of 16 words to work RAM, for ever
+        mov m0,wa0
+        mov 0,ct1
+        dma mc1,d0,16
+w7:     jmp t0,w7
+        nop
+        jmp wrloop16
+        nop
+
+wrloop8: mov A_ADDR,ct0                 ; ...of 8
+        mov m0,wa0
+        mov 0,ct1
+        dma mc1,d0,8
+w8:     jmp t0,w8
+        nop
+        jmp wrloop8
+        nop

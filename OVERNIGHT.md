@@ -3223,3 +3223,45 @@ face_cells 8.9 (3.3), model_shade 2.2, the models' commands 2.1, polygons
 2.0, vertices 1.7. The faces' code is 2-3x slower on the Saturn where the
 walk's 1.2x. A no-DSP suite build (`-DNO_DSP`) is on the card to tell the
 DSP's bus traffic apart from the rest.
+
+## 69. What the DSP costs the CPUs on a Saturn, and shorter bursts
+
+The suite with the DSP off and with the models' program on (PAL, ms):
+
+| | no DSP | the models' program |
+|---|---|---|
+| held, CPU (six views) | 301.7 | 296.6 |
+| turned, CPU | 214.3 | 213.1 |
+| fight, frame / CPU | 65.8 / 63.9 | 64.6 / 62.6 |
+| the walk (held) | 48.9 | 55.8 |
+| slave: draw_model (+ mverts_asm) | 6.7 | 1.1 + 1.6 |
+| slave: face, cells, faces' grid, face_cells | 11.4, 10.1, 8.7, 8.2 | 12.2, 10.6, 9.2, 8.8 |
+
+So the DSP takes ~4 ms of the models' vertices off the slave and gives
+~2.4 ms back as stalls in its world drawing. The DSP's DMA on the Saturn
+(cycles a word): reads work RAM 1.8, writes it 3.8, reads the cart 29.2,
+writes VDP1's VRAM 4.8, reads it 2.9. A CPU's work RAM miss while the DSP
+reads work RAM in 64-word bursts costs 52 cycles (half a burst is 58),
+while it writes 117 (half is 122): the CPU waits out the rest of the
+DSP's burst. (The SCU's DMA level 0 holds up nothing: 10.2.) The models'
+program writes its results 48 words at a time; now in three bursts of 16
+(pixel-identical), which by that rule cuts a miss's wait during them from
+~90 cycles to ~30. Its vertex reads come from the cart, 16 words a burst,
+which hold up only the CPUs' cart reads.
+
+Where the level's data lives matters for the same reason: the faces,
+cells and lights are in low work RAM (60 cycles a miss), the textures'
+records, the far faces' (lodfaces, lodcells, lodlights) and the masks on
+the cart (149). The suite now also times a work RAM miss while the other
+CPU reads low work RAM (Mednafen: 35.5, against 18 for its work RAM
+misses), a low work RAM miss then (84.8), and the DSP's shorter bursts.
+
+And the profile has two more pages: each CPU's six busiest functions and
+the four busiest 8 bytes in each, as offsets (hex) into the function. An
+offset is found in the assembler's listing (`-Wa,-al`; for C, `gcc -S`
+then the same); a sample lands on the instruction after the one that
+stalled. In Mednafen the slave's busiest place in cells_asm (+7C) is the
+cell's texture number load, `mov.w @r6,r0`: lv.cells, in low work RAM.
+
+On the card: SUITE 3 (the models' program, 48-word writes) and SUITE 4
+(16-word writes), the rest the same, to measure the bursts on the Saturn.

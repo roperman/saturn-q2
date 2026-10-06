@@ -3400,3 +3400,16 @@ setups are read cold (written in one pass, read in the next; the
 context's own stayed in the cache from face to face). On the card as SUITE
 13 (n = 4) and SUITE 14 (n = 8), for the Saturn to weigh that against the
 code kept.
+
+**On the Saturn:** n = 4: held 301.2, turned 215.9, the fight 63.9 / 61.9;
+**n = 8: held 294.9, turned 212.3, the fight 63.0 / 60.9**, pictures up 3
+fields 268 (235 without), 4 fields 50 (75): 1.6 ms a fight frame
+gained where Mednafen lost 2.5, so ~4 ms of code misses saved. Its profile
+(ms a fight frame, both CPUs): face_asm 20.1 -> 16.9, face_cells 14.9 ->
+12.4, the grid 15.2 -> 13.5, cells 20.1 -> 18.4, fb_add 3.5 (draw_face's
+part and the slots'). The drawing half (face_cells, cells) gained too,
+its code no longer sharing the cache with the setup's. **On by default**
+(n = 8; `-DFACE_BATCH=0` off). All three levels load. Mednafen now shows
+it slower (the fight NTSC 41.7 / 40.3, from ~38.4 / 36.9): it charges the
+slots' cold reads and not the code misses saved; speed work like this is
+the Saturn's to judge.

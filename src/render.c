@@ -252,7 +252,10 @@ bool                r_dma_uploads = true;
    else a face does having passed through it (run twice, its second run costs half: OVERNIGHT.md
    70); set up back to back, it stays. A batch's faces each have their own setup, steps and grid
    (the grids one after another in the context's) */
-#if defined(FACE_BATCH) && !defined(FACE_CHECK) && !defined(NO_FACE_ASM) && !defined(WARM_TEST)
+#ifndef FACE_BATCH
+#define FACE_BATCH      (8)                 /* (on a Saturn: the fight 64.6 -> 63.0 ms; OPT=-DFACE_BATCH=0: off) */
+#endif
+#if FACE_BATCH > 0 && !defined(FACE_CHECK) && !defined(NO_FACE_ASM) && !defined(WARM_TEST)
 #define FB              (FACE_BATCH)
 typedef struct
 {

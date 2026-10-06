@@ -247,6 +247,25 @@ bool                r_dma_uploads = false;
 bool                r_dma_uploads = true;
 #endif
 
+/* (FACE_BATCH=n) faces set up n at a time before they're drawn: on a Saturn the code that sets up a
+   face (face_asm, the grid) runs once a face and is out of the 4 KB cache by the next, everything
+   else a face does having passed through it (run twice, its second run costs half: OVERNIGHT.md
+   70); set up back to back, it stays. A batch's faces each have their own setup, steps and grid
+   (the grids one after another in the context's) */
+#if defined(FACE_BATCH) && !defined(FACE_CHECK) && !defined(NO_FACE_ASM) && !defined(WARM_TEST)
+#define FB              (FACE_BATCH)
+typedef struct
+{
+    face_args       fa;
+    grid_args       ga;
+    s32             gk[22];
+    s16             fi, model;
+    s32             r;
+}                   face_slot;
+#else
+#undef FACE_BATCH
+#endif
+
 /* each CPU's own: its writer, scratch, statistics and half of the texture cache */
 typedef struct
 {
@@ -301,6 +320,10 @@ typedef struct
     u16             *dw_rp;                 /* (the whole faces it draws, for the DSP: where the next goes, or
                                                NULL, */
     int             dw_step;                /* ...and the way: dw_note) */
+#endif
+#ifdef FACE_BATCH
+    face_slot       fb[FB];                 /* the batch: set up, to be drawn */
+    int             fbn, fbgrid, fbpend;    /* how many; grid_s's points they take; commands they may make */
 #endif
 }                   r_ctx;
 
@@ -2989,6 +3012,18 @@ static void         face_frame(r_ctx *x)
     a->ga = x->ga;
     a->gk = x->gk;
     a->maxpts = WHOLE_MAX;
+#ifdef FACE_BATCH
+    for (k = 0; k < FB; ++k)
+    {
+        face_slot   *s = &x->fb[k];
+
+        s->fa = *a;
+        s->fa.ga = &s->ga;
+        s->fa.gk = s->gk;
+        memcpy(s->gk, x->gk_s, sizeof(s->gk));
+    }
+    x->fbn = x->fbgrid = x->fbpend = 0;
+#endif
 }
 
 /* ...and what's the same all frame (once x->fifo's set) */
@@ -4085,7 +4120,7 @@ static inline bool  portal_face(face_args *fa, int fi)
 u32                 lwc[2][8];
 #endif
 
-static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
+static __attribute__((noinline, unused)) void draw_face(r_ctx *x, int fi, int model)
 {
     const q_face    *f = &lv.faces[fi];
     int             r;
@@ -4135,6 +4170,86 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
 #endif
     face_cells(x, f, model, r == 2);
 }
+
+#ifdef FACE_BATCH
+/* the batch drawn, in the order its faces were set up (each through its own slot), and the
+   context's own setup back */
+static __attribute__((noinline)) void fb_flush(r_ctx *x)
+{
+    int             k;
+
+    for (k = 0; k < x->fbn; ++k)
+    {
+        face_slot   *s = &x->fb[k];
+
+        x->fa = &s->fa;
+        x->ga = &s->ga;
+        x->gk = s->gk;
+        x->grid = s->r == 2 ? s->fa.grid : x->grid_s;   /* (a row at a time: the batch's last, all grid_s its) */
+        PROF((x->st.gverts += (s->fa.fnu + 1) * (s->fa.fnv + 1), x->st.seen += s->fa.fnu * s->fa.fnv));
+#ifdef LW_COUNT
+        {
+            u32 *lc = lwc[x != &ctx[0]];
+
+            ++lc[1];
+            lc[2] += (u32)((s->fa.fnu + 1) * (s->fa.fnv + 1));
+            lc[3] += (u32)(s->fa.fnu * s->fa.fnv);
+        }
+#endif
+        face_cells(x, &lv.faces[s->fi], s->model, s->r == 2);
+    }
+    x->fbn = x->fbgrid = x->fbpend = 0;
+    r_ctx_reset(x);
+}
+
+/* face fi (of model) set up into the batch (as draw_face's first half): drawn when the batch is
+   full, at a sprite or a model (they're drawn in order), or when there's nothing more to take */
+static __attribute__((noinline)) void fb_add(r_ctx *x, int fi, int model)
+{
+    face_slot       *s = &x->fb[x->fbn];
+    face_args       *a = &s->fa;
+    int             r, room = 2 * MAX_ROW - x->fbgrid;
+#ifdef LW_COUNT
+    ++lwc[x != &ctx[0]][0];
+#endif
+
+    a->prect = 0;
+#ifdef PORTALS
+    if (portals_on && !model && !portal_face(a, fi))
+    {
+        ++x->st.portal_out;
+        return;                             /* (not through the portals) */
+    }
+#endif
+    a->grid = x->grid_s + x->fbgrid;
+    a->maxpts = room < WHOLE_MAX ? room : WHOLE_MAX;
+    r = face_asm(a, fi, model);
+    if (r == 0)
+        return;
+    if (r == 3 && x->fbn && (a->fnu + 1) * (a->fnv + 1) <= WHOLE_MAX)
+    {
+        /* (its whole grid would fit alone, not after the batch's: the batch drawn, and it set up again
+           as the next's first, so it's drawn as it would be without batches) */
+        fb_flush(x);
+        fb_add(x, fi, model);
+        return;
+    }
+    ++x->st.faces;
+    if (r == 1)
+    {
+        PROF(++x->st.faces_out);
+        return;
+    }
+    s->fi = (s16)fi;
+    s->model = (s16)model;
+    s->r = r;
+    if (r == 2)
+        x->fbgrid += (a->fnu + 1) * (a->fnv + 1);
+    x->fbpend += 2 * a->fnu * a->fnv + 4;   /* (its commands, at most, near enough: the lists' room) */
+    if (++x->fbn == FB || r == 3)
+        fb_flush(x);                        /* (a row at a time takes all of grid_s: the batch's last) */
+}
+#endif
 
 /* src/mdraw.s: a model's whole mesh from the DSP into screen space (offsets fixed there) */
 typedef struct
@@ -6758,12 +6873,46 @@ static void         draw_item(r_ctx *x, int i, bool uncached)
     int             f = uncached ? ((volatile u16 *)UNCACHED(vis_faces))[i] : vis_faces[i];
     int             m = uncached ? ((volatile u8 *)UNCACHED(vis_model))[i] : vis_model[i];
 
+#ifdef FACE_BATCH
+    if (m == SPRITE || m == ENTITY)
+    {
+        if (x->fbn)
+            fb_flush(x);                    /* (in order) */
+        if (m == SPRITE)
+            draw_sprite(x, f);
+        else
+            draw_model(x, f);
+    }
+    else
+        fb_add(x, f, m);
+#else
     if (m == SPRITE)
         draw_sprite(x, f);
     else if (m == ENTITY)
         draw_model(x, f);
     else
         draw_face(x, f, m);
+#endif
+}
+
+/* (FACE_BATCH) its list's commands, and those the batch may make */
+static inline int   cmds_pending(const r_ctx *x)
+{
+#ifdef FACE_BATCH
+    return x->w->count + x->fbpend;
+#else
+    return x->w->count;
+#endif
+}
+
+static inline void  batch_flush(r_ctx *x)
+{
+#ifdef FACE_BATCH
+    if (x->fbn)
+        fb_flush(x);
+#else
+    (void)x;
+#endif
 }
 
 #ifdef UPLOAD_CHECK
@@ -6860,8 +7009,17 @@ void                render_slave(void)
 
         if (lo < n && lo < hi)
         {
-            if (x->w->count > x->w->cmax - CMD_SPARE)
+            if (cmds_pending(x) > x->w->cmax - CMD_SPARE)
+            {
+#ifdef FACE_BATCH
+                if (x->fbn)
+                {
+                    fb_flush(x);            /* (the batch drawn: what it really took) */
+                    continue;
+                }
+#endif
                 break;                      /* (its list nearly full: the master takes the rest) */
+            }
 #ifdef FIGHT_BENCH
             if (first)
             {
@@ -6874,7 +7032,12 @@ void                render_slave(void)
         }
         else if (done && (lo >= hi || lo >= SHARE->published))
             break;
+#ifdef FACE_BATCH
+        else if (x->fbn)
+            fb_flush(x);                    /* (none to take yet: the batch drawn meanwhile) */
+#endif
     }
+    batch_flush(x);
 #ifdef CACHE_OD
     cache_od(false);
 #endif
@@ -6910,6 +7073,7 @@ static void         draw_master(void)
         face_frame(x);
         for (i = 0; i < nvis; ++i)
             draw_item(x, i, false);
+        batch_flush(x);
     }
     else
     {
@@ -6923,12 +7087,23 @@ static void         draw_master(void)
 #ifdef CACHE_OD
         cache_od(true);
 #endif
-        while (hi - 1 >= SHARE->lo && x->w->count <= x->w->cmax - CMD_SPARE)
+        while (hi - 1 >= SHARE->lo)
         {
-            SHARE->hi = --hi;               /* claim it, then draw it (its list nearly full: the
-                                               slave takes the rest) */
+            if (cmds_pending(x) > x->w->cmax - CMD_SPARE)
+            {
+#ifdef FACE_BATCH
+                if (x->fbn)
+                {
+                    fb_flush(x);
+                    continue;
+                }
+#endif
+                break;                      /* (its list nearly full: the slave takes the rest) */
+            }
+            SHARE->hi = --hi;               /* claim it, then draw it */
             draw_item(x, hi, false);
         }
+        batch_flush(x);
 #ifdef CACHE_OD
         cache_od(false);
 #endif

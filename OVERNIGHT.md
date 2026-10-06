@@ -3371,3 +3371,32 @@ eight values cost ~9 each. Pixel-identical (ONE_CPU, six views). Mednafen
 with all three: the fight 40.1 / 38.1 (40.4 / 38.5 without), the held
 views 194.9 (196.4): a little faster even there. On the card as SUITE 10
 (lights), 11 (lights, cells), 12 (all three).
+
+**SUITE 10-12 on the Saturn** (lights; lights and cells; all three
+uncached): held 297.0, 295.3, 296.7; the fight 64.7 / 62.7, 64.4 / 62.4,
+64.5 / 62.6 (SUITE 5 296.3, 64.6 / 62.7): noise. The streaming data isn't
+what evicts the setup's code; a face's path is simply bigger than the
+cache. Left off.
+
+## 71. Faces set up in batches (OPT=-DFACE_BATCH=n)
+
+Each CPU sets up n faces back to back (face_asm and its grid), then draws
+them (face_cells) in the same order, so the setup's code is run n times
+while it's in the cache. The context's fa, ga, gk and grid became pointers
+(the face being drawn's: its own, or its batch slot's); each slot has its
+copy of the frame's setup, its steps and constants, and its grid in the
+context's 514 points one after another (face_args maxpts, which face.s
+now reads, says how many are left; a face whose whole grid would have
+fitted alone but not after the batch's ends it and is set up again as the
+next's first; a row at a time takes all the points: the batch's last).
+Sprites and models draw the batch first (the order kept); a CPU with
+nothing to take draws its batch meanwhile; the lists' room counts what a
+batch may add. Pixel-identical on one CPU (six views); on two, the CPUs'
+split as ever (254 and 3 pixels).
+
+Mednafen, which charges nothing for code misses: held 196.6 -> 212.1 (n =
+4), the fight 40.4 / 38.5 -> 42.3 / 40.7 (n = 8: 42.9 / 41.4): the slots'
+setups are read cold (written in one pass, read in the next; the
+context's own stayed in the cache from face to face). On the card as SUITE
+13 (n = 4) and SUITE 14 (n = 8), for the Saturn to weigh that against the
+code kept.

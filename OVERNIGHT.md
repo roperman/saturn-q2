@@ -3413,3 +3413,11 @@ its code no longer sharing the cache with the setup's. **On by default**
 it slower (the fight NTSC 41.7 / 40.3, from ~38.4 / 36.9): it charges the
 slots' cold reads and not the code misses saved; speed work like this is
 the Saturn's to judge.
+
+**n = 16 on the Saturn (SUITE 15):** held 303.9, turned 218.3, the fight
+64.4 / 62.5: worse than 8. The faces' code barely gained (face_asm 16.9 ->
+16.6 ms a fight frame) and the 5.8 KB more of slots came out of the hot
+copies in high work RAM: the models' records (mpolys_asm 2.0 -> 3.8 ms,
+mcmds_asm 2.9 -> 3.8) and the walk (10.5 -> 11.6). n = 8 stays. A slot
+is 364 bytes, most of it the frame's setup copied; slots holding only a
+face's own (its results, steps, grid's constants) would give ~3 KB back.

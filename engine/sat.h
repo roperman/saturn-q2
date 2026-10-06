@@ -212,18 +212,70 @@ static inline void  wait_signal(void)                       /* for the *other* C
         ;
     FRT_FTCSR = 0;
 }
+/* (OPT=-DCACHE_STACK) each CPU's cache in two-way mode (CCR TW): ways 2 and 3 stay a 2 KB cache, and
+   ways 0 and 1 are 2 KB of on-chip RAM at 0xC0000000-0xC00007FF (the SH7604 manual's 8.4.8: a read or
+   write there takes 1 cycle on the CPU's own bus, where a store to work RAM holds the shared bus 4-19
+   cycles on a Saturn). The drawing runs with its stack there (chip_call2, engine/crt0.s); the top 16
+   bytes hold the CPU's number (the stack no longer says which CPU: SP_MASTER) */
+#ifdef CACHE_STACK
+# define CCR_TW         (0x08)
+# define SP_MASTER(sp)  ((sp) >= 0x06000000 ? (sp) >= 0x060FC000 : CHIP_ID == 0)
+#else
+# define CCR_TW         (0)
+# define SP_MASTER(sp)  ((sp) >= 0x060FC000)
+#endif
+#define CHIP_RAM        ((u32 *)0xC0000000)
+#define CHIP_TOP        (0xC00007F0)            /* the stack's top; the work RAM stack's sp (0x7F8) and CHIP_ID above */
+#define CHIP_ID         (*(volatile u32 *)0xC00007FC)
+#define CHIP_FILL       (0x5AC45AC4)
+void                chip_call2(void *fn, u32 a, u32 b);     /* fn(a, b) on this CPU's on-chip stack */
+void                hw_call2(void *fn, u32 a, u32 b);       /* fn(a, b) back on the work RAM stack: for the few
+                                                               frames too big for 2 KB (engine/crt0.s) */
+#ifdef CACHE_STACK
+# define HW_CALL0(fn)           hw_call2((void *)(fn), 0, 0)
+# define HW_CALL2(fn, a, b)     hw_call2((void *)(fn), (u32)(a), (u32)(b))
+#else
+# define HW_CALL0(fn)           (fn)()
+# define HW_CALL2(fn, a, b)     (fn)(a, b)
+#endif
+
 /* (OPT=-DCACHE_OD, a test) this CPU's cache with data replacement off (CCR OD): data misses don't take
    a line, so only code does; the lines already held still hit. cache_purge turns it off again */
 static inline void  cache_od(bool on)
 {
-    REG8(0xFFFFFE92) = on ? 0x05 : 0x01;
+    REG8(0xFFFFFE92) = (on ? 0x05 : 0x01) | CCR_TW;
 }
 
 static inline void  cache_purge(void)
 {
-    REG8(0xFFFFFE92) = 0x10;
-    REG8(0xFFFFFE92) = 0x01;
+    REG8(0xFFFFFE92) = 0x10 | CCR_TW;
+    REG8(0xFFFFFE92) = 0x01 | CCR_TW;
 }
+
+#ifdef CACHE_STACK
+/* this CPU's cache to two-way mode (changed with the cache off: the manual's 8.5.5), its RAM filled to
+   measure the stack's depth (chip_stack_used), the CPU's number at the top */
+static inline void  chip_init(u32 cpu)
+{
+    u32             *p;
+
+    REG8(0xFFFFFE92) = 0x00;
+    REG8(0xFFFFFE92) = 0x10 | CCR_TW;
+    REG8(0xFFFFFE92) = 0x01 | CCR_TW;
+    for (p = CHIP_RAM; p < (u32 *)CHIP_TOP; ++p)
+        *p = CHIP_FILL;
+    CHIP_ID = cpu;
+}
+
+static inline u32   chip_stack_used(void)       /* bytes of the on-chip stack touched so far */
+{
+    const u32       *p;
+
+    for (p = CHIP_RAM; p < (const u32 *)CHIP_TOP && *p == CHIP_FILL; ++p)
+        ;
+    return CHIP_TOP - (u32)p;
+}
+#endif
 bool                scu_dma0_busy(void);
 void                scu_dma0_table(const u32 *table);
 #ifdef NO_AB_DMA

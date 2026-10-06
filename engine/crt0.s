@@ -75,3 +75,59 @@ s_sr_mask:   .long 0x000000F0
 s_stack_top: .long 0x060FC000
 s_ccr:       .long 0xFFFFFE92
 s_main:      .long _slave_main
+
+! void chip_call2(void *fn, u32 a, u32 b): fn(a, b) run on this CPU's on-chip
+! stack, the 2 KB of its cache that two-way mode frees (OPT=-DCACHE_STACK:
+! engine/sat.h chip_init). The work RAM stack is kept in r8 meanwhile, and at
+! 0xC00007F8 for hw_call2. Already on the on-chip stack: a plain call.
+        .global _chip_call2
+        .align 2
+_chip_call2:
+        mov.l   chip_base, r1
+        cmp/hs  r1, r15         ! T: r15 >= 0xC0000000, on the on-chip stack
+        bt      plain_call
+        mov.l   r8, @-r15
+        sts.l   pr, @-r15
+        mov     r15, r8
+        mov.l   chip_hwsp, r1
+        mov.l   r8, @r1
+        mov.l   chip_top, r15
+        mov     r4, r0
+        mov     r5, r4
+        jsr     @r0
+        mov     r6, r5
+        mov     r8, r15
+        lds.l   @r15+, pr
+        rts
+        mov.l   @r15+, r8
+plain_call:
+        mov     r4, r0
+        mov     r5, r4
+        jmp     @r0
+        mov     r6, r5
+! void hw_call2(void *fn, u32 a, u32 b): fn(a, b) back on the work RAM stack
+! (for the few functions with frames too big for the on-chip stack: the gun,
+! the game's step, dl_face). Not on the on-chip stack: a plain call.
+        .global _hw_call2
+        .align 2
+_hw_call2:
+        mov.l   chip_base, r1
+        cmp/hs  r1, r15
+        bf      plain_call
+        mov.l   r8, @-r15
+        sts.l   pr, @-r15
+        mov     r15, r8
+        mov.l   chip_hwsp, r1
+        mov.l   @r1, r15
+        mov     r4, r0
+        mov     r5, r4
+        jsr     @r0
+        mov     r6, r5
+        mov     r8, r15
+        lds.l   @r15+, pr
+        rts
+        mov.l   @r15+, r8
+        .align 2
+chip_base:   .long 0xC0000000
+chip_top:    .long 0xC00007F0
+chip_hwsp:   .long 0xC00007F8

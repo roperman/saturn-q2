@@ -328,6 +328,7 @@ typedef struct
     face_slot       fb[FB];                 /* the batch: set up, to be drawn */
     int             fbn, fbgrid, fbpend;    /* how many; grid_s's points they take; commands they may make */
 #endif
+    u16             fc_lit[2 * MAX_ROW];    /* face_cells's lit values (off its frame: the on-chip stack's 2 KB) */
 }                   r_ctx;
 
 r_stats             rs;
@@ -1751,6 +1752,21 @@ static void         dl_box(const v3 *p, int n, v3 *lo, v3 *hi)
     }
 }
 
+/* (CACHE_STACK) dl_face's 2 KB frame (acc[WHOLE_MAX]) goes back on the work RAM stack: hw_call2 takes
+   two arguments, so the four are packed */
+static void         dl_face(r_ctx *x, u16 *out, const u16 *raw, const dl_light *L);
+#ifdef CACHE_STACK
+typedef struct { r_ctx *x; u16 *out; const u16 *raw; const dl_light *L; } dl_args;
+static void         dl_face_hw(dl_args *a)
+{
+    dl_face(a->x, a->out, a->raw, a->L);
+}
+# define DL_FACE(x, out, raw, L) \
+    do { dl_args dla_ = { x, out, raw, L }; hw_call2((void *)dl_face_hw, (u32)&dla_, 0); } while (0)
+#else
+# define DL_FACE(x, out, raw, L) dl_face(x, out, raw, L)
+#endif
+
 #ifdef NO_DL_ASM
 static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw, const dl_light *L)
 {
@@ -2395,7 +2411,7 @@ static __attribute__((cold)) void walls_test(void)
                     L[l].b = (u8)o[7];
                 }
                 if (wl_face_setup(&ctx[0], f2, L, ql, 3))
-                    dl_face(&ctx[0], dlf, raw, L);
+                    DL_FACE(&ctx[0], dlf, raw, L);
                 else
                     for (j = 0; j < np; ++j)
                         dlf[j] = (u16)(raw[j] | 0x8000);
@@ -2674,7 +2690,7 @@ __attribute__((cold)) void                r_wall_ahead(void)
 #endif
             break;
         }
-        dl_face(x, out, &lv.lights[lv.faces[fi].firstlight & 0xFFFFFF], L);
+        DL_FACE(x, out, &lv.lights[lv.faces[fi].firstlight & 0xFFFFFF], L);
         w->face[n] = (u16)fi;
         w->lit[n] = out;
         w->n = (u16)++n;                    /* (last: it's there) */
@@ -3555,7 +3571,7 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
     bool            fast_ok;
     vdp_writer      *w = x->w;
     int             count0 = w->count;
-    u16             lit[2 * MAX_ROW];       /* the lights with the dynamic lights added: the whole face's, or two rows */
+    u16             *const lit = x->fc_lit; /* (the context's: 1 KB that the on-chip stack hasn't, CACHE_STACK) */       /* the lights with the dynamic lights added: the whole face's, or two rows */
 #ifdef R_PROFILE
     u32             pt = frt_read(), pt2;
     int             gc0 = w->gcount;
@@ -3617,7 +3633,7 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
 
                     for (j = 0; j <= nv; ++j)
                         dl_row(x, ref + j * stride, (x->wave ? lit : light) + j * stride, j);
-                    dl_face(x, lit, x->wave ? lit : light, dl);
+                    DL_FACE(x, lit, x->wave ? lit : light, dl);
                     ++dlf_checks;
                     for (k = 0; k < np; ++k)
                         if (ref[k] != lit[k])
@@ -3649,7 +3665,7 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
                 }
 #endif
                 if (!wl_hit)
-                    dl_face(x, lit, x->wave ? lit : light, dl);
+                    DL_FACE(x, lit, x->wave ? lit : light, dl);
 #ifdef DW_CHECK
                 else
                 {
@@ -3657,7 +3673,7 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
                        most a colour's out) */
                     int np = stride * (nv + 1), k, c;
 
-                    dl_face(x, lit, light, dl);
+                    DL_FACE(x, lit, light, dl);
                     x->st.dw_why[0] += np;
                     for (k = 0; k < np; ++k)
                         if (lit[k] != wl_hit[k])
@@ -7061,7 +7077,8 @@ static void         draw_master(void)
     {
         u32 tv = frt_read();
 
-        draw_viewmodel(x, view_leaf);       /* (first, so the slave takes more of the list) */
+        HW_CALL2(draw_viewmodel, x, view_leaf); /* (first, so the slave takes more of the list; its 10 KB frame
+                                                   on the work RAM stack: CACHE_STACK) */
         x->st.t_view += (frt_read() - tv) & 0xFFFF;
     }
     if (!r_two_cpus)
@@ -7471,7 +7488,7 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
        then draws from the back until they meet, so the slave takes more of it) */
     BT(0, 26);
     if (r_during)
-        r_during();
+        HW_CALL0(r_during);                 /* (the game's step: its traces' frames on the work RAM stack) */
     view_leaf = leaf;
     BT(0, 16);
     draw_master();

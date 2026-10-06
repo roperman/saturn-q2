@@ -3421,3 +3421,38 @@ copies in high work RAM: the models' records (mpolys_asm 2.0 -> 3.8 ms,
 mcmds_asm 2.9 -> 3.8) and the walk (10.5 -> 11.6). n = 8 stays. A slot
 is 364 bytes, most of it the frame's setup copied; slots holding only a
 face's own (its results, steps, grid's constants) would give ~3 KB back.
+
+## 72. The drawing's stack in the cache (OPT=-DCACHE_STACK)
+
+The SH7604 manual (new in the docs folder) 8.4.8 and 8.5.4: with CCR's TW
+bit each CPU's cache runs two-way (ways 2 and 3, 2 KB) and ways 0 and 1
+are 2 KB of on-chip RAM at 0xC0000000-0xC00007FF, read or written in one
+cycle on the CPU's own bus, whatever the other CPU, the DSP or the SCU's
+DMA are doing on the shared one. Mednafen models it the same way (its
+data array at 0xC0000000, replacement into ways 2 and 3 only, a purge
+clearing the tags alone). A Saturn's store to work RAM holds the shared
+bus 3.6 cycles alone, 6.5 with the other CPU missing, 18.7 with it on low
+work RAM (section 70); every call's pushes are stores, and the walls'
+path is calls all the way down (a cell: cell_c, cell_corners, near_clip,
+split_piece, the writer).
+
+So each CPU's stack goes there for the frame: the master's for
+render_world (main.c draw_world, through crt0.s chip_call2), the slave's
+for its whole loop. `-fstack-usage` found the frames too big for 2 KB:
+draw_viewmodel 10.5 KB, trace_line 2.7, dl_face 2.2 (acc[WHOLE_MAX]),
+face_cells 1.3 (lit[2 * MAX_ROW]). The gun, the game's step (r_during)
+and the slave's premove go back to the work RAM stack through hw_call2
+(the work RAM sp kept at 0xC00007F8; either call is plain when already
+on its stack), dl_face too (DL_FACE: its four arguments packed for
+hw_call2's two), and face_cells's lit values moved to the context
+(r_ctx fc_lit, 1 KB each). cache_purge and cache_od keep TW; the CPU's
+number is at 0xC00007FC, the stack no longer saying which (SP_MASTER).
+Each CPU fills its RAM at the start and reports the most of its stack
+used (the fight page's STACK, the stats page): 1,164 bytes the master,
+1,168 the slave, of 2,032. The tour loads all three levels;
+pixel-identical on one CPU, six views.
+
+Mednafen (PAL): the fight 43.0 / 41.5 against 42.4 / 40.9 (its stores
+cost 3.5 cycles wherever they go, and the cache now 2 KB misses more:
+the game's step 12.4 from 11.3 ms). On the card as SUITE 17 (on-chip
+stacks), for the Saturn's verdict against SUITE 16.

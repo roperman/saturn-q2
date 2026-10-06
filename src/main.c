@@ -216,7 +216,7 @@ static __attribute__((cold)) void bt_master_step(int step)
     u32             sp;
 
     __asm__ volatile ("mov r15,%0" : "=r" (sp));
-    btrace(sp >= 0x060FC000 ? 0 : 1, step);
+    btrace(SP_MASTER(sp) ? 0 : 1, step);
 }
 
 /* each CPU's last 8 steps and the frame of its last, kept (uncached: the watchdog reads both CPUs').
@@ -306,7 +306,7 @@ __attribute__((cold)) void bt_crash(u32 vec, const u32 *sp)
     const u32       *pcsr = sp + 9;         /* (the stub's pushes: r0-r7, PR; then the CPU's: PC, SR) */
     u32             s = (u32)sp;
 
-    bt_fmt(buf, "CRASH %s V%d PC %08X SR %08X", s >= 0x060FC000 ? "MASTER" : "SLAVE", vec, pcsr[0], pcsr[1]);
+    bt_fmt(buf, "CRASH %s V%d PC %08X SR %08X", SP_MASTER(s) ? "MASTER" : "SLAVE", vec, pcsr[0], pcsr[1]);
     bt_line(76, buf);
     bt_fmt(buf, "PR %08X SP %08X", sp[8], s + 44);
     bt_line(86, buf);
@@ -927,7 +927,20 @@ static u32          sl_t, sl_dyn, sl_end, sl_endt;    /* (the slave: its dynamic
 u32                 fight_sl[3];
 #endif
 
+static void         slave_loop(void);
+u32                 chip_used[2];               /* (CACHE_STACK) most of each CPU's on-chip stack used, bytes */
+
 void                slave_main(void)
+{
+#ifdef CACHE_STACK
+    chip_init(1);                               /* (its cache two-way, its stack in the 2 KB freed: sat.h) */
+    chip_call2((void *)slave_loop, 0, 0);
+#else
+    slave_loop();
+#endif
+}
+
+static void         slave_loop(void)
 {
     frt_init();
     FRT_FTCSR = 0;
@@ -999,13 +1012,22 @@ void                slave_main(void)
 #ifdef FIGHT_BENCH
         sl_endt = frt_read();
 #endif
+#ifdef CACHE_STACK
+        {
+            u32         u = chip_stack_used();
+
+            if (u > chip_used[1])
+                chip_used[1] = u;
+        }
+#endif
         signal_master();
         BT(1, 55);
 #ifndef NO_PREMOVE
         if (PM_REQ)
         {
             BT(1, 56);
-            premove();                          /* (the next frame's move, while the master finishes) */
+            HW_CALL0(premove);                  /* (the next frame's move, while the master finishes; its traces'
+                                                   frames on the work RAM stack: CACHE_STACK) */
         }
 #endif
 #ifdef WALLS_AHEAD
@@ -1403,12 +1425,30 @@ static __attribute__((cold)) void hb_screen(int page)
 }
 #endif
 
+/* the frame drawn: (OPT=-DCACHE_STACK) on the master's on-chip stack (engine/sat.h), its depth kept */
+static void         draw_world(void)
+{
+#ifdef CACHE_STACK
+    u32             u;
+
+    chip_call2((void *)render_world, (u32)vdp_get_writer(0), (u32)vdp_get_writer(1));
+    u = chip_stack_used();
+    if (u > chip_used[0])
+        chip_used[0] = u;
+#else
+    render_world(vdp_get_writer(0), vdp_get_writer(1));
+#endif
+}
+
 void                main(void)
 {
     u32             t_last, t0, us_frame = 0, us_cpu = 0;
     int             waited = 0;
     bool            paused = false;
 
+#ifdef CACHE_STACK
+    chip_init(0);                           /* (the master's cache two-way, 2 KB of it the drawing's stack) */
+#endif
 #ifdef JUNK_RAM
     {
         extern void junk_fill(void);
@@ -1450,6 +1490,11 @@ void                main(void)
     models_load_all();
     g_overlays_load();                      /* (the code of the monsters it has: after their models) */
     message("QUAKE II", "LOADING THE SOUNDS");
+#ifdef BOOT_TRACE
+    vdp_set_field_hook(bt_watch);           /* (the watchdog and crash lines from here: the steps below) */
+    bt_crash_handlers();
+    step_hook = bt_master_step;
+#endif
     BT(0, 30);
     s_init(cur_map);
     vram_base = vdp_tex_mark();
@@ -2004,7 +2049,7 @@ void                main(void)
 #ifdef ONE_CPU
             r_two_cpus = false;             /* (OPT=-DONE_CPU: the master alone, to see what sharing gains) */
 #endif
-            render_world(vdp_get_writer(0), vdp_get_writer(1));
+            draw_world();
             vdp_printf(8, 8, RGB(255, 255, 255), "BENCHMARK VIEW %d", bench_view + 1);
             us_cpu = frt_to_us((frt_read() - t0) & 0xFFFF);
             waited = vdp_submit();
@@ -2313,7 +2358,7 @@ void                main(void)
         }
 #endif
         BT(0, 10);
-        render_world(vdp_get_writer(0), vdp_get_writer(1));
+        draw_world();
         BT(0, 19);
         r_during = NULL;
 #ifdef SLOT_CHECK
@@ -2554,7 +2599,12 @@ void                main(void)
             vdp_printf(8, 178, RGB(255, 200, 160), "NOT DSP'S: ROWS %d - %d NOJOB %d OUT %d", fight_why[0] * 10 / n,
                        fight_why[1] * 10 / n, fight_why[2] * 10 / n, fight_why[3] * 10 / n);
 #else
+#ifdef CACHE_STACK
+            vdp_printf(8, 178, RGB(255, 200, 160), "LISTS' DMA %d US STACK %d %d", fight_ldma / n, chip_used[0],
+                       *(volatile u32 *)UNCACHED(&chip_used[1]));
+#else
             vdp_printf(8, 178, RGB(255, 200, 160), "LISTS' DMA %d US", fight_ldma / n);
+#endif
 #endif
 #ifndef DSP_WALLS                           /* (the overlay's room: the DSP's line instead) */
             vdp_printf(8, 44, RGB(160, 220, 255), "PRE US M%d P%d V%d F%d", fight_pre[0] / n, fight_pre[1] / n,
@@ -2732,7 +2782,13 @@ void                main(void)
 
                     vdp_printf(8, 118, c, "DSP TRIES %d %d %x %x DMA %x GUN %d", dsp_fails[0], dsp_fails[1],
                                dsp_fail_ppaf[0], dsp_fail_ppaf[1], dsp_fail_dsta, gun_dma_bad);
+#ifdef CACHE_STACK
+                    /* (each CPU's on-chip stack: the most of its 2,032 bytes used; the slave's as it wrote it) */
+                    vdp_printf(8, 138, c, "STACK M %d S %d MADE %d %d %d", chip_used[0],
+                               *(volatile u32 *)UNCACHED(&chip_used[1]), mk_total[0], mk_total[1], mk_total[2]);
+#else
                     vdp_printf(8, 138, c, "MADE DSP %d CPU %d BAD READS %d", mk_total[0], mk_total[1], mk_total[2]);
+#endif
                     {
                         extern u32 snd_state(void);
                         u32 ss = snd_state();

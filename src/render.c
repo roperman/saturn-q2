@@ -167,10 +167,12 @@ typedef struct
     s32             *gk;
     s32             prx0, prx1, pry0, pry1; /* the face's cluster's rectangle, as seen through the portals: */
     s32             prect;                  /* its sides' slopes, if it's not the whole screen */
+    s32             maxpts;                 /* most grid points for the whole grid at once (WHOLE_MAX, or a batch's
+                                               room left: FACE_BATCH) */
 }                   face_args;
 _Static_assert(__builtin_offsetof(face_args, light) == 64 && __builtin_offsetof(face_args, rt) == 68
                && __builtin_offsetof(face_args, frame) == 128 && __builtin_offsetof(face_args, gk) == 180
-               && __builtin_offsetof(face_args, prect) == 200
+               && __builtin_offsetof(face_args, prect) == 200 && __builtin_offsetof(face_args, maxpts) == 204
                && sizeof(q_face) == 32 && sizeof(q_lodface) == 16 && __builtin_offsetof(q_face, firstcell) == 24
                && __builtin_offsetof(grid_args, e1) == 36, "src/face.s: face_args");
 int                 face_asm(face_args *a, int fi, int model);   /* (OPT=-DNO_FACE_ASM: face_setup, the C) */
@@ -2986,6 +2988,7 @@ static void         face_frame(r_ctx *x)
     a->grid = x->grid;
     a->ga = x->ga;
     a->gk = x->gk;
+    a->maxpts = WHOLE_MAX;
 }
 
 /* ...and what's the same all frame (once x->fifo's set) */
@@ -3375,7 +3378,7 @@ static __attribute__((noinline)) int face_setup(r_ctx *x, const q_face *f, int m
     a->cells = row_cells;
     a->light = light;
     /* the grid: the whole face at once if it fits (the assembly), or a row at a time */
-    if (!r_grid_asm || (nu + 1) * (nv + 1) > WHOLE_MAX)
+    if (!r_grid_asm || (nu + 1) * (nv + 1) > a->maxpts)
         return 3;
     gk[GK_ROWS] = nv;
     grid_face_asm(x->grid, nu + 1, x->ga, gk);

@@ -60,6 +60,7 @@ A_PRX1    = 188                         ! sides' slopes, if not the whole screen
 A_PRY0    = 192
 A_PRY1    = 196
 A_PRECT   = 200
+A_MAXPTS  = 204                         ! most grid points for the whole grid at once
 
 F_AXES    = 12                          ! (q_face) u16
 F_FLAGS   = 16                          ! then nu nv eu0 eu1 ev0 ev1 lodhi (u8)
@@ -640,7 +641,7 @@ _face_asm:
         add     #1,r4
         mul.l   r0,r4
         sts     macl,r4
-        mov.w   .Lmaxpts,r0
+        mov.l   @(A_MAXPTS,gbr),r0
         cmp/gt  r0,r4
         bf      3f
         bra     .Lret                   ! too big: a row at a time
@@ -675,12 +676,5 @@ _face_asm:
         mov.l   @r15+,r8
 
         .align  2
-.Lmaxpts:
-.ifdef ROWS_TEST
-        .short  12                      ! (test: WHOLE_MAX)
-.else
-        .short  514                     ! 2 x MAX_ROW (WHOLE_MAX)
-.endif
-        .short  0
 .Lgrid_face:
         .long   _grid_face_asm

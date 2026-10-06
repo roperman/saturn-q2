@@ -176,7 +176,7 @@ void                dsp_models_lit(const u32 *stream, s32 *out, int models, vola
 
 #ifdef DSP_OLD_TESTS
 /* xformf.dsp: faces' grids into view space (a test) */
-void                dsp_init_faces(void)
+__attribute__((cold)) void                dsp_init_faces(void)
 {
     int             i;
 

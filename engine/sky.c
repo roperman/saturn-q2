@@ -35,7 +35,7 @@ static u32          pal_at(int p)
     return (u32)(p < 32 ? p : p + 16);
 }
 
-bool                sky_load(const char *file)
+__attribute__((cold)) bool                sky_load(const char *file)
 {
     volatile u32    *page = (volatile u32 *)(VDP2_VRAM + PAGE0);
     u32             cell0 = CELLS >> 5, blank, at;
@@ -93,7 +93,7 @@ int                 sky_rows_above(void)
     return sky_above;
 }
 
-void                sky_set_colours(u16 (*f)(u16), u16 *above, u16 *below, u16 *zenith)
+__attribute__((cold)) void                sky_set_colours(u16 (*f)(u16), u16 *above, u16 *below, u16 *zenith)
 {
     volatile u16    *cram = (volatile u16 *)0x25F00000;
     int             p, i;

@@ -229,7 +229,7 @@ static void         upload_font(void)
         }
 }
 
-void                vdp_init(u16 back_color)
+__attribute__((cold)) void                vdp_init(u16 back_color)
 {
     volatile u16    *hdr = (volatile u16 *)VDP1_VRAM;
     int             i;
@@ -275,7 +275,7 @@ void                vdp_init(u16 back_color)
     drawing = true;
 }
 
-bool                vdp_tex_upload(vdp_tex *t, const u16 *pixels, int w, int h)
+__attribute__((cold)) bool                vdp_tex_upload(vdp_tex *t, const u16 *pixels, int w, int h)
 {
     u32             bytes = (u32)(w * h * 2);
 
@@ -293,7 +293,7 @@ bool                vdp_tex_upload(vdp_tex *t, const u16 *pixels, int w, int h)
 }
 
 /* 4bpp texture + its 16-entry colour lookup table (index 0 = transparent) */
-bool                vdp_tex_upload_lut(vdp_tex *t, const u8 *pixels, const u16 *lut, int w, int h)
+__attribute__((cold)) bool                vdp_tex_upload_lut(vdp_tex *t, const u8 *pixels, const u16 *lut, int w, int h)
 {
     u32             bytes = (u32)(w * h / 2);
 
@@ -313,7 +313,7 @@ bool                vdp_tex_upload_lut(vdp_tex *t, const u8 *pixels, const u16 *
 }
 
 /* 4bpp texture drawn with colour tables of its own (uploaded apart): no table here */
-bool                vdp_tex_upload_4bpp(vdp_tex *t, const u8 *pixels, int w, int h)
+__attribute__((cold)) bool                vdp_tex_upload_4bpp(vdp_tex *t, const u8 *pixels, int w, int h)
 {
     u32             bytes = (u32)(w * h / 2);
 
@@ -682,7 +682,7 @@ static void         tab_range(int first, int n)
                 (u32)n * sizeof(vdp1_cmd));
 }
 
-static void         dma_range(int first, int n)
+__attribute__((cold)) static void         dma_range(int first, int n)
 {
     if (n <= 0)
         return;

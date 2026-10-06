@@ -444,7 +444,7 @@ static void         smpc_command(u8 cmd)
         ;
 }
 
-void                slave_start(void)
+__attribute__((cold)) void                slave_start(void)
 {
     /* BIOS SYS_SETSINT: sets a vector in the *slave's* table; 0x94 is where it starts */
     void            (*set_sint)(u32, void *) = *(void (**)(u32, void *))0x06000310;

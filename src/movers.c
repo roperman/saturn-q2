@@ -49,7 +49,7 @@ static void         place(int m)
     ++movers_version;
 }
 
-void                movers_init(void)
+__attribute__((cold)) void                movers_init(void)
 {
     int             m;
 

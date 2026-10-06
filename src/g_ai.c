@@ -830,7 +830,7 @@ static void         M_CheckGround(g_ent *ent)
         ent->on_ground = false;
 }
 
-void                M_droptofloor(g_ent *ent)
+__attribute__((cold)) void                M_droptofloor(g_ent *ent)
 {
     s32             end[3];
     q_trace         t;
@@ -873,7 +873,7 @@ void                monster_physics(g_ent *self)
     }
 }
 
-void                monster_start(g_ent *self)
+__attribute__((cold)) void                monster_start(g_ent *self)
 {
     self->kind = EK_MONSTER;
     self->solid = true;

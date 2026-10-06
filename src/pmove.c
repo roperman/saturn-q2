@@ -79,7 +79,7 @@ static int          nladders;               /* -1: more than MAX_LADDERS, always
 u32                 lc_frames, lc_near, lc_ladder, lc_bad;
 #endif
 
-void                trace_world_init(void)
+__attribute__((cold)) void                trace_world_init(void)
 {
     int             m, k;
 

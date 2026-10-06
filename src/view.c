@@ -62,7 +62,7 @@ static const q_manim *anim(int slot, const char *name)
     return &m->anims[model_anim(m, name)];
 }
 
-static bool         load_now(int w, int slot)
+__attribute__((cold)) static bool         load_now(int w, int slot)
 {
     int             n = cd_load(view_files[w], buf[slot], VIEW_MAX_BYTES);
 
@@ -77,7 +77,7 @@ static bool         load_now(int w, int slot)
     return true;
 }
 
-static void         load_later(int w, int slot)
+__attribute__((cold)) static void         load_later(int w, int slot)
 {
     u32             lba, size;
 
@@ -115,7 +115,7 @@ int                 view_nslots(void)       /* (OPT=-DLEVEL_TEST: the gun's slot
 }
 #endif
 
-void                view_level_init(void)
+__attribute__((cold)) void                view_level_init(void)
 {
     int             k;
 
@@ -140,7 +140,7 @@ void                view_level_init(void)
 }
 
 /* a new game or a restart: the gun you now hold (the blaster), up */
-void                view_reset(void)
+__attribute__((cold)) void                view_reset(void)
 {
     int             s = slot_of(client.weapon);
 

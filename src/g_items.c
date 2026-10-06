@@ -63,7 +63,7 @@ static const int    ammo_max[AMMO_COUNT] = { 0, 100, 200, 50, 50, 200, 50 };
 static const g_item *item_of(int cls);
 
 /* the models this level's things use (models_load_all loads only those: cart space, and time) */
-void                g_models_needed(bool *need)
+__attribute__((cold)) void                g_models_needed(bool *need)
 {
     const q_erec    *r = (const q_erec *)lv.erecs;
     int             i;

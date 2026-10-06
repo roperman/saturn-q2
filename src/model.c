@@ -24,7 +24,7 @@ bool                model_load(q_mdl *m, const char *file)
     return b && model_parse(m, b);
 }
 
-bool                model_parse(q_mdl *m, const u8 *b)
+__attribute__((cold)) bool                model_parse(q_mdl *m, const u8 *b)
 {
     const u16       *h16;
     const u32       *h32;
@@ -117,7 +117,7 @@ static bool         room_for(const char *file)
     return cd_find(file, &lba, &size) && cart_free() >= ((size + 2047) & ~2047u) + CART_AFTER;
 }
 
-void                models_load_all(void)
+__attribute__((cold)) void                models_load_all(void)
 {
     bool            need[MDL_COUNT];
     int             i;
@@ -157,7 +157,7 @@ static const void   *hot(const void *p, u32 bytes)
     return q;
 }
 
-void                models_hot(void)
+__attribute__((cold)) void                models_hot(void)
 {
     int             i;
 

@@ -2622,7 +2622,7 @@ static int          wl_face_setup(r_ctx *x, int fi, const dl_light *L, const q_d
 
 /* (the slave, its drawing done) the next frame's buffer: the faces lit this frame (its own first:
    the nearest), with this frame's lights, until the next frame's first job comes */
-void                r_wall_ahead(void)
+__attribute__((cold)) void                r_wall_ahead(void)
 {
     int             b = (frame + 1) & 1, nl = imin(r_ndlights, MAX_DLIGHTS), own, nm, i, n = 0;
     wl_buf          *w = wl_b[b];
@@ -4825,7 +4825,7 @@ static void         cache_forget(const void *p, u32 bytes)
 /* a new level (view.c): room for the gun's last drawing: in HWRAM if the level's left room
    (read straight from there), else on the cart (read into the list by SCU DMA, which halts
    both CPUs while it writes their RAM: 0.34 ms of a fight's frame, before the slave can start) */
-void                r_view_level(void)
+__attribute__((cold)) void                r_view_level(void)
 {
     u32             hw, lw, ca;
 
@@ -7613,7 +7613,7 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
 }
 
 /* src/cycles.c: one grid row of 8 points, 512 times (FRT ticks) */
-u32                 render_bench_grid(void)
+__attribute__((cold)) u32                 render_bench_grid(void)
 {
     static const v3 p = { FIX(-40), FIX(-30), FIX(200) }, du = { FIX(10), FIX(1), FIX(2) };
     u32             t = frt_read();

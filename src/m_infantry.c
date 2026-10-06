@@ -185,7 +185,7 @@ static void         infantry_die(g_ent *self, g_ent *attacker, int damage, const
     self->move = rng() & 1 ? &infantry_move_death1 : &infantry_move_death2;
 }
 
-void                SP_monster_infantry(g_ent *self)
+__attribute__((cold)) void                SP_monster_infantry(g_ent *self)
 {
     unsigned        i;
 

@@ -113,7 +113,7 @@ static void         slot_setup(int s, const t_inst *in, u16 pitch, int vol, int 
     SLOT_REG(s, 0x16) = (u16)((7 << 13) | (pn << 8));                     /* direct out, panned */
 }
 
-bool                snd_init(const char *file)
+__attribute__((cold)) bool                snd_init(const char *file)
 {
     int             i, size;
     volatile u16    *ram = (volatile u16 *)SND_RAM;

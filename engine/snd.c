@@ -45,7 +45,7 @@ static void         post(int op, int arg)
     MBOX[MB_WRITE] = (u16)((w + 1) % SND_RING);
 }
 
-bool                snd_init(const char *file)
+__attribute__((cold)) bool                snd_init(const char *file)
 {
     int             i;
 
@@ -77,7 +77,7 @@ bool                snd_init(const char *file)
    mailbox cleared, and off again (it reads the bank's tables as it starts). The pad's asks
    of the SMPC (the vblank-out interrupt, sys.c) are held meanwhile: one landing between
    ours would be taken for it */
-bool                snd_bank(const char *file)
+__attribute__((cold)) bool                snd_bank(const char *file)
 {
     bool            pads = pad_by_vblank(false);
     int             i;
@@ -100,7 +100,7 @@ bool                snd_bank(const char *file)
 
 /* (the stats) how the start went: the stage reached, whether it's ready, the 68000's word in
    the mailbox (alive?) and its status, the bank's size in KB */
-u32                 snd_state(void)
+__attribute__((cold)) u32                 snd_state(void)
 {
     return (u32)snd_stage | (u32)ready << 4 | (u32)(MBOX[MB_MAGIC] == SND_ALIVE) << 5 | (u32)(MBOX[MB_STATUS] & 15) << 8
            | (u32)(snd_size > 0 ? snd_size >> 10 : 0) << 16;

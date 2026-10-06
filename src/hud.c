@@ -27,7 +27,7 @@ void                hud_palette(void)
             cram[CRAM_BANK + i] = r_gamma(hud_pal[i]);
 }
 
-void                hud_init(void)
+__attribute__((cold)) void                hud_init(void)
 {
     const u8        *b = cart_load("HUD.BIN");
     const u8        *tab, *data;

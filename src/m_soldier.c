@@ -200,7 +200,7 @@ static void         soldier_die(g_ent *self, g_ent *attacker, int damage, const 
     set_move(self, &soldier_move_death1);
 }
 
-void                SP_monster_x_soldier(g_ent *self, int skin)
+__attribute__((cold)) void                SP_monster_x_soldier(g_ent *self, int skin)
 {
     unsigned        i;
 

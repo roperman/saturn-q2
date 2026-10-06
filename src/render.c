@@ -251,11 +251,16 @@ typedef struct
     vdp_writer      *w;
     int             bucket, first, last;    /* the part of the face list it draws */
     bool            fifo;                   /* commands appended (drawn in order) rather than pushed (reversed) */
-    gv              grid[2 * MAX_ROW];      /* a face's grid, or two rows of a big one's */
-    s32             gk[22];                 /* grid_k, and grid_face_asm's (the guard band at the end, as grid_k) */
-    grid_args       ga;
+    gv              grid_s[2 * MAX_ROW];    /* a face's grid, or two rows of a big one's (or a batch's: FACE_BATCH) */
+    s32             gk_s[22];               /* grid_k, and grid_face_asm's (the guard band at the end, as grid_k) */
+    grid_args       ga_s;
     cell_args       ca;
-    face_args       fa;                     /* a face's setup (its first grid point, its steps: ga, gk) */
+    face_args       fa_s;                   /* a face's setup (its first grid point, its steps: ga, gk) */
+    /* the face being drawn's: the above, or its slot in a batch (FACE_BATCH) */
+    face_args       *fa;
+    grid_args       *ga;
+    s32             *gk;
+    gv              *grid;
     u32             cpmod;                  /* its cells' PMOD << 16 (translucent faces: mesh or half-transparent) */
     bool            wave;                   /* its grid points move (water: wave_at) */
     v3              wn;                     /* ...along its plane's normal (view space) */
@@ -303,6 +308,15 @@ bool                r_two_cpus;
 q_cam               cam;
 
 static r_ctx        ctx[2];
+
+/* the face being drawn's setup: its own (not a batch's slot) */
+static inline void  r_ctx_reset(r_ctx *x)
+{
+    x->fa = &x->fa_s;
+    x->ga = &x->ga_s;
+    x->gk = x->gk_s;
+    x->grid = x->grid_s;
+}
 u32                 r_full[3];              /* frames each CPU's part of the texture cache ran out; late uploads (the benchmarks) */
 #ifdef TEX_WSET
 u32                 r_wset[5];              /* most textures a frame, each CPU; their sums; the slots each */
@@ -685,8 +699,10 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
     grid_k[4] = SCREEN_W; grid_k[5] = SCREEN_H; grid_k[6] = ky; grid_k[7] = CLAMP_XY;
     grid_k[20] = GUARD_X;
     grid_k[21] = GUARD_Y;
+    for (i = 0; i < 2; ++i)
+        r_ctx_reset(&ctx[i]);
     for (i = 0; i < 22; ++i)
-        ctx[0].gk[i] = ctx[1].gk[i] = grid_k[i];
+        ctx[0].gk_s[i] = ctx[1].gk_s[i] = grid_k[i];
     grid_selftest();
     dsp_selftest();
     mk_level();
@@ -1624,14 +1640,14 @@ static __attribute__((noinline)) void cell_pos(const r_ctx *x, int i, int j, v3 
     const v3        *f = (const v3 *)&x->gk[GK_F0];     /* f0, dv, f1 */
     v3              a0, a1, b0, b1;
 
-    grid_step(&a0, &x->ga.e0, &x->ga.d, &x->ga.e1, x->fa.fnu, i);
-    grid_step(&a1, &x->ga.e0, &x->ga.d, &x->ga.e1, x->fa.fnu, i + 1);
-    grid_step(&b0, &f[0], &f[1], &f[2], x->fa.fnv, j);
-    grid_step(&b1, &f[0], &f[1], &f[2], x->fa.fnv, j + 1);
-    P[0].x = x->fa.fo.x + a0.x + b0.x; P[0].y = x->fa.fo.y + a0.y + b0.y; P[0].z = x->fa.fo.z + a0.z + b0.z;
-    P[1].x = x->fa.fo.x + a1.x + b0.x; P[1].y = x->fa.fo.y + a1.y + b0.y; P[1].z = x->fa.fo.z + a1.z + b0.z;
-    P[2].x = x->fa.fo.x + a1.x + b1.x; P[2].y = x->fa.fo.y + a1.y + b1.y; P[2].z = x->fa.fo.z + a1.z + b1.z;
-    P[3].x = x->fa.fo.x + a0.x + b1.x; P[3].y = x->fa.fo.y + a0.y + b1.y; P[3].z = x->fa.fo.z + a0.z + b1.z;
+    grid_step(&a0, &x->ga->e0, &x->ga->d, &x->ga->e1, x->fa->fnu, i);
+    grid_step(&a1, &x->ga->e0, &x->ga->d, &x->ga->e1, x->fa->fnu, i + 1);
+    grid_step(&b0, &f[0], &f[1], &f[2], x->fa->fnv, j);
+    grid_step(&b1, &f[0], &f[1], &f[2], x->fa->fnv, j + 1);
+    P[0].x = x->fa->fo.x + a0.x + b0.x; P[0].y = x->fa->fo.y + a0.y + b0.y; P[0].z = x->fa->fo.z + a0.z + b0.z;
+    P[1].x = x->fa->fo.x + a1.x + b0.x; P[1].y = x->fa->fo.y + a1.y + b0.y; P[1].z = x->fa->fo.z + a1.z + b0.z;
+    P[2].x = x->fa->fo.x + a1.x + b1.x; P[2].y = x->fa->fo.y + a1.y + b1.y; P[2].z = x->fa->fo.z + a1.z + b1.z;
+    P[3].x = x->fa->fo.x + a0.x + b1.x; P[3].y = x->fa->fo.y + a0.y + b1.y; P[3].z = x->fa->fo.z + a0.z + b1.z;
     if (x->wave)
     {
         int k;
@@ -1649,21 +1665,21 @@ static __attribute__((noinline)) void dl_row(const r_ctx *x, u16 *out, const u16
 {
     const v3        *f = (const v3 *)&x->gk[GK_F0];
     v3              a, b, V;
-    int             i, n = x->fa.fnu;
+    int             i, n = x->fa->fnu;
 
-    grid_step(&b, &f[0], &f[1], &f[2], x->fa.fnv, j);
+    grid_step(&b, &f[0], &f[1], &f[2], x->fa->fnv, j);
     a.x = a.y = a.z = 0;
     for (i = 0; i <= n; ++i)
     {
         if (i == 1)
-            a = x->ga.e0;
+            a = x->ga->e0;
         else if (i > 1)
         {
-            const v3 *st = i < n ? &x->ga.d : &x->ga.e1;       /* (grid_step's e0 + d (i - 1), + e1 at the end) */
+            const v3 *st = i < n ? &x->ga->d : &x->ga->e1;       /* (grid_step's e0 + d (i - 1), + e1 at the end) */
 
             a.x += st->x; a.y += st->y; a.z += st->z;
         }
-        V.x = x->fa.fo.x + a.x + b.x; V.y = x->fa.fo.y + a.y + b.y; V.z = x->fa.fo.z + a.z + b.z;
+        V.x = x->fa->fo.x + a.x + b.x; V.y = x->fa->fo.y + a.y + b.y; V.z = x->fa->fo.z + a.z + b.z;
         out[i] = dlight_add(x->dmask, &V, raw[i]);
     }
 }
@@ -1710,8 +1726,8 @@ static void         dl_box(const v3 *p, int n, v3 *lo, v3 *hi)
 #ifdef NO_DL_ASM
 static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw, const dl_light *L)
 {
-    const face_args *a = &x->fa;
-    const v3        *fs = (const v3 *)&x->gk[GK_F0], *e0 = &x->ga.e0, *d = &x->ga.d, *e1 = &x->ga.e1;
+    const face_args *a = x->fa;
+    const v3        *fs = (const v3 *)&x->gk[GK_F0], *e0 = &x->ga->e0, *d = &x->ga->d, *e1 = &x->ga->e1;
     int             nu = a->fnu, nv = a->fnv, i, j, li;
     unsigned        mask = x->dmask;
     u32             acc[MAX_ROW];
@@ -1817,7 +1833,7 @@ void                dl_rows(u32 *acc, dl_pts *q);
 
 static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw, const dl_light *L)
 {
-    const face_args *a = &x->fa;
+    const face_args *a = x->fa;
     const s32       *fs = &x->gk[GK_F0];
     int             np = (a->fnu + 1) * (a->fnv + 1), i, li;
     unsigned        m;
@@ -1830,9 +1846,9 @@ static __attribute__((noinline)) void dl_face(r_ctx *x, u16 *out, const u16 *raw
 
         acc[i] = (c & 31) | (c >> 5 & 31) << 10 | (c >> 10 & 31) << 20;
     }
-    q.e0[0] = x->ga.e0.x; q.e0[1] = x->ga.e0.y; q.e0[2] = x->ga.e0.z;
-    q.d[0] = x->ga.d.x; q.d[1] = x->ga.d.y; q.d[2] = x->ga.d.z;
-    q.e1[0] = x->ga.e1.x; q.e1[1] = x->ga.e1.y; q.e1[2] = x->ga.e1.z;
+    q.e0[0] = x->ga->e0.x; q.e0[1] = x->ga->e0.y; q.e0[2] = x->ga->e0.z;
+    q.d[0] = x->ga->d.x; q.d[1] = x->ga->d.y; q.d[2] = x->ga->d.z;
+    q.e1[0] = x->ga->e1.x; q.e1[1] = x->ga->e1.y; q.e1[2] = x->ga->e1.z;
     for (i = 0; i < 3; ++i)
     {
         q.f0[i] = fs[i];
@@ -2527,7 +2543,7 @@ static int          wl_face_setup(r_ctx *x, int fi, const dl_light *L, const q_d
     const q_face    *f = &lv.faces[fi];
     const q_plane   *pl = &lv.planes[f->plane];
     const s32       *ax = &lv.axes[f->axes * 6];
-    face_args       *a = &x->fa;
+    face_args       *a = x->fa;
     s32             *gk = x->gk;
     int             nu = f->nu, nv = f->nv, N = lv.N, k, li;
     unsigned        m = 0;
@@ -2554,7 +2570,7 @@ static int          wl_face_setup(r_ctx *x, int fi, const dl_light *L, const q_d
     k = (nv == 1 ? f->ev1 : N) - f->ev0;
     f0.x = dvt.x * k; f0.y = dvt.y * k; f0.z = dvt.z * k;
     f1.x = dvt.x * f->ev1; f1.y = dvt.y * f->ev1; f1.z = dvt.z * f->ev1;
-    x->ga.e0 = e0; x->ga.d = du; x->ga.e1 = e1;
+    x->ga->e0 = e0; x->ga->d = du; x->ga->e1 = e1;
     gk[GK_F0] = f0.x; gk[GK_F0 + 1] = f0.y; gk[GK_F0 + 2] = f0.z;
     gk[GK_F0 + 3] = dv.x; gk[GK_F0 + 4] = dv.y; gk[GK_F0 + 5] = dv.z;
     gk[GK_F0 + 6] = f1.x; gk[GK_F0 + 7] = f1.y; gk[GK_F0 + 8] = f1.z;
@@ -2653,7 +2669,7 @@ static void         dl_check(const r_ctx *x, const u16 *lit, const u16 *raw, int
     int             i;
     v3              P[4];
 
-    for (i = 0; i < x->fa.fnu; ++i)
+    for (i = 0; i < x->fa->fnu; ++i)
     {
         cell_pos(x, i, j, P);
         dl_checks += 4;
@@ -2844,7 +2860,7 @@ static __attribute__((noinline)) bool cell_corners(r_ctx *x, const q_cell *cell,
         }
     else
     {
-        const v3 *du = &x->fa.dut, *dv = &x->fa.dvt;
+        const v3 *du = &x->fa->dut, *dv = &x->fa->dvt;
         const v3 *o = &P[0];
 
         q[0].x = o->x + du->x * u0 + dv->x * v0; q[0].y = o->y + du->y * u0 + dv->y * v0; q[0].z = o->z + du->z * u0 + dv->z * v0;
@@ -2943,7 +2959,7 @@ static void         cells_face(r_ctx *x, int stride, const q_cell *cell0)
 /* face.s: what's the same all frame */
 static void         face_frame(r_ctx *x)
 {
-    face_args       *a = &x->fa;
+    face_args       *a = x->fa;
     int             k;
 
     for (k = 0; k < 3; ++k)
@@ -2968,7 +2984,7 @@ static void         face_frame(r_ctx *x)
     a->lodfaces = lv.lodfaces;
     a->N = lv.N;
     a->grid = x->grid;
-    a->ga = &x->ga;
+    a->ga = x->ga;
     a->gk = x->gk;
 }
 
@@ -3042,7 +3058,7 @@ static __attribute__((cold)) void grid_selftest(void)
         { 37, -405, 60, 1, 97, -7 },        /* below and above */
     };
     gv              *c = ctx[0].grid, *as = ctx[0].grid + MAX_ROW;
-    grid_args       *a = &ctx[0].ga;
+    grid_args       *a = ctx[0].ga;
     int             r, i, n = 9;
 
     grid_bad = 0;
@@ -3238,11 +3254,11 @@ static void         face_dlights(r_ctx *x, const q_face *f, int model)
            light out of reach of all of it dropped: most faces the plane test passes (a floor,
            a light a little above it) are too far along it, and would take the lit way for
            nothing */
-        const face_args *a = &x->fa;
+        const face_args *a = x->fa;
         const v3        *fs = (const v3 *)&x->gk[GK_F0];
         v3              across, down, corner[4], lo, hi;
 
-        grid_step(&across, &x->ga.e0, &x->ga.d, &x->ga.e1, a->fnu, a->fnu);
+        grid_step(&across, &x->ga->e0, &x->ga->d, &x->ga->e1, a->fnu, a->fnu);
         grid_step(&down, &fs[0], &fs[1], &fs[2], a->fnv, a->fnv);
         corner[0] = a->fo;
         corner[1].x = a->fo.x + across.x; corner[1].y = a->fo.y + across.y; corner[1].z = a->fo.z + across.z;
@@ -3269,7 +3285,7 @@ static inline u8    rect_oc(const face_args *a, s32 x, s32 y, s32 z)
    done; 3: its steps done, the grid too big to do at once (or the assembly grid's off) */
 static __attribute__((noinline)) int face_setup(r_ctx *x, const q_face *f, int model)
 {
-    face_args       *a = &x->fa;
+    face_args       *a = x->fa;
     v3              o, du, dv, e0, e1, f0, f1;
     s32             d[3], zmin, *gk = x->gk;
     const u16       *light;
@@ -3348,7 +3364,7 @@ static __attribute__((noinline)) int face_setup(r_ctx *x, const q_face *f, int m
     f0.x = a->dvt.x * k; f0.y = a->dvt.y * k; f0.z = a->dvt.z * k;
     f1.x = a->dvt.x * ev1; f1.y = a->dvt.y * ev1; f1.z = a->dvt.z * ev1;
     /* the grid's steps, where the assembly (and grid_pos) find them */
-    x->ga.p = o; x->ga.e0 = e0; x->ga.d = du; x->ga.e1 = e1;
+    x->ga->p = o; x->ga->e0 = e0; x->ga->d = du; x->ga->e1 = e1;
     gk[GK_F0] = f0.x; gk[GK_F0 + 1] = f0.y; gk[GK_F0 + 2] = f0.z;
     gk[GK_F0 + 3] = dv.x; gk[GK_F0 + 4] = dv.y; gk[GK_F0 + 5] = dv.z;
     gk[GK_F0 + 6] = f1.x; gk[GK_F0 + 7] = f1.y; gk[GK_F0 + 8] = f1.z;
@@ -3362,7 +3378,7 @@ static __attribute__((noinline)) int face_setup(r_ctx *x, const q_face *f, int m
     if (!r_grid_asm || (nu + 1) * (nv + 1) > WHOLE_MAX)
         return 3;
     gk[GK_ROWS] = nv;
-    grid_face_asm(x->grid, nu + 1, &x->ga, gk);
+    grid_face_asm(x->grid, nu + 1, x->ga, gk);
     return 2;
 }
 
@@ -3395,12 +3411,12 @@ static u16          light_add(u16 l, int r)
 /* the nearest z of the face's grid: its first point's, and the far edges' where they come nearer */
 static s32          face_zmin(const r_ctx *x)
 {
-    const face_args *a = &x->fa;
+    const face_args *a = x->fa;
     const s32       *gk = x->gk;
-    s32             uz = x->ga.e0.z, vz = gk[GK_F0 + 2];
+    s32             uz = x->ga->e0.z, vz = gk[GK_F0 + 2];
 
     if (a->fnu > 1)
-        uz += x->ga.d.z * (a->fnu - 2) + x->ga.e1.z;
+        uz += x->ga->d.z * (a->fnu - 2) + x->ga->e1.z;
     if (a->fnv > 1)
         vz += gk[GK_F0 + 5] * (a->fnv - 2) + gk[GK_F0 + 8];
     return a->fo.z + (uz < 0 ? uz : 0) + (vz < 0 ? vz : 0);
@@ -3410,7 +3426,7 @@ static s32          face_zmin(const r_ctx *x)
    those that don't move are as the grid had them) and its lights rippled, into lit */
 static __attribute__((noinline)) void water_grid(r_ctx *x, u16 *lit, const u16 *raw)
 {
-    const face_args *a = &x->fa;
+    const face_args *a = x->fa;
     const v3        *fs = (const v3 *)&x->gk[GK_F0];
     gv              *g = x->grid;
     int             i, j, nu = a->fnu, nv = a->fnv;
@@ -3427,10 +3443,10 @@ static __attribute__((noinline)) void water_grid(r_ctx *x, u16 *lit, const u16 *
             s32 h;
 
             if (i == 1)
-                c = x->ga.e0;
+                c = x->ga->e0;
             else if (i > 1)
             {
-                const v3 *st = i < nu ? &x->ga.d : &x->ga.e1;      /* (the grid's steps, as dl_row's) */
+                const v3 *st = i < nu ? &x->ga->d : &x->ga->e1;      /* (the grid's steps, as dl_row's) */
 
                 c.x += st->x; c.y += st->y; c.z += st->z;
             }
@@ -3486,7 +3502,7 @@ static __attribute__((noinline)) void plain_water(vdp_writer *w, int first)
    a time */
 static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int model, bool whole)
 {
-    const face_args *a = &x->fa;
+    const face_args *a = x->fa;
     const s32       *gk = x->gk;
     v3              rowp, du, e0, e1;
     s32             dtx, dty;
@@ -3509,13 +3525,13 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
     else
     {
         /* its first row */
-        rowp = a->fo; du = x->ga.d; e0 = x->ga.e0; e1 = x->ga.e1;
+        rowp = a->fo; du = x->ga->d; e0 = x->ga->e0; e1 = x->ga->e1;
         dtx = fmul(du.z, kx);
         dty = fmul(du.z, ky);
         if (r_grid_asm)
         {
-            x->ga.p = rowp;
-            grid_row_asm(top, nu + 1, &x->ga, grid_k);
+            x->ga->p = rowp;
+            grid_row_asm(top, nu + 1, x->ga, grid_k);
         }
         else
             grid_row(top, nu + 1, &rowp, &du, &e0, &e1, dtx, dty);
@@ -3680,8 +3696,8 @@ static __attribute__((noinline)) void face_cells(r_ctx *x, const q_face *f, int 
             rowp.x += step[0]; rowp.y += step[1]; rowp.z += step[2];
             if (r_grid_asm)
             {
-                x->ga.p = rowp;
-                grid_row_asm(bot, nu + 1, &x->ga, grid_k);
+                x->ga->p = rowp;
+                grid_row_asm(bot, nu + 1, x->ga, grid_k);
             }
             else
                 grid_row(bot, nu + 1, &rowp, &du, &e0, &e1, dtx, dty);
@@ -3747,9 +3763,9 @@ static int          face_check(r_ctx *x, const q_face *f, int fi, int model)
 
     if (fi & 1)
         c[3] = c[7] = -1;
-    r = face_asm(&x->fa, fi, model);
-    fa = x->fa;
-    ga = x->ga;
+    r = face_asm(x->fa, fi, model);
+    fa = *x->fa;
+    ga = *x->ga;
     memcpy(gk, x->gk, sizeof(gk));
     if (r == 2)
         for (n = (fa.fnu + 1) * (fa.fnv + 1), k = 0; k < n; ++k)
@@ -3759,12 +3775,12 @@ static int          face_check(r_ctx *x, const q_face *f, int fi, int model)
     r2 = face_setup(x, f, model);
     ++face_checks;
     face_rows3 += r2 == 3;
-    face_lods += r2 >= 2 && x->fa.cells >= lv.lodcells && lv.lodcells;
+    face_lods += r2 >= 2 && x->fa->cells >= lv.lodcells && lv.lodcells;
     for (k = 0; k < n; ++k)
         sum2 = sum2 * 31 + x->grid[k].xy + x->grid[k].ocd;
-    if (r != r2 || (r >= 2 && (memcmp(&fa, &x->fa, __builtin_offsetof(face_args, rt))
-                               || memcmp(&ga.e0, &x->ga.e0, 3 * sizeof(v3)) || memcmp(gk + GK_F0, x->gk + GK_F0, 9 * 4)))
-        || (r == 2 && (memcmp(&ga.p, &x->ga.p, sizeof(v3)) || gk[GK_ROWS] != x->gk[GK_ROWS] || sum != sum2)))
+    if (r != r2 || (r >= 2 && (memcmp(&fa, x->fa, __builtin_offsetof(face_args, rt))
+                               || memcmp(&ga.e0, &x->ga->e0, 3 * sizeof(v3)) || memcmp(gk + GK_F0, x->gk + GK_F0, 9 * 4)))
+        || (r == 2 && (memcmp(&ga.p, &x->ga->p, sizeof(v3)) || gk[GK_ROWS] != x->gk[GK_ROWS] || sum != sum2)))
         ++face_diffs;
     return r2;
 }
@@ -4079,9 +4095,9 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
     u32             pxf = frt_read();
 #endif
 
-    x->fa.prect = 0;
+    x->fa->prect = 0;
 #ifdef PORTALS
-    if (portals_on && !model && !portal_face(&x->fa, fi))
+    if (portals_on && !model && !portal_face(x->fa, fi))
     {
         ++x->st.portal_out;
         return;                             /* (not through the portals) */
@@ -4093,9 +4109,9 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
 #elif defined(NO_FACE_ASM)
     r = face_setup(x, f, model);
 #else
-    r = face_asm(&x->fa, fi, model);
+    r = face_asm(x->fa, fi, model);
 #ifdef WARM_TEST
-    r = face_asm(&x->fa, fi, model);        /* (OPT=-DWARM_TEST, a measurement: again, its code and the face's data
+    r = face_asm(x->fa, fi, model);        /* (OPT=-DWARM_TEST, a measurement: again, its code and the face's data
                                                now in the cache: the profile's extra is the warm cost) */
 #endif
 #endif
@@ -4108,11 +4124,11 @@ static __attribute__((noinline)) void draw_face(r_ctx *x, int fi, int model)
         PROF(++x->st.faces_out);
         return;
     }
-    PROF((x->st.gverts += (x->fa.fnu + 1) * (x->fa.fnv + 1), x->st.seen += x->fa.fnu * x->fa.fnv));
+    PROF((x->st.gverts += (x->fa->fnu + 1) * (x->fa->fnv + 1), x->st.seen += x->fa->fnu * x->fa->fnv));
 #ifdef LW_COUNT
     ++lc[1];
-    lc[2] += (u32)((x->fa.fnu + 1) * (x->fa.fnv + 1));
-    lc[3] += (u32)(x->fa.fnu * x->fa.fnv);
+    lc[2] += (u32)((x->fa->fnu + 1) * (x->fa->fnv + 1));
+    lc[3] += (u32)(x->fa->fnu * x->fa->fnv);
 #endif
     face_cells(x, f, model, r == 2);
 }
@@ -5325,7 +5341,7 @@ __attribute__((cold)) void r_view_luts(int slot)
 {
     const q_mdl     *md = &models[MDL_VIEW0 + slot];
     u32             n = (u32)(md->nskins * md->nluts) * 16, k, i, m;
-    u16             *buf = (u16 *)ctx[0].grid;  /* (brighter: through here, a piece at a time; the master's
+    u16             *buf = (u16 *)ctx[0].grid_s;  /* (brighter: through here, a piece at a time; the master's
                                                    not drawing now) */
 
     if (!md->loaded)
@@ -5337,7 +5353,7 @@ __attribute__((cold)) void r_view_luts(int slot)
     else
         for (k = 0; k < n; k += m)
         {
-            m = n - k < sizeof(ctx[0].grid) / 2 ? n - k : sizeof(ctx[0].grid) / 2;
+            m = n - k < sizeof(ctx[0].grid_s) / 2 ? n - k : sizeof(ctx[0].grid_s) / 2;
             for (i = 0; i < m; ++i)
                 buf[i] = r_gamma(md->luts[k + i]);
             scu_dma0((void *)(VDP1_VRAM + lut_vram + (u32)md->lut0 * 32 + k * 2), buf, m * 2, true);
@@ -7422,10 +7438,10 @@ u32                 render_bench_grid(void)
     u32             t = frt_read();
     int             i;
 
-    ctx[0].ga.p = p; ctx[0].ga.e0 = du; ctx[0].ga.d = du; ctx[0].ga.e1 = du;
+    ctx[0].ga->p = p; ctx[0].ga->e0 = du; ctx[0].ga->d = du; ctx[0].ga->e1 = du;
     for (i = 0; i < 512; ++i)
         if (r_grid_asm)
-            grid_row_asm(ctx[0].grid, 8, &ctx[0].ga, grid_k);
+            grid_row_asm(ctx[0].grid, 8, ctx[0].ga, grid_k);
         else
             grid_row(ctx[0].grid, 8, &p, &du, &du, &du, fmul(du.z, kx), fmul(du.z, ky));
     return (frt_read() - t) & 0xFFFF;

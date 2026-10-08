@@ -3422,7 +3422,31 @@ mcmds_asm 2.9 -> 3.8) and the walk (10.5 -> 11.6). n = 8 stays. A slot
 is 364 bytes, most of it the frame's setup copied; slots holding only a
 face's own (its results, steps, grid's constants) would give ~3 KB back.
 
-## 72. The drawing's stack in the cache (OPT=-DCACHE_STACK)
+## 72. Code run only at a level's load moved to low work RAM
+
+A fight profile in Mednafen (SLAVE_PROF) found 177 functions never
+sampled, 23.6 KB of code. The ones plainly run only while a level loads,
+or in tests, are marked `__attribute__((cold))`, which engine/link.ld
+puts in low work RAM (.lwtext) with level.c's: the models' parsing and
+loading (model_parse, models_load_all, models_hot, g_models_needed), the
+sky's (sky_load, sky_set_colours), the sound's (snd_init, snd_bank,
+snd_state), the DSP's setup (dsp_init_faces), hud_init, movers_init, the
+view's (view_level_init, view_reset, load_now, load_later), the
+monsters' spawns (SP_monster_x_soldier, SP_monster_infantry,
+monster_start, M_droptofloor), trace_world_init and the benchmark's own
+(r_wall_ahead, render_bench_grid, r_view_level, slave_start, vdp_init,
+the texture uploads at load). .text 0x1d2cc -> 0x1b254: 8.3 KB more of
+high work RAM for the hot copies (section 71: ~0.65 ms a fight frame a
+KB when batches of 16 took 5.8 KB from them). All three levels load
+(high work RAM left 32 / 144 / 176 bytes). On the card as SUITE 16.
+
+**SUITE 16 on the Saturn:** held 279.4 (SUITE 14 294.9), turned 204.8
+(212.3), the fight 62.2 / 60.0 (63.0 / 60.9), pictures up 3 fields 284
+(268), 4 fields 38 (50). The held views, the walk's and faces' copies
+back in high work RAM, gained 15 ms (5%); the fight, more of it the
+models and lights, under a millisecond. Kept (it's the default).
+
+## 73. The drawing's stack in the cache (OPT=-DCACHE_STACK)
 
 The SH7604 manual (new in the docs folder) 8.4.8 and 8.5.4: with CCR's TW
 bit each CPU's cache runs two-way (ways 2 and 3, 2 KB) and ways 0 and 1

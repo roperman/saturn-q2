@@ -348,12 +348,19 @@ static inline void  dma_unlock(void)
 {
     *(volatile u8 *)UNCACHED(&dma_lock_byte) = 0;
 }
+/* ...and held until the transfer shows as active: on a Saturn the flag isn't up the cycle after
+   the enable (nor the DSP's: hwtest.c), and a piece that looked idle at once would let the other
+   CPU program over it, or vdp_run reuse a window it hadn't read yet. A transfer too short to be
+   seen (under ~1,000 cycles) runs out the bound: scu_dma0_late counts those */
+u32                 scu_dma0_late;
 static inline void  dma_started(void)
 {
     int             i;
 
-    for (i = 0; i < 64 && !(SCU_DSTA & D0_ACTIVE); ++i)
+    for (i = 0; i < 512 && !(SCU_DSTA & D0_ACTIVE); ++i)
         ;
+    if (i == 512)
+        ++*(volatile u32 *)UNCACHED(&scu_dma0_late);
 }
 void                scu_dma0(void *dst, const void *src, u32 bytes, bool bbus_dst)
 {

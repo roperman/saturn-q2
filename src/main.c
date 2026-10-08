@@ -587,7 +587,7 @@ __attribute__((section(".lwdata"))) static u32 hb_late[2] = { 0 }, hb_made[2][3]
 /* (its pages: the summary, each view's; the CPUs' profiles of the fight (OPT=-DSLAVE_PROF); the
    timing suite's three (OPT=-DHW_TEST)) */
 # if defined(HW_TEST)
-#  define HB_PAGES      (10)                /* (the summary, the views, 2 profiles, 2 hot spots, 4 timings) */
+#  define HB_PAGES      (11)                /* (the summary, the views, 2 profiles, 2 hot spots, 4 timings) */
 # elif defined(SLAVE_PROF)
 #  define HB_PAGES      (6)
 # else
@@ -1426,7 +1426,12 @@ static __attribute__((cold)) void hb_screen(int page)
     y += 14;
     vdp_printf(8, y, g, "HW %d LW %d CA %d SL %d", hw, lw, ca, r_tex_slots());
     y += 10;
-    vdp_printf(8, y, g, "DSP %s%s GUN %d", r_dsp_ok ? "OK" : "BAD", r_use_dsp ? " ON" : " OFF", gun_dma_bad);
+    {
+        extern u32  scu_dma0_late;      /* (DMA starts not seen active within the wait: sys.c dma_started) */
+
+        vdp_printf(8, y, g, "DSP %s%s GUN %d DMA LATE %d", r_dsp_ok ? "OK" : "BAD", r_use_dsp ? " ON" : " OFF",
+                   gun_dma_bad, *(volatile u32 *)UNCACHED(&scu_dma0_late));
+    }
     y += 14;
     vdp_text(8, y, hd, "A: NEXT PAGE  START+R: AGAIN");
 }

@@ -421,6 +421,7 @@ void                vdp_begin(void)
         wr->gwin = gwinbuf[w];
         wr->gbasen = wr->gsent = 0;
         wr->gst = wr->gwin;
+        wr->last_off = -1;
 #else
         wr->cmds = &staging[wr->first];
         wr->count = 0;
@@ -747,16 +748,21 @@ __attribute__((cold)) static void         dma_range(int first, int n)
 /* what a writer has made but not sent (all but its last command: the next run may yet patch its
    LINK, cells.s's and mdraw.s's appends do) to its VRAM list, and its Gouraud tables: one indirect
    transfer, not waited for */
-static void         ring_send(vdp_writer *w)
+static void         ring_send(vdp_writer *w, bool must)
 {
     u32             *t = ring_tab[w == &writers[1]];
     int             n = w->count - 1 - w->sent, g = w->gcount - w->gsent, k = 0;
 
+    if (!must && (scu_dma0_busy() || n <= 0))
+        return;                         /* (the other CPU's piece, or a chain, still going: another time,
+                                           rather than wait for it: on a Saturn that cost the held views 7%;
+                                           tables alone, a transfer too short to be seen active: with commands) */
     if (n > 0)
     {
         t[0] = (u32)n * sizeof(vdp1_cmd);
         t[1] = (VDP1_VRAM + list_base(list) + (u32)(w->first + w->sent) * sizeof(vdp1_cmd)) & 0x07FFFFFF;
         t[2] = (u32)(w->win + (w->sent - w->base)) & 0x07FFFFFF;
+        w->last_off = w->sent - w->base;
         w->sent += n;
         k = 3;
     }
@@ -781,11 +787,14 @@ void                vdp_run(vdp_writer *w, int n)
         n = RING_CMDS - 1;              /* (a run bigger than the window would overrun it) */
     if (w->count + n - w->base > RING_CMDS || w->gcount + n - w->gbasen > RING_GOUR)
     {
-        /* the window started over: what's waiting sent and done with, the last command (the next
-           run's tail to patch) moved to the front */
-        ring_send(w);
-        while (scu_dma0_busy())
-            ;
+        /* the window started over: what's waiting sent, the last command (the next run's tail to
+           patch) moved to the front. The piece in flight (the last sent: each start waits for the
+           one before) reads from last_off on: waited for only if the run would write over that */
+        ring_send(w, true);
+        if (w->last_off >= 0 && w->last_off <= n + 1)
+            while (scu_dma0_busy())
+                ;
+        w->last_off = -1;
         if (w->count > w->base)
         {
             w->win[0] = w->win[w->count - 1 - w->base];
@@ -796,7 +805,7 @@ void                vdp_run(vdp_writer *w, int n)
         w->gst = w->gwin - w->gbasen * 2;
     }
     else if (w->count - w->sent >= RING_CHUNK)
-        ring_send(w);
+        ring_send(w, false);
 }
 
 /* the command at index i of writer w, in work RAM (a trampoline's, or the window's) */

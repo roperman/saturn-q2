@@ -3548,3 +3548,22 @@ level.c's policy: the next thing to weigh). Pixel-identical, one CPU,
 six views. Mednafen's fight 42.8 / 42.1 against 42.4 / 40.9 (its DMA
 waits), the lists' DMA at the submit 185 us from 862. On the card as
 SUITE 19.
+
+**SUITE 19 on the Saturn:** no hang, but held 299.9 (SUITE 16 279.4),
+turned 211.7 (204.8), the fight 63.1 / 62.0 (62.2 / 60.0): the walk a
+touch faster with the room freed, the rest slower, +3.4 ms a frame on
+the held views; and walls vanished now and then, which Mednafen's
+pixel-identical views never showed. Two causes seen: each piece's start
+waited for the DMA level to be idle, mostly the other CPU's piece on the
+real B-bus (sends are now skipped while it's busy, and a window restart
+waits only when the piece in flight reads where the run would write);
+and the start had taken the SCU's active flag on trust 64 reads after the
+enable, where Mednafen raises it at its next event and a Saturn later
+than that: a restart could reuse a window the DMA hadn't read, or the
+other CPU program over a transfer just starting. The start now waits up
+to 512 reads for the flag (scu_dma0_late counts the ones it never saw,
+on the summary page as DMA LATE), tables aren't sent alone (a transfer
+too short to be seen), and the suite times the flag's lag after a direct
+and an indirect enable (DMA FLAG DIR / TAB, page 11). Mednafen, which
+runs out the 512 reads every start, shows the fight 44.9 / 44.2 for it.
+On the card as SUITE 20.

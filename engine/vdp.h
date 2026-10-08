@@ -79,6 +79,8 @@ typedef struct
     int             base, sent;         /* the index at the window's front; the first index not yet sent to VRAM */
     u32             *gwin;              /* ...and of RING_GOUR Gouraud tables: gst[gbasen] is gwin[0] */
     int             gbasen, gsent;
+    int             last_off;           /* where in the window the piece last sent began (-1: none): a restart
+                                           waits for it only if it's reading where the next run would write */
 #endif
 }                   vdp_writer;
 #ifdef CMD_RING

@@ -20,7 +20,7 @@
 #include "hwtest.h"                         /* (obj/gen: engine/hwtest.dsp, assembled) */
 
 #define ITERS           (512)               /* 8 operations each: 4096 */
-#define NT              (60)
+#define NT              (62)
 #define PER_PAGE        (15)
 #define HT_PAGES        ((NT + PER_PAGE - 1) / PER_PAGE)   /* (4: main.c's HB_PAGES counts them) */
 #define LWB             ((u8 *)0x00240000)  /* low work RAM, cart, VDP1 VRAM, VDP2 VRAM, sound RAM: */
@@ -42,6 +42,7 @@ static const char   ht_names[NT][14] __attribute__((section(".lwrodata"))) = {
     "HIT+DMA", "MISS HW+SLVH", "MISSCRT+SLVC", "MISS HW+SLVC",
     "MISSH+DSPWH16", "MISSH+DSPWH8", "MISSH+DSPRH16", "MISSC+DSPRC16", "MISSH+SLVLW", "MISSL+SLVLW", "MISSL+SLVH",
     "LD USE", "CODE 1K", "CODE 8K", "CODE8K+SLVH", "CODE8K+SLVLW", "ST HW+SLVH", "ST HW+SLVLW", "ST HW+DSPWH",
+    "DMA FLAG DIR", "DMA FLAG TAB",
 };
 static u8           *hwb;                   /* high work RAM: 64 KB to read, 64 KB a DMA's destination,
                                                128 KB the background's (a DMA's source, the DSP's, the slave's) */
@@ -304,6 +305,47 @@ static u32          ht_under(int k)
     return t;
 }
 
+/* cycles from a level 0 transfer's enable until the SCU shows it active (D0_ACTIVE): a direct one, or
+   an indirect table's (CMD_RING's pieces; sys.c dma_started waits for it, 512 reads at most). -1: never
+   seen within 4,096 reads (the transfer, 2 KB, done before?). The registers written here, not through
+   scu_dma0, which waits for the flag itself */
+#define D0_ACTIVE       (0x00010030)        /* (sys.c: level 0 moving, waiting or held) */
+static u32          ht_dma_tab[8] __attribute__((aligned(32)));
+static s32          ht_dma_lag(bool table)
+{
+    u32             t0, t1;
+    int             i;
+
+    while (SCU_DSTA & D0_ACTIVE)
+        ;
+    SCU_D0EN = 0;
+    if (table)
+    {
+        ht_dma_tab[0] = 2048;
+        ht_dma_tab[1] = (u32)VDP1B & 0x07FFFFFF;
+        ht_dma_tab[2] = ((u32)hwb & 0x07FFFFFF) | 0x80000000;
+        SCU_D0W = (u32)ht_dma_tab & 0x07FFFFFF;
+        SCU_D0AD = 0x101;
+        SCU_D0MD = 0x01000007;
+    }
+    else
+    {
+        SCU_D0R = (u32)hwb & 0x07FFFFFF;
+        SCU_D0W = (u32)VDP1B & 0x07FFFFFF;
+        SCU_D0C = 2048;
+        SCU_D0AD = 0x101;
+        SCU_D0MD = 0x00000007;
+    }
+    t0 = frt_read();
+    SCU_D0EN = 0x101;
+    for (i = 0; i < 4096 && !(SCU_DSTA & D0_ACTIVE); ++i)
+        ;
+    t1 = frt_read();
+    while (SCU_DSTA & D0_ACTIVE)
+        ;
+    return i == 4096 ? -10 : (s32)(((t1 - t0) & 0xFFFF) * FRT_DIV * 10);
+}
+
 void                ht_run(void)
 {
     u32             base, t;
@@ -319,7 +361,9 @@ void                ht_run(void)
     base = ht_cpu(0);
     for (k = 0; k < NT; ++k)
     {
-        if (k <= 26)
+        if (k >= 60)
+            ht_res[k] = ht_dma_lag(k == 61);
+        else if (k <= 26)
         {
             t = ht_cpu(k);
             ht_res[k] = (s32)((k ? t - base : t) * FRT_DIV * 10 / (ITERS * 8));

@@ -3608,3 +3608,15 @@ the frame, while a Saturn's VDP1, taking as long over a frame as the
 CPUs, could still be reading it; Mednafen's VDP1 is done long before.
 A piece now waits for the slot (slot_busy: the last list not yet swapped
 to), the window taking what's made meanwhile. On the card as SUITE 23.
+
+**SUITE 23 on the Saturn:** no glitches; held 294.0, turned 217.5, the
+fight 62.6 / 61.5 against SUITE 22's 287.3, 208.8, 62.8 / 60.6 without
+the ring. The ring is sound now and about a millisecond a frame dearer,
+its 45 KB having found nothing hot to hold: the loader fills high work
+RAM with the traces' and models' copies, and the walls' lumps that would
+pay (demo1's lights 81 KB, cells 62 KB) don't fit whole even so. One
+thing does: the gun's kept drawing (18 KB), on the cart whenever the
+level fills high work RAM, which is always, and fetched from there by
+DMA every frame with waits the token now makes real. `OPT=-DGUN_KEEP_HOT`
+reserves it before the level's copies (level.c, view_keep_reserved). The
+tour loads all three levels. On the card as SUITE 24 (with the ring).

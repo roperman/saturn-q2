@@ -468,6 +468,15 @@ bool                level_load(const char *name)
 #ifdef LEVEL_TEST
     level_dead = 0;
 #endif
+#ifdef GUN_KEEP_HOT
+    {
+        /* the gun's kept drawing's room first (18 KB): on the cart it's fetched by DMA every frame */
+        extern void *view_keep_reserved;
+        extern u32  view_keep_bytes(void);
+
+        view_keep_reserved = level_alloc(view_keep_bytes());
+    }
+#endif
     lv.nodes = HOT_D(lv.nodes, (u32)lv.nnodes * sizeof(q_node), true, 0);
     lv.planes_cart = lv.planes;
     lv.planes = hot(lv.planes, (u32)lv.nplanes * sizeof(q_plane), true);

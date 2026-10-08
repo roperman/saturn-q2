@@ -413,6 +413,11 @@ typedef struct { u16 tex, size; u16 v[4]; } view_kept;      /* 12 bytes */
 #define VIEW_KEEP_BYTES (MAX_MPOLYS * sizeof(view_kept) + MAX_MVERTS * 2 * 5)
 static u8           *view_keep;             /* (r_view_level: in HWRAM if there's room, else on the cart) */
 static bool         view_keep_hot;
+void                *view_keep_reserved;     /* (GUN_KEEP_HOT: level.c's, before the level's copies) */
+u32                 view_keep_bytes(void)
+{
+    return VIEW_KEEP_BYTES;
+}
 static int          view_nkeep, view_nkv, view_gen = 1;
 static u32          view_kver;              /* (one more each time it's kept anew) */
 /* ...and last frame's going out, if it was that: its commands and colour tables are still in
@@ -4866,8 +4871,17 @@ __attribute__((cold)) void                r_view_level(void)
     u32             hw, lw, ca;
 
     level_free(&hw, &lw, &ca);
-    view_keep_hot = hw >= VIEW_KEEP_BYTES;  /* (nothing takes HWRAM after this) */
-    view_keep = view_keep_hot ? level_alloc(VIEW_KEEP_BYTES) : cart_alloc(VIEW_KEEP_BYTES);
+    if (view_keep_reserved)
+    {
+        /* (OPT=-DGUN_KEEP_HOT: level.c kept it room before the level's copies: no fetch a frame) */
+        view_keep_hot = true;
+        view_keep = view_keep_reserved;
+    }
+    else
+    {
+        view_keep_hot = hw >= VIEW_KEEP_BYTES;  /* (nothing takes HWRAM after this) */
+        view_keep = view_keep_hot ? level_alloc(VIEW_KEEP_BYTES) : cart_alloc(VIEW_KEEP_BYTES);
+    }
     view_key.m = NULL;
     vf.stage = 0;
 #ifdef VIEW_CHECK

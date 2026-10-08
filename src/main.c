@@ -579,7 +579,7 @@ static bool         bench_turn;             /* (the views turning) */
 static int          hb_stage;               /* 1 the views held, 2 turning, 3 the fight, 4 done */
 static bool         hb_go;                  /* (the fight's start, as START + R starts it in FIGHT_BENCH) */
 /* (low work RAM: a level with the walls' and the maker's buffers has ~100 bytes of high to spare) */
-__attribute__((section(".lwdata"))) static u32 hb_v[2][NBENCH + 1][3] = { { { 0 } } };  /* held, turned: each
+__attribute__((section(".lwdata"))) static u32 hb_v[2][NBENCH + 1][5] = { { { 0 } } };  /* held, turned: each
                                                view's CPU, frame (0.1 ms), walk or uploads; all */
 __attribute__((section(".lwdata"))) static u32 hb_late[2] = { 0 }, hb_made[2][3] = { { 0 } };  /* late uploads;
                                                textures made by the DSP, the CPU, bad reads */
@@ -668,7 +668,7 @@ static void         far_lineup(int view)
     }
 }
 #endif
-static u32          bench_acc[NBENCH][7];   /* walk, master, slave, cpu, frame (us, summed), vblanks waiting for VDP1, the lists' DMA */
+static u32          bench_acc[NBENCH][9];   /* walk, master, slave, cpu, frame (us, summed), vblanks waiting for VDP1, the lists' DMA */
 static u32          bench_drop[2];          /* commands dropped (a CPU's list full), textures not drawn (its cache full) */
 static u32          bench_prof[15];         /* setup, grid, cells, slow, models, nfast, nslow, faces, the models' light, verts, polys */
 #ifdef R_PROFILE
@@ -1400,11 +1400,13 @@ static __attribute__((cold)) void hb_screen(int page)
         /* each view: CPU and frame (0.1 ms), held and turned; the walk (0.1 ms) held, uploads x 10 turned */
         vdp_text(8, y, hd, "  --- HELD ---   -- TURNED --");
         y += 10;
-        vdp_text(8, y, hd, "V  CPU  FRM WLK |  CPU  FRM UPL");
+        vdp_text(8, y, hd, "V CPU  FRM WLK|CPU  FRM UPL   M    S");  /* (M, S: most commands a frame) */
         y += 10;
         for (v = 0; v < NBENCH; ++v, y += 10)
-            vdp_printf(8, y, w, "%d %4d %4d %3d | %4d %4d %3d", v + 1, hb_v[0][v][0], hb_v[0][v][1],
-                       hb_v[0][v][2] / 10, hb_v[1][v][0], hb_v[1][v][1], hb_v[1][v][2]);
+            vdp_printf(8, y, w, "%d %3d %4d %3d|%3d %4d %3d %4d %4d", v + 1, hb_v[0][v][0], hb_v[0][v][1],
+                       hb_v[0][v][2] / 10, hb_v[1][v][0], hb_v[1][v][1], hb_v[1][v][2],
+                       hb_v[0][v][3] > hb_v[1][v][3] ? hb_v[0][v][3] : hb_v[1][v][3],
+                       hb_v[0][v][4] > hb_v[1][v][4] ? hb_v[0][v][4] : hb_v[1][v][4]);
         y += 4;
         vdp_text(8, y, g, "A: NEXT PAGE");
         return;
@@ -2075,6 +2077,11 @@ void                main(void)
                 a[4] += us_frame;
                 a[5] += (u32)waited;
                 a[6] += vdp_us_dma;
+                if ((u32)vdp_peak[0] > a[7])   /* most commands a frame, each writer (vdp_peak: since the last frame) */
+                    a[7] = (u32)vdp_peak[0];
+                if ((u32)vdp_peak[1] > a[8])
+                    a[8] = (u32)vdp_peak[1];
+                vdp_peak[0] = vdp_peak[1] = 0;
                 bench_prof[0] += rs.p_setup;
                 bench_prof[1] += rs.p_grid;
                 bench_prof[2] += rs.p_cells;
@@ -2132,6 +2139,8 @@ void                main(void)
                             hb_v[t][v][0] = bench_acc[v][3] / (u32)n / 100;
                             hb_v[t][v][1] = bench_acc[v][4] / (u32)n / 100;
                             hb_v[t][v][2] = bench_acc[v][0] * 10 / (u32)n / 100;   /* (0.01 ms; uploads x 10) */
+                            hb_v[t][v][3] = bench_acc[v][7];
+                            hb_v[t][v][4] = bench_acc[v][8];
                             hb_v[t][NBENCH][0] += hb_v[t][v][0];
                             hb_v[t][NBENCH][1] += hb_v[t][v][1];
                             hb_v[t][NBENCH][2] += hb_v[t][v][2];

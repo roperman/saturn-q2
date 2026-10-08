@@ -3567,3 +3567,30 @@ too short to be seen), and the suite times the flag's lag after a direct
 and an indirect enable (DMA FLAG DIR / TAB, page 11). Mednafen, which
 runs out the 512 reads every start, shows the fight 44.9 / 44.2 for it.
 On the card as SUITE 20.
+
+## 76. The SCU's DMA done by a token, not its flags
+
+SUITE 20 on the Saturn (the sends not waiting, a start waiting for the
+active flag): held 295.6 (SUITE 16 279.4), the fight 63.4 / 62.2, walls
+still vanishing now and then; and its suite page: an indirect transfer
+shows active 128 cycles after its enable, a direct one never (DMA FLAG
+TAB / DIR), the summary counting 4,247 starts never seen active over the
+run, about the gun's fetches (direct, cart to work RAM). So on a Saturn
+the SCU's D0MV/D0WT flags can't be trusted for a direct transfer, and a
+transfer programmed over one still draining is what shifted the gun's
+records a word (section 65, blamed on SAROO) and lost pieces of the lists.
+
+Every level 0 transfer now goes as an indirect table (sys.c dma_start)
+whose last entry copies a sequence number (dma_tokval) to a word of VDP1
+VRAM after the header (TOKEN_VRAM 0xF0): scu_dma0_busy is that number
+not landed yet (its low half, a single 16-bit write; a signed 16-bit
+compare, so a later number counts), scu_dma0_chain_done the submit's
+own number. The SCU bridges buses and can't copy work RAM to work RAM,
+so a work RAM destination's token goes to VRAM as well, its halves 4
+apart under that table's add mode (ST-210 No. 18: the B-bus takes any),
+which the watchdog's new TOK line found when the first try hung waiting
+on a work RAM token. The lock (tas.b) covers the wait for the last
+token, the table's token entry and the registers. Mednafen: the fight
+42.7 / 42.0 with the ring (base 42.4 / 40.9), the tour loads all three,
+pixel-identical both with the ring and the base against the old base.
+On the card as SUITE 21 (the ring) and SUITE 22 (the token alone).

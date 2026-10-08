@@ -277,8 +277,9 @@ static inline u32   chip_stack_used(void)       /* bytes of the on-chip stack to
 }
 #endif
 bool                scu_dma0_busy(void);
-void                scu_dma0_table(const u32 *table);
-void                scu_dma0_pieces(const u32 *table);    /* the same, not a chain the swap waits for (CMD_RING) */
+void                scu_dma0_table(u32 *table, int n);     /* (room for a token entry after the n) */
+void                scu_dma0_pieces(u32 *table, int n);    /* the same, not a chain the swap waits for (CMD_RING) */
+void                scu_dma0_init(void);
 #ifdef NO_AB_DMA
 bool                on_abus(u32 a);
 void                ab_copy(u32 dst, u32 src, u32 bytes);

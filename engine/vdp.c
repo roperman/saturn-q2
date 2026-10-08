@@ -64,7 +64,7 @@ static vdp1_cmd     winbuf[2][ZBUCKETS + RING_CMDS] __attribute__((aligned(16)))
                                                        first: a FIFO bucket's first command patches its seed's LINK
                                                        there, where vdp_submit reads it for the trampoline) */
 static u32          gwinbuf[2][RING_GOUR * 2] __attribute__((aligned(16)));
-static u32          ring_tab[2][8] __attribute__((aligned(32)));     /* a writer's pieces: commands, tables */
+static u32          ring_tab[2][64] __attribute__((aligned(256)));   /* a writer's pieces: commands, tables, the token */
 _Static_assert(ZBUCKETS <= 8, "CMD_RING: a trampoline a bucket");
 #else
 # define OVL_IDX        OVL_FIRST
@@ -291,6 +291,7 @@ __attribute__((cold)) void                vdp_init(u16 back_color)
     hdr[HDR_JUMP * 16 + 1] = (u16)(LIST_A >> 3);
     /* an empty list A so the first frame has something valid to run */
     ((volatile u16 *)(VDP1_VRAM + LIST_A))[0] = CMD_END;
+    scu_dma0_init();                    /* (the DMA's token word, after the header) */
 
     upload_font();
     VDP1_PTMR = 2;
@@ -715,11 +716,11 @@ static void         dma_add(u32 dst, const void *src, u32 bytes)
 bool                vdp_dma_queue(u32 vram, const void *src, u32 bytes)
 {
 #ifdef CMD_RING
-    if (!pipelined || dma_n >= DMA_TAB - 8)
-        return false;                   /* (the lists' eight pieces kept room for) */
+    if (!pipelined || dma_n >= DMA_TAB - 9)
+        return false;                   /* (the lists' eight pieces and the token kept room for) */
 #else
-    if (!pipelined || dma_n >= DMA_TAB - 5)
-        return false;                   /* (the lists' five kept room for) */
+    if (!pipelined || dma_n >= DMA_TAB - 6)
+        return false;                   /* (the lists' five and the token kept room for) */
 #endif
     dma_add(VDP1_VRAM + vram, src, bytes);
     return true;
@@ -775,10 +776,7 @@ static void         ring_send(vdp_writer *w, bool must)
         k += 3;
     }
     if (k)
-    {
-        t[k - 1] |= 0x80000000;
-        scu_dma0_pieces(t);
-    }
+        scu_dma0_pieces(t, k / 3);
 }
 
 void                vdp_run(vdp_writer *w, int n)
@@ -949,9 +947,8 @@ int                 vdp_submit(void)
             if (writers[w].gcount)
                 dma_add(VDP1_VRAM + writers[w].gbase, writers[w].gst, (u32)writers[w].gcount * 8);
 #endif
-        dma_tab[3 * dma_n - 1] |= 0x80000000;
         STEP(75);
-        scu_dma0_table(dma_tab);
+        scu_dma0_table(dma_tab, dma_n);
         STEP(79);
         dma_n = 0;
         vdp_us_dma = frt_to_us((frt_read() - t) & 0xFFFF);

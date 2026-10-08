@@ -291,8 +291,15 @@ static __attribute__((cold)) void bt_watch(void)
                gun_dma_bad);
     }
     bt_line(156, buf);
-    bt_fmt(buf, "TV %04X QUEUED %d FIELDS %d", (u32)VDP2_TVSTAT, q, fl);
-    bt_line(166, buf);
+    {
+        extern void scu_dma0_debug(u32 *out);
+        u32     d[6];
+
+        scu_dma0_debug(d);
+        (void)fl;
+        bt_fmt(buf, "Q%d TOK %04X W%d S%d C%d V%04X", q, d[0], d[1], d[2], d[3], d[4]);
+        bt_line(166, buf);
+    }
     bt_draw_cpus();
 }
 
@@ -1426,12 +1433,7 @@ static __attribute__((cold)) void hb_screen(int page)
     y += 14;
     vdp_printf(8, y, g, "HW %d LW %d CA %d SL %d", hw, lw, ca, r_tex_slots());
     y += 10;
-    {
-        extern u32  scu_dma0_late;      /* (DMA starts not seen active within the wait: sys.c dma_started) */
-
-        vdp_printf(8, y, g, "DSP %s%s GUN %d DMA LATE %d", r_dsp_ok ? "OK" : "BAD", r_use_dsp ? " ON" : " OFF",
-                   gun_dma_bad, *(volatile u32 *)UNCACHED(&scu_dma0_late));
-    }
+    vdp_printf(8, y, g, "DSP %s%s GUN %d", r_dsp_ok ? "OK" : "BAD", r_use_dsp ? " ON" : " OFF", gun_dma_bad);
     y += 14;
     vdp_text(8, y, hd, "A: NEXT PAGE  START+R: AGAIN");
 }

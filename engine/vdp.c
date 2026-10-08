@@ -749,15 +749,28 @@ __attribute__((cold)) static void         dma_range(int first, int n)
 /* what a writer has made but not sent (all but its last command: the next run may yet patch its
    LINK, cells.s's and mdraw.s's appends do) to its VRAM list, and its Gouraud tables: one indirect
    transfer, not waited for */
+/* this list's VRAM slot still being drawn from (the last list not swapped to yet: VDP1 is on the
+   one before, this slot's): nothing may land there (on a Saturn, where a frame's drawing takes
+   as long as its building, pieces sent into it took walls out of the picture; Mednafen's VDP1 is
+   done long before). The slave reads the master's interrupt's word uncached */
+static inline bool  slot_busy(void)
+{
+    return *(volatile int *)UNCACHED(&queued) >= 0;
+}
+
 static void         ring_send(vdp_writer *w, bool must)
 {
     u32             *t = ring_tab[w == &writers[1]];
     int             n = w->count - 1 - w->sent, g = w->gcount - w->gsent, k = 0;
 
-    if (!must && (scu_dma0_busy() || n <= 0))
-        return;                         /* (the other CPU's piece, or a chain, still going: another time,
-                                           rather than wait for it: on a Saturn that cost the held views 7%;
-                                           tables alone, a transfer too short to be seen active: with commands) */
+    if (must)
+        while (slot_busy())
+            ;
+    else if (slot_busy() || scu_dma0_busy() || n <= 0)
+        return;                         /* (the slot, or the DMA with the other CPU's piece or a chain, still
+                                           busy: another time, rather than wait: on a Saturn the wait cost the
+                                           held views 7%; tables alone, a transfer too short to be seen: with
+                                           commands) */
     if (n > 0)
     {
         t[0] = (u32)n * sizeof(vdp1_cmd);

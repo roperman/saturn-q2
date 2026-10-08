@@ -3594,3 +3594,17 @@ token, the table's token entry and the registers. Mednafen: the fight
 42.7 / 42.0 with the ring (base 42.4 / 40.9), the tour loads all three,
 pixel-identical both with the ring and the base against the old base.
 On the card as SUITE 21 (the ring) and SUITE 22 (the token alone).
+
+**SUITE 21 and 22 on the Saturn:** the ring with the token DMA (21): held
+291.1, turned 210.7, the fight 62.7 / 61.6, and still walls vanishing;
+the token DMA alone (22): held 287.3 (SUITE 16 279.4), turned 208.8
+(204.8), the fight 62.8 / 60.6 (62.2 / 60.0), GUN 0, nothing seen
+vanishing. So the token is sound, costs ~1.3 ms a held frame (waits now
+real that the flags had let the code skip, to be looked at), and the
+ring's glitch is its own. Found: the lists went to their VRAM slot only
+once VDP1 had finished the frame drawn from it (vdp_submit's wait for
+the last list's swap), where the ring's pieces went into the slot during
+the frame, while a Saturn's VDP1, taking as long over a frame as the
+CPUs, could still be reading it; Mednafen's VDP1 is done long before.
+A piece now waits for the slot (slot_busy: the last list not yet swapped
+to), the window taking what's made meanwhile. On the card as SUITE 23.

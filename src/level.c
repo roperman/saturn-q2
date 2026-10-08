@@ -242,14 +242,31 @@ static void         out_of_ram(const char *what, u32 bytes)
     }
 }
 
-/* low work RAM, for what's not read every frame (after the level's data) */
+/* low work RAM, for what's not read every frame (after the level's data). No room (the lumps
+   above may take it all, and a profiling build gives its top 100 KB to the profiler): the cart,
+   RAM too (149 cycles a miss on a Saturn), 64 KB of it at a time */
+u32                 lw_allocd, lw_spilt;    /* bytes taken this way; of them, on the cart (LEVEL_TEST's line) */
+static u8           *lw_spill, *lw_spill_end;
 void                *level_alloc_low(u32 bytes)
 {
     u8              *p = lw_next;
 
     bytes = (bytes + 15) & ~15u;
+    lw_allocd += bytes;
     if (p + bytes > LWRAM_END)
-        out_of_ram("LOW WORK RAM", (u32)(p + bytes - LWRAM_END));
+    {
+        if (lw_spill + bytes > lw_spill_end)
+        {
+            u32         take = bytes > 65536 ? bytes : 65536;
+
+            lw_spill = cart_alloc(take);
+            lw_spill_end = lw_spill + ((take + 2047) & ~2047u);
+        }
+        p = lw_spill;
+        lw_spill += bytes;
+        lw_spilt += bytes;
+        return p;
+    }
     lw_next += bytes;
     return p;
 }
@@ -446,6 +463,8 @@ bool                level_load(const char *name)
     cart_next = CART_BASE + (((u32)size + 2047) & ~2047u);
     hw_next = (u8 *)(((u32)_bss_end + 15) & ~15u);
     lw_next = (u8 *)(((u32)_lwtext_end + 15) & ~15u);   /* (after the code that lives there) */
+    lw_allocd = lw_spilt = 0;
+    lw_spill = lw_spill_end = NULL;         /* (the cart's laid out afresh each level) */
 #ifdef LEVEL_TEST
     level_dead = 0;
 #endif

@@ -3490,3 +3490,19 @@ before, the rest of the profile a little worse each): a 2 KB cache
 misses more of everything. **Off, and stays off**; the switch is kept
 as the record. Nothing else gives on-chip RAM without the halving (the
 cache off gives 4 KB, and no cache at all).
+
+## 74. Low work RAM running out after the level: the cart takes the rest
+
+SUITE 16 on the Saturn stopped at Installation's load: "OUT OF LOW WORK
+RAM: 1280 BYTES MORE". The level's lumps give way (hot_spare leaves a
+lump on the cart when low work RAM is short), but what's allocated after
+them (level_alloc_low: the traces' brush_check, the BSP's parents, the
+walls-ahead buffers, the game's thinkers and targets) didn't: it was 48
+KB (LW_RESERVE) that the faces, cells and lights could eat into, and the
+need measured on the tour's new LA figure is 56.8 KB (demo1), 44.2
+(Installation), 43.6 (Comm Center). The benchmark builds have less of it
+(the profiler's top 100 KB, the suite's code and tables), and Mednafen's
+tour of them still showed 12.7 KB to spare where the Saturn ran 1.3 KB
+short: not chased. level_alloc_low now takes the cart when low work RAM
+is out, 64 KB of it at a time (RAM too, 149 cycles a miss: these aren't
+read every frame). The tour's line shows LA in place of CA.

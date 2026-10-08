@@ -496,7 +496,7 @@ static void         counts_at_end(void)
 }
 
 #ifdef LEVEL_TEST
-u32                 lt_hw[4][4], lt_nhw, lt_fl[4];
+u32                 lt_hw[4][5], lt_nhw, lt_fl[4];
 
 static u32          lt_count(int mdl)       /* (the level's entities with that model) */
 {
@@ -1288,6 +1288,11 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
 
         level_free(&lt_hw[lt_nhw & 3][0], &lt_hw[lt_nhw & 3][1], &lt_hw[lt_nhw & 3][2]);      /* (what's left, each level) */
         lt_hw[lt_nhw & 3][3] = models_cold;
+        {
+            extern u32 lw_allocd;
+
+            lt_hw[lt_nhw & 3][4] = lw_allocd;   /* (low work RAM taken after the level's data: level_alloc_low) */
+        }
         lt_fl[lt_nhw & 3] = (u32)(r_level_flags() | view_nslots() << 2 | models[MDL_GUNNER].loaded << 4
                                   | models[MDL_BERSERK].loaded << 7 | lt_count(MDL_BERSERK) << 8 | models[MDL_TANK].loaded << 12
                                   | ((u32)g_edicts >> 24 == 0x02) << 5 | ((u32)g_shorts >> 24 == 0x02) << 6);
@@ -2717,10 +2722,10 @@ void                main(void)
             int k;
 
             for (k = 0; k < 3; ++k)
-                vdp_printf(8, 30 + k * 9, RGB(255, 255, 120), "W%d K%d G%d N%d%d%dT%d E%d HW%d LW%d CA%d", lt_fl[k] & 1,
+                vdp_printf(8, 30 + k * 9, RGB(255, 255, 120), "W%d K%d G%d N%d%d%dT%d E%d HW%d LW%d LA%d", lt_fl[k] & 1,
                            lt_fl[k] >> 1 & 1, lt_fl[k] >> 2 & 3, lt_fl[k] >> 4 & 1, lt_fl[k] >> 7 & 1, lt_fl[k] >> 8 & 15,
                            lt_fl[k] >> 12 & 1,
-                           (lt_fl[k] >> 5 & 1) | (lt_fl[k] >> 6 & 1) << 1, lt_hw[k][0], lt_hw[k][1], lt_hw[k][2]);
+                           (lt_fl[k] >> 5 & 1) | (lt_fl[k] >> 6 & 1) << 1, lt_hw[k][0], lt_hw[k][1], lt_hw[k][4]);
         }
 #endif
 #if defined(LEVEL_TEST) && defined(FACE_CHECK)

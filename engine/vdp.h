@@ -74,7 +74,26 @@ typedef struct
     s16             head[ZBUCKETS], tail[ZBUCKETS];
     int             cmax;               /* commands it has room for */
     int             gover;              /* tables asked for past gmax this frame (they got the last one's) */
+#ifdef CMD_RING
+    vdp1_cmd        *win;               /* its window of RING_CMDS commands in work RAM: cmds[base] is win[0] */
+    int             base, sent;         /* the index at the window's front; the first index not yet sent to VRAM */
+    u32             *gwin;              /* ...and of RING_GOUR Gouraud tables: gst[gbasen] is gwin[0] */
+    int             gbasen, gsent;
+#endif
 }                   vdp_writer;
+#ifdef CMD_RING
+/* (OPT=-DCMD_RING) the lists sent to VRAM in pieces as they're made, from a window a writer, not
+   from a copy of the whole list (89 KB of high work RAM for 2,802 commands, and 22 KB of Gouraud
+   tables). vdp_run goes before each run of commands (a row's cells, a model, a sprite) with the
+   most it may make: it sends what's waiting once RING_CHUNK are, and starts the window over
+   when the run wouldn't fit. A run must fit the window on its own */
+# define RING_CMDS      (640)
+# define RING_GOUR      (640)
+# define RING_CHUNK     (96)
+void                vdp_run(vdp_writer *w, int n);
+#else
+# define vdp_run(w, n)  ((void)0)
+#endif
 
 /* a texture in VDP1 VRAM */
 typedef struct

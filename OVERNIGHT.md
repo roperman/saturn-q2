@@ -3506,3 +3506,45 @@ tour of them still showed 12.7 KB to spare where the Saturn ran 1.3 KB
 short: not chased. level_alloc_low now takes the cart when low work RAM
 is out, 64 KB of it at a time (RAM too, 149 cycles a miss: these aren't
 read every frame). The tour's line shows LA in place of CA.
+
+## 75. The lists in pieces: a window a writer (OPT=-DCMD_RING)
+
+The staging copy of a whole list (2,802 commands, 89.7 KB) and its
+Gouraud tables (2,800, 22.4 KB) were high work RAM's biggest users, 112
+KB in all, when the suite had shown an SCU DMA to VDP1 costs the CPUs
+nothing (a work RAM miss stays 10 cycles while it runs). So each writer
+now has a window of 640 commands and 640 tables, and vdp_run, called
+before each run (a row's cells, a model, a sprite; the C emitter too),
+sends what's waiting once 96 are (one indirect transfer, commands and
+tables, not waited for: sys.c scu_dma0_pieces) and, when the run
+wouldn't fit, waits for the DMA and starts the window over with the last
+command at its front. The writer's cmds and gst point where index 0
+would be, so cells.s, mdraw.s and the C index as ever.
+
+Three things the chain needed: (1) the last command is never sent
+early (cells.s's and mdraw.s's FIFO appends patch the tail's LINK: it
+must still be in work RAM); (2) each bucket is seeded with a trampoline
+(a jump-only command, JP_SKIP_ASSIGN, in the static part with the clear
+and the overlays, sent at vdp_submit): a pushed chain ends on it, an
+appended one starts from it, its LINK set at the submit, and a FIFO
+bucket's first append patches the seed's LINK into a guard slot before
+the window, where the submit reads it; (3) the kept gun rewrote only the
+tables that had changed, assuming last frame's were still where it left
+them: with the window reused they aren't, so under the ring it rewrites
+them all (the overlay block's commands it still keeps in place). The
+gun's fetch (its records by DMA, 8-14 KB) had used the writer's unused
+space: its own 16 KB buffer now. Both CPUs start level 0 transfers, so
+scu_dma0 takes a lock (tas.b, uncached) from the wait for idle until the
+transfer shows active, and the chain flag is read uncached by both. Each
+writer's VRAM region grew by its trampolines so its budget stays whole
+(the one-CPU compare of the heaviest view, already over budget, dropped
+one more sliver otherwise: 13 pixels).
+
+.bss 248 -> 203 KB (the windows 41 KB, the tables' 10, the gun's 16; the
+overlays' 12.8 KB and the window's size are the next trims). The tour
+loads all three levels; the freed room went to the traces' and models'
+hot copies (the walls' faces, cells and lights stay in low work RAM by
+level.c's policy: the next thing to weigh). Pixel-identical, one CPU,
+six views. Mednafen's fight 42.8 / 42.1 against 42.4 / 40.9 (its DMA
+waits), the lists' DMA at the submit 185 us from 862. On the card as
+SUITE 19.

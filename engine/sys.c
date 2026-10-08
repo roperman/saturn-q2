@@ -291,6 +291,7 @@ u16                 pad_read(void)
 /* a chain of transfers started by scu_dma0_table (vdp_submit's lists) and not yet seen
    finished: nothing else starts until it has */
 volatile bool       scu_dma0_chain;
+#define CHAIN           (*(volatile bool *)UNCACHED(&scu_dma0_chain))   /* (seen the same by both CPUs) */
 
 #ifdef BOOT_TRACE
 void                (*step_hook)(int step);
@@ -329,6 +330,31 @@ void                ab_copy(u32 dst, u32 src, u32 bytes)
 }
 #endif
 
+/* Both CPUs start level 0 transfers (the slave its uploads, and with CMD_RING its lists' pieces):
+   one at a time, under a lock taken with tas.b (an uncached read-modify-write), held from the wait
+   for the level to be idle until the new transfer shows as active (the flag isn't up the cycle
+   after the enable). Writing a level's registers while it's active hangs the Saturn (ST-210) */
+static u8           dma_lock_byte;
+static inline void  dma_lock(void)
+{
+    volatile u8     *l = (volatile u8 *)UNCACHED(&dma_lock_byte);
+    u32             got;
+
+    do
+        __asm__ volatile ("tas.b @%1\n\tmovt %0" : "=r" (got) : "r" (l) : "t", "memory");
+    while (!got);
+}
+static inline void  dma_unlock(void)
+{
+    *(volatile u8 *)UNCACHED(&dma_lock_byte) = 0;
+}
+static inline void  dma_started(void)
+{
+    int             i;
+
+    for (i = 0; i < 64 && !(SCU_DSTA & D0_ACTIVE); ++i)
+        ;
+}
 void                scu_dma0(void *dst, const void *src, u32 bytes, bool bbus_dst)
 {
 #ifdef NO_AB_DMA
@@ -339,10 +365,11 @@ void                scu_dma0(void *dst, const void *src, u32 bytes, bool bbus_ds
     }
 #endif
     STEP(80);
+    dma_lock();
     while (SCU_DSTA & D0_ACTIVE)
         ;                                   /* (a chain under way: not cut short) */
     STEP(81);
-    scu_dma0_chain = false;
+    CHAIN = false;
     SCU_D0EN = 0;
     STEP(82);
     SCU_D0R = (u32)src & 0x07FFFFFF;
@@ -352,6 +379,8 @@ void                scu_dma0(void *dst, const void *src, u32 bytes, bool bbus_ds
     SCU_D0MD = 0x00000007;                  /* direct mode, start by enable bit */
     STEP(83);
     SCU_D0EN = 0x101;
+    dma_started();
+    dma_unlock();
     STEP(84);
 }
 
@@ -362,13 +391,26 @@ bool                scu_dma0_busy(void)
 
 /* SCU DMA's indirect mode: the transfers in table (count, destination, source; the last
    source's top bit set), all to the B-bus, one after another; not waited for */
+static void         dma_table_start(const u32 *table, bool chain);
 void                scu_dma0_table(const u32 *table)
 {
+    dma_table_start(table, true);
+}
+
+/* ...the same, not a chain vdp_begin or the swap must wait for (CMD_RING's pieces of the lists) */
+void                scu_dma0_pieces(const u32 *table)
+{
+    dma_table_start(table, false);
+}
+
+static void         dma_table_start(const u32 *table, bool chain)
+{
     STEP(85);
+    dma_lock();
     while (SCU_DSTA & D0_ACTIVE)
         ;
     STEP(86);
-    scu_dma0_chain = true;
+    CHAIN = chain;
     SCU_D0EN = 0;
     STEP(87);
     SCU_D0W = (u32)table & 0x07FFFFFF;      /* (the table's address, in indirect mode) */
@@ -376,15 +418,17 @@ void                scu_dma0_table(const u32 *table)
     SCU_D0MD = 0x01000007;                  /* indirect mode, start by enable bit */
     STEP(88);
     SCU_D0EN = 0x101;
+    dma_started();
+    dma_unlock();
     STEP(89);
 }
 
 /* the chain finished? (seen once, it's forgotten) */
 bool                scu_dma0_chain_done(void)
 {
-    if (scu_dma0_chain && !(SCU_DSTA & D0_ACTIVE))
-        scu_dma0_chain = false;
-    return !scu_dma0_chain;
+    if (CHAIN && !(SCU_DSTA & D0_ACTIVE))
+        CHAIN = false;
+    return !CHAIN;
 }
 
 /* ---- slave SH-2 ---- */

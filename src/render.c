@@ -1485,8 +1485,10 @@ static __attribute__((noinline)) bool near_clip(v3 *q, int *ty0, int *th, bool t
 static inline u32   *cmd_alloc(r_ctx *x, u32 *link)
 {
     vdp_writer      *w = x->w;
-    int             i = w->count, b = x->bucket;
+    int             i, b = x->bucket;
 
+    vdp_run(w, 1);                          /* (CMD_RING: room in its window) */
+    i = w->count;
     if (i >= w->cmax)
     {
         ++x->st.dropped;
@@ -3085,6 +3087,7 @@ static int          cells_run(r_ctx *x, const gv *top, const gv *bot, const q_ce
     a->bot = bot;
     a->cell = cell;
     a->light = light;
+    vdp_run(x->w, n * 2 + 4);               /* (CMD_RING: room in its window for the row's, split or not) */
 #ifdef R_PROFILE
     {
         u32 pc = frt_read();
@@ -4687,11 +4690,28 @@ static struct
                                                3 what was kept (the gun as it was) */
 }                   vf;
 
+#ifdef CMD_RING
+# define VIEW_FETCH_BYTES (16 * 1024)
+static u8           view_fetch_buf[VIEW_FETCH_BYTES] __attribute__((aligned(16)));
+u32                 view_fetch_over;
+#endif
 static u8           *view_scratch(vdp_writer *w0, u32 bytes)
 {
+#ifdef CMD_RING
+    /* its own (the window's commands go over the fetch before the gun's drawn): 16 KB, which holds a
+       400-polygon gun kept (14 KB) or fetched (~8 KB); view_fetch_over counts what didn't fit */
+    (void)w0;
+    if (bytes > VIEW_FETCH_BYTES)
+    {
+        ++view_fetch_over;
+        return NULL;
+    }
+    return view_fetch_buf;
+#else
     u8              *p = (u8 *)(((u32)(w0->cmds + w0->count) + 15) & ~15u);
 
     return p + bytes <= (u8 *)(w0->cmds + w0->cmax) ? p : NULL;
+#endif
 }
 
 static u32          view_rbytes(const q_mdl *m)
@@ -4993,7 +5013,11 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
             n = imin(view_nkeep, imin(room, w->gmax - gc));
             in_place = vz_ok && vz.at == dw && vz.gc == gc && vz.kver == view_kver && n == view_nkeep;
             nxy = !in_place || bob[0] != vz.bob[0] || bob[1] != vz.bob[1] || bob[2] != vz.bob[2];
+#ifdef CMD_RING
+            ng = true;                      /* (the tables' window is reused within a frame: last frame's gone) */
+#else
             ng = !in_place || vz.gver != gt_ver;
+#endif
             if (nxy && tn.on)
             {
                 view_turn_n(&tn, kxy, txy, view_nkv);
@@ -6279,6 +6303,8 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
 #if defined(COMPARE_MODELS) || defined(MODEL_CHECK)
     int             bi;                     /* (the C command passes) */
 #endif
+
+    vdp_run(x->w, np + 8);                  /* (CMD_RING: room in its window for the model's) */
     const q_mpoly   *polys = m->polys;
     int             vi;
     vdp_writer      *w = x->w;

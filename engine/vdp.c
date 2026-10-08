@@ -15,7 +15,16 @@
 #include "font8x8_basic.h"
 
 #define HDR_JUMP        (3)
-#define LIST_BYTES      ((u32)MAX_CMDS * sizeof(vdp1_cmd))
+#ifdef CMD_RING
+/* (each writer's region holds its ZBUCKETS trampolines besides its WRITER_CMDS) */
+# define W0_CMDS        (WRITER_CMDS + ZBUCKETS)
+# define W1_CMDS        (WRITER1_CMDS + ZBUCKETS)
+#else
+# define W0_CMDS        WRITER_CMDS
+# define W1_CMDS        WRITER1_CMDS
+#endif
+#define LIST_CMDS       (1 + W0_CMDS + W1_CMDS + OVL_MAX + 1)
+#define LIST_BYTES      ((u32)LIST_CMDS * sizeof(vdp1_cmd))
 #define LIST_A          (0x00100)
 #define LIST_B          ((LIST_A + LIST_BYTES + 0xFF) & ~0xFFu)
 #define FONT_VRAM       ((LIST_B + LIST_BYTES + 0xFF) & ~0xFFu)
@@ -41,10 +50,26 @@
 #define JP_SKIP_ASSIGN  (0x5000)
 #define CMD_END         (0x8000)
 
-#define OVL_FIRST       (1 + WRITER_CMDS + WRITER1_CMDS)
-#define OVL_MAX         (MAX_CMDS - OVL_FIRST - 1)
+#define OVL_FIRST       (1 + W0_CMDS + W1_CMDS)
+#define OVL_MAX         (MAX_CMDS - (1 + WRITER_CMDS + WRITER1_CMDS) - 1)
 
+#ifdef CMD_RING
+/* the static part of a list in work RAM: the clear, each writer's bucket trampolines (jump-only
+   commands each bucket's chain starts or ends on: VRAM indices first..first+ZBUCKETS-1 of its
+   region), the overlays. The rest goes from the writers' windows (vdp_run) */
+# define OVL_IDX        (1 + 2 * ZBUCKETS)
+# define TRAMP(w, b)    (&staging[1 + (w) * ZBUCKETS + (b)])
+static vdp1_cmd     staging[OVL_IDX + OVL_MAX + 1] __attribute__((aligned(16)));
+static vdp1_cmd     winbuf[2][ZBUCKETS + RING_CMDS] __attribute__((aligned(16)));   /* (ZBUCKETS guard slots
+                                                       first: a FIFO bucket's first command patches its seed's LINK
+                                                       there, where vdp_submit reads it for the trampoline) */
+static u32          gwinbuf[2][RING_GOUR * 2] __attribute__((aligned(16)));
+static u32          ring_tab[2][8] __attribute__((aligned(32)));     /* a writer's pieces: commands, tables */
+_Static_assert(ZBUCKETS <= 8, "CMD_RING: a trampoline a bucket");
+#else
+# define OVL_IDX        OVL_FIRST
 static vdp1_cmd     staging[MAX_CMDS] __attribute__((aligned(16)));
+#endif
 static vdp_writer   writers[2];
 static int          overlay_count;
 static int          list;               /* 0 = A, 1 = B: the list being built */
@@ -349,7 +374,9 @@ void                vdp_tex_release(u32 mark)
    (both built on the master), the slave's writer has the other half. Both
    are staged in work RAM (writing VDP1 VRAM from a CPU stalls while VDP1
    draws) and go over by DMA with the list. */
+#ifndef CMD_RING
 static u32          gstage[GOURAUD_MAX * 2] __attribute__((aligned(16)));
+#endif
 
 u16                 vdp_gouraud_w(vdp_writer *w, u16 c0, u16 c1, u16 c2, u16 c3)
 {
@@ -372,18 +399,35 @@ void                vdp_begin(void)
     {
         vdp_writer *wr = &writers[w];
 
-        wr->first = w ? 1 + WRITER_CMDS : 1;
-        wr->cmax = w ? WRITER1_CMDS : WRITER_CMDS;
-        wr->cmds = &staging[wr->first];
+        wr->first = w ? 1 + W0_CMDS : 1;
+        wr->cmax = w ? W1_CMDS : W0_CMDS;
         wr->link_base = link_to(wr->first);
-        wr->count = 0;
-        for (i = 0; i < ZBUCKETS; ++i)
-            wr->head[i] = -1;
         wr->gbase = (list ? GOURAUD_B : GOURAUD_A) + (u32)(w ? GOURAUD0_MAX : 0) * 8;
         wr->gcount = 0;
         wr->gover = 0;
         wr->gmax = w ? GOURAUD1_MAX : GOURAUD0_MAX;
+#ifdef CMD_RING
+        /* its buckets seeded with their trampolines (indices 0..ZBUCKETS-1: each one's head and tail), its
+           window at index ZBUCKETS; cmds and gst point where index 0 would be */
+        wr->win = winbuf[w] + ZBUCKETS;
+        wr->base = wr->sent = wr->count = ZBUCKETS;
+        wr->cmds = wr->win - ZBUCKETS;
+        for (i = 0; i < ZBUCKETS; ++i)
+        {
+            wr->head[i] = wr->tail[i] = (s16)i;
+            memset(TRAMP(w, i), 0, sizeof(vdp1_cmd));
+            TRAMP(w, i)->ctrl = JP_SKIP_ASSIGN;
+        }
+        wr->gwin = gwinbuf[w];
+        wr->gbasen = wr->gsent = 0;
+        wr->gst = wr->gwin;
+#else
+        wr->cmds = &staging[wr->first];
+        wr->count = 0;
+        for (i = 0; i < ZBUCKETS; ++i)
+            wr->head[i] = -1;
         wr->gst = &gstage[w ? GOURAUD0_MAX * 2 : 0];
+#endif
     }
     overlay_count = 0;
     /* slot 0: clear (part of) the draw buffer to transparent - VDP2's back
@@ -471,7 +515,7 @@ vdp1_cmd            *vdp_overlay(void)
 
     if (overlay_count >= OVL_MAX)
         return NULL;
-    c = &staging[OVL_FIRST + overlay_count++];
+    c = &staging[OVL_IDX + overlay_count++];
     c->ctrl = JP_ASSIGN;
     return c;
 }
@@ -481,7 +525,7 @@ vdp1_cmd            *vdp_overlay(void)
 vdp1_cmd            *vdp_overlay_block(int *room)
 {
     *room = OVL_MAX - overlay_count;
-    return &staging[OVL_FIRST + overlay_count];
+    return &staging[OVL_IDX + overlay_count];
 }
 
 void                vdp_overlay_add(int n)
@@ -669,12 +713,18 @@ static void         dma_add(u32 dst, const void *src, u32 bytes)
    that frame. false: no room (or not pipelined), send it now */
 bool                vdp_dma_queue(u32 vram, const void *src, u32 bytes)
 {
+#ifdef CMD_RING
+    if (!pipelined || dma_n >= DMA_TAB - 8)
+        return false;                   /* (the lists' eight pieces kept room for) */
+#else
     if (!pipelined || dma_n >= DMA_TAB - 5)
         return false;                   /* (the lists' five kept room for) */
+#endif
     dma_add(VDP1_VRAM + vram, src, bytes);
     return true;
 }
 
+#ifndef CMD_RING
 static void         tab_range(int first, int n)
 {
     if (n > 0)
@@ -691,6 +741,70 @@ __attribute__((cold)) static void         dma_range(int first, int n)
     while (scu_dma0_busy())
         ;
 }
+#endif
+
+#ifdef CMD_RING
+/* what a writer has made but not sent (all but its last command: the next run may yet patch its
+   LINK, cells.s's and mdraw.s's appends do) to its VRAM list, and its Gouraud tables: one indirect
+   transfer, not waited for */
+static void         ring_send(vdp_writer *w)
+{
+    u32             *t = ring_tab[w == &writers[1]];
+    int             n = w->count - 1 - w->sent, g = w->gcount - w->gsent, k = 0;
+
+    if (n > 0)
+    {
+        t[0] = (u32)n * sizeof(vdp1_cmd);
+        t[1] = (VDP1_VRAM + list_base(list) + (u32)(w->first + w->sent) * sizeof(vdp1_cmd)) & 0x07FFFFFF;
+        t[2] = (u32)(w->win + (w->sent - w->base)) & 0x07FFFFFF;
+        w->sent += n;
+        k = 3;
+    }
+    if (g > 0)
+    {
+        t[k] = (u32)g * 8;
+        t[k + 1] = (VDP1_VRAM + w->gbase + (u32)w->gsent * 8) & 0x07FFFFFF;
+        t[k + 2] = (u32)(w->gwin + (w->gsent - w->gbasen) * 2) & 0x07FFFFFF;
+        w->gsent = w->gcount;
+        k += 3;
+    }
+    if (k)
+    {
+        t[k - 1] |= 0x80000000;
+        scu_dma0_pieces(t);
+    }
+}
+
+void                vdp_run(vdp_writer *w, int n)
+{
+    if (n > RING_CMDS - 1)
+        n = RING_CMDS - 1;              /* (a run bigger than the window would overrun it) */
+    if (w->count + n - w->base > RING_CMDS || w->gcount + n - w->gbasen > RING_GOUR)
+    {
+        /* the window started over: what's waiting sent and done with, the last command (the next
+           run's tail to patch) moved to the front */
+        ring_send(w);
+        while (scu_dma0_busy())
+            ;
+        if (w->count > w->base)
+        {
+            w->win[0] = w->win[w->count - 1 - w->base];
+            w->base = w->count - 1;
+        }
+        w->cmds = w->win - w->base;
+        w->gbasen = w->gcount;
+        w->gst = w->gwin - w->gbasen * 2;
+    }
+    else if (w->count - w->sent >= RING_CHUNK)
+        ring_send(w);
+}
+
+/* the command at index i of writer w, in work RAM (a trampoline's, or the window's) */
+static vdp1_cmd     *cmd_at(int w, const vdp_writer *wr, int i)
+{
+    return i < ZBUCKETS ? TRAMP(w, i) : wr->win + (i - wr->base);
+}
+#endif
 
 int                 vdp_submit(void)
 {
@@ -704,17 +818,38 @@ int                 vdp_submit(void)
     /* chain: clear -> buckets far..near (master's then slave's) -> overlays -> END */
     for (b = 0; b < ZBUCKETS; ++b)
         for (w = 0; w < 2; ++w)
+#ifdef CMD_RING
+        {
+            /* appended (FIFO): trampoline -> the first -> ... -> the last (still in the window); pushed:
+               the head -> ... -> the first -> trampoline; empty: the trampoline alone, skipped */
+            vdp_writer  *wr = &writers[w];
+            vdp1_cmd    *tr = TRAMP(w, b);
+
+            if (wr->tail[b] != b)
+            {
+                tr->link = ((volatile vdp1_cmd *)UNCACHED(&winbuf[w][b]))->link;   /* (the guard's: patched there) */
+                prev->link = (u16)(wr->link_base + b * (sizeof(vdp1_cmd) >> 3));
+                prev = cmd_at(w, wr, wr->tail[b]);
+            }
+            else
+            {
+                prev->link = (u16)(wr->link_base + wr->head[b] * (sizeof(vdp1_cmd) >> 3));
+                prev = tr;
+            }
+        }
+#else
             if (writers[w].head[b] >= 0)
             {
                 prev->link = (u16)(writers[w].link_base + writers[w].head[b] * (sizeof(vdp1_cmd) >> 3));
                 prev = &writers[w].cmds[writers[w].tail[b]];
             }
+#endif
     for (i = 0; i < overlay_count; ++i)
     {
         prev->link = link_to(OVL_FIRST + i);
-        prev = &staging[OVL_FIRST + i];
+        prev = &staging[OVL_IDX + i];
     }
-    staging[OVL_FIRST + overlay_count].ctrl = CMD_END;
+    staging[OVL_IDX + overlay_count].ctrl = CMD_END;
     prev->link = link_to(OVL_FIRST + overlay_count);
     vdp_peak[0] = writers[0].count > vdp_peak[0] ? writers[0].count : vdp_peak[0];
     vdp_peak[1] = writers[1].count > vdp_peak[1] ? writers[1].count : vdp_peak[1];
@@ -780,12 +915,31 @@ int                 vdp_submit(void)
             }
         dma_n = b;
 #endif
+#ifdef CMD_RING
+        dma_add(VDP1_VRAM + list_base(list), &staging[0], sizeof(vdp1_cmd));
+        for (w = 0; w < 2; ++w)
+        {
+            vdp_writer  *wr = &writers[w];
+
+            dma_add(VDP1_VRAM + list_base(list) + (u32)wr->first * sizeof(vdp1_cmd), TRAMP(w, 0),
+                    ZBUCKETS * sizeof(vdp1_cmd));
+            if (wr->count > wr->sent)
+                dma_add(VDP1_VRAM + list_base(list) + (u32)(wr->first + wr->sent) * sizeof(vdp1_cmd),
+                        wr->win + (wr->sent - wr->base), (u32)(wr->count - wr->sent) * sizeof(vdp1_cmd));
+            if (wr->gcount > wr->gsent)
+                dma_add(VDP1_VRAM + wr->gbase + (u32)wr->gsent * 8, wr->gwin + (wr->gsent - wr->gbasen) * 2,
+                        (u32)(wr->gcount - wr->gsent) * 8);
+        }
+        dma_add(VDP1_VRAM + list_base(list) + (u32)OVL_FIRST * sizeof(vdp1_cmd), &staging[OVL_IDX],
+                (u32)(overlay_count + 1) * sizeof(vdp1_cmd));
+#else
         tab_range(0, 1 + writers[0].count);
         tab_range(writers[1].first, writers[1].count);
         tab_range(OVL_FIRST, overlay_count + 1);
         for (w = 0; w < 2; ++w)
             if (writers[w].gcount)
                 dma_add(VDP1_VRAM + writers[w].gbase, writers[w].gst, (u32)writers[w].gcount * 8);
+#endif
         dma_tab[3 * dma_n - 1] |= 0x80000000;
         STEP(75);
         scu_dma0_table(dma_tab);
@@ -797,9 +951,13 @@ int                 vdp_submit(void)
         list ^= 1;
         return waited;
     }
+#ifdef CMD_RING
+    _Static_assert(1, "");              /* (the game runs pipelined: the pieces above) */
+#else
     dma_range(0, 1 + writers[0].count);
     dma_range(writers[1].first, writers[1].count);
     dma_range(OVL_FIRST, overlay_count + 1);
+#endif
     for (w = 0; w < 2; ++w)
         if (writers[w].gcount)
         {

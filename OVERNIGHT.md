@@ -3480,3 +3480,13 @@ Mednafen (PAL): the fight 43.0 / 41.5 against 42.4 / 40.9 (its stores
 cost 3.5 cycles wherever they go, and the cache now 2 KB misses more:
 the game's step 12.4 from 11.3 ms). On the card as SUITE 17 (on-chip
 stacks), for the Saturn's verdict against SUITE 16.
+
+**SUITE 17 on the Saturn:** held 327.7 (SUITE 16 279.4), turned 233.9
+(204.8), the fight 70.6 / 68.6 (62.2 / 60.0), pictures up 4 fields 154
+(38). The cache halved costs far more than the pushes saved, and the
+loss is everywhere rather than in one place (the master's walk 10.2 ->
+11.2 ms, cells 8.9 -> 9.2, the slave's faces, cells and grid much as
+before, the rest of the profile a little worse each): a 2 KB cache
+misses more of everything. **Off, and stays off**; the switch is kept
+as the record. Nothing else gives on-chip RAM without the halving (the
+cache off gives 4 KB, and no cache at all).

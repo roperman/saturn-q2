@@ -3633,3 +3633,14 @@ indirect flag seen. So GUN_KEEP_HOT answers the whole 1.3 ms, with or
 without the ring: SUITE 25 is the token DMA with the gun kept hot and no
 ring (its 18 KB taken from the traces' and models' hot copies), to be
 set against SUITE 22 and 24.
+
+**SUITE 24 on the Saturn** (the ring, the gun kept hot): held 301.7,
+turned 215.8, the fight 63.4 / 62.3, HW 0, LW 8,432, GUN 0; against
+SUITE 23's 294.0, 217.5, 62.6 / 61.5 with the ring alone and SUITE 22's
+287.3, 208.8, 62.8 / 60.6 with neither. So the gun's 18 KB in high work
+RAM gains nothing and the held view loses 7.7: what it pushed out (the
+traces' and models' hot copies, high work RAM now at 0) cost more than
+the gun's fetch had, which means the fetch's wait was mostly hidden
+behind the walk and the master's drawing after all, and the token's
+1.3 ms is somewhere else. Section 65's GUN count was then the copy's
+ends read before the DMA had got there, not a cart fault.

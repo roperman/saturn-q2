@@ -3620,3 +3620,16 @@ level fills high work RAM, which is always, and fetched from there by
 DMA every frame with waits the token now makes real. `OPT=-DGUN_KEEP_HOT`
 reserves it before the level's copies (level.c, view_keep_reserved). The
 tour loads all three levels. On the card as SUITE 24 (with the ring).
+
+**Where the token's 1.3 ms goes:** the kept gun's copy. A cart to work
+RAM DMA runs at 28.7 cycles a word on a Saturn (the hwtest table above),
+so the kept drawing's 18 KB takes ~4.5 ms, started before the walk
+(view_fetch_start) and waited for at draw_viewmodel. The flags let that
+wait through at once, the gun then drawn from whatever had landed, or
+not at all when the copy's ends didn't match (section 65's GUN count);
+the token makes the wait real, GUN 0. The lists' chain (2.2 cycles a
+word, ~2 ms for a held frame's 110 KB) was waited for before too, its
+indirect flag seen. So GUN_KEEP_HOT answers the whole 1.3 ms, with or
+without the ring: SUITE 25 is the token DMA with the gun kept hot and no
+ring (its 18 KB taken from the traces' and models' hot copies), to be
+set against SUITE 22 and 24.

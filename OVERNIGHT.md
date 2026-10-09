@@ -3644,3 +3644,11 @@ the gun's fetch had, which means the fetch's wait was mostly hidden
 behind the walk and the master's drawing after all, and the token's
 1.3 ms is somewhere else. Section 65's GUN count was then the copy's
 ends read before the DMA had got there, not a cart fault.
+
+**SUITE 25 on the Saturn** (the gun kept hot, no ring): held 306.1 (walk
+59.0 against 24's 55.1), turned 215.2, the fight 65.3 / 63.3, HW 160:
+the worst of the four, the reservation pushing out more of the hot
+copies without the ring's room. Decided: `CMD_RING` and `GUN_KEEP_HOT`
+stay off (both kept as options, documented), the token DMA stays. The
+walk's 55-59 against the hot copies' loss says what high work RAM is
+worth: the nodes and the traces' copies first.

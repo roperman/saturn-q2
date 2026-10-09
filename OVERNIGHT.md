@@ -3665,3 +3665,20 @@ the next vdp_begin, the gun's copy before draw_viewmodel, and the
 the same code, are 4 apart: a run's noise is that big). Nothing to
 chase in the DMA. The turned view's 0.6 is the texture uploads that
 don't fit the chain's table (upload_one's own transfer, waited for).
+
+## 77. The lean bake: cells of 64 texels
+
+Where the time goes on a Saturn (the fight 63.4 ms a frame, 25 fps
+needing 40; the heavy held views VDP1-bound at 59): the cells ~18 ms of
+the two CPUs' frame, the grids ~10, the faces' setup ~7, the walk ~7, the
+models ~5, the game's tick ~16 (traces). A per cent or two at a time
+won't get there; what scales with the cell count might. `CELL=64
+./build.sh` (bake_map.py --cell, build.sh) cuts each wall into cells of
+64 texels a side instead of 32, each still 16 stored texels (the same
+tile, slot and mask format: nothing in the engine changes, lv.T from the
+map's header), so the textures are at a quarter of their resolution and
+the perspective bends more within a near cell. Outer Base: 41,411 cells
+-> 17,721 (full 14,862 -> 2,444, variants 12,720 -> 10,156); the map
+1,726 KB. The tour loads all three levels, low work RAM left 356, 256
+and 226 KB against 95, 12 and 6. On the card as SUITE 27.
+

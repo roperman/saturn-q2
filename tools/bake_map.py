@@ -105,11 +105,11 @@ def rgb555(c):
 
 
 class Baker:
-    def __init__(self, pak, bsp, res, bright):
+    def __init__(self, pak, bsp, res, bright, cell=T):
         self.pak, self.bsp, self.res, self.bright = pak, bsp, res, bright
-        self.T = T                              # a cell's side in texels of the texture (a coarse pass doubles it)
+        self.T = self.T0 = cell                 # a cell's side in texels of the texture (a coarse pass doubles it)
         self.lod_min = LOD_MIN
-        self.N = T // res                       # stored texels per cell side
+        self.N = cell // res                    # stored texels per cell side
         self.pal = palette(pak)
         self.wals = {}
         self.tiles = {}                         # (tex, tx, ty) -> tile index
@@ -400,7 +400,7 @@ class Baker:
         # big ones: most of the far cells, and the least edge, where the cells need their own
         # masked textures)
         lods = [None] * len(faces)
-        self.T, self.res = 2 * T, 2 * self.res
+        self.T, self.res = 2 * self.T0, 2 * self.res
         for fi, f in enumerate(faces):
             if f["flags"] & (FF_SKY | FF_NODRAW) or f["nu"] * f["nv"] < self.lod_min:
                 continue
@@ -409,7 +409,7 @@ class Baker:
                 f["lod"] = sum(1 for x in lods if x)     # its record's number (the records go in this order)
                 lods[fi] = lf
                 f["flags"] |= FF_LOD
-        self.T, self.res = T, self.res // 2
+        self.T, self.res = self.T0, self.res // 2
         blob = Blob()
         lumps = {}
         datas = {}
@@ -631,7 +631,7 @@ class Baker:
         for n in [n for n in datas if n not in TAIL] + TAIL:
             lumps[n] = blob.add(datas[n])
         hsize = (12 + 8 * len(order) + 31) & ~31
-        final = bytearray(b"Q2SL" + struct.pack(">IHH", 1, T, self.N))
+        final = bytearray(b"Q2SL" + struct.pack(">IHH", 1, self.T0, self.N))
         for n in order:
             final += struct.pack(">II", lumps[n] + hsize, counts[n])
         final = bytes(final).ljust(hsize, b"\0") + blob.data()
@@ -1007,7 +1007,10 @@ def main():
     opts = dict(a[2:].split("=", 1) for a in sys.argv[1:] if a.startswith("--"))
     pak = Pak(args[0])
     bsp = Bsp(pak.read(args[1]))
-    baker = Baker(pak, bsp, int(opts.get("res", 2)), float(opts.get("bright", 1.0)))
+    # (--cell=64 --res=4: cells twice the side, a quarter the count, the same 16 stored texels a cell
+    # from textures at a quarter of their resolution: the lean bake, README Settings)
+    cell = int(opts.get("cell", T))
+    baker = Baker(pak, bsp, int(opts.get("res", cell // 16)), float(opts.get("bright", 1.0)), cell)
     baker.lod_min = int(opts.get("lodmin", LOD_MIN))     # (a bigger level, fewer coarse grids: the cart's 4 MB)
     baker.facevis_setting = opts.get("facevis", "24")      # (--facevis=64c: more samples, the leaves' corners)
     baker.portals = int(opts.get("portals", 0))          # (--portals=1: the renderer's test, OPT=-DPORTALS)

@@ -144,6 +144,12 @@ was: far faces go missing more often (on Outer Base, of points that see a face
 their part's list hasn't, 10% -> 31%), but the lists are lighter: the NTSC
 fight 36.7 -> 35.2 ms of CPU. A change rebakes the levels (cached in `obj/`).
 
+And the lean bake: `CELL=64 ./build.sh` cuts each wall into cells of 64
+texels a side instead of 32 (Outer Base: 41,411 cells -> 17,721), each still
+drawn from 16 stored texels, so the textures are at a quarter of their
+resolution and a near wall's perspective bends more within a cell; what it
+saves is in OVERNIGHT.md (SUITE 27). A change rebakes the levels.
+
 ## Running
 
 In Mednafen, with a Saturn BIOS in `~/.mednafen/firmware/`. `run.sh` turns

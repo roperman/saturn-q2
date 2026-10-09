@@ -28,11 +28,14 @@ for m in demo1 demo2 demo3; do
     # (which faces each part of a level can see: from 64 points and each leaf's corners; FACEVIS=24,
     # as it was: more far faces missed, a lighter list to draw. README: Settings)
     facevis=${FACEVIS:-64c}
+    # (CELL=64: the lean bake, cells twice the side and a quarter the count, the textures at a quarter
+    # of their resolution; the maps are rebaked when it changes. README: Settings)
+    cell=${CELL:-32}
     if [ ! -f "$out" ] || [ ! -f "${out%.MAP}.SKY" ] || [ -n "$(find tools -newer "$out" -name '*.py')" ] \
-        || [ "$(cat "obj/$m.facevis" 2>/dev/null)" != "$facevis" ]; then
-        python3 tools/bake_map.py data/pak0.pak "maps/$m.bsp" "$out" --res=${RES:-2} --lodmin=$lodmin --portals=$portals \
-            --facevis=$facevis
-        echo "$facevis" > "obj/$m.facevis"
+        || [ "$(cat "obj/$m.facevis" 2>/dev/null)" != "$facevis c$cell" ]; then
+        python3 tools/bake_map.py data/pak0.pak "maps/$m.bsp" "$out" --cell=$cell --res=${RES:-$((cell / 16))} \
+            --lodmin=$lodmin --portals=$portals --facevis=$facevis
+        echo "$facevis c$cell" > "obj/$m.facevis"
     fi
 done
 # the status bar's pictures

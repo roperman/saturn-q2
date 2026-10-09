@@ -280,6 +280,15 @@ bool                scu_dma0_busy(void);
 void                scu_dma0_table(u32 *table, int n);     /* (room for a token entry after the n) */
 void                scu_dma0_pieces(u32 *table, int n);    /* the same, not a chain the swap waits for (CMD_RING) */
 void                scu_dma0_init(void);
+#ifdef DMA_WAIT_PROF
+/* (OPT=-DDMA_WAIT_PROF) the master's time in each kind of wait for the SCU's DMA, FRT ticks: a
+   start's wait for the last transfer, vdp_begin's for the lists' chain, the gun's fetch, the rest */
+extern u32          dma_wait[4];
+void                dma_wait_add(int i, u32 t0);
+# define DMA_WAIT(i, cond)  do { u32 _t0 = frt_read(); while (cond) ; dma_wait_add(i, _t0); } while (0)
+#else
+# define DMA_WAIT(i, cond)  do { while (cond) ; } while (0)
+#endif
 #ifdef NO_AB_DMA
 bool                on_abus(u32 a);
 void                ab_copy(u32 dst, u32 src, u32 bytes);

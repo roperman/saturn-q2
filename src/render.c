@@ -4962,8 +4962,7 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
     (void)vz_ok;
 #endif
     if (vf.stage)
-        while (scu_dma0_busy())
-            ;                               /* (in any case: the list's to be written over) */
+        DMA_WAIT(2, scu_dma0_busy());       /* (in any case: the list's to be written over) */
     if (!m || leaf < 0)
         return;
     nv = imin(m->nverts, MAX_MVERTS);
@@ -5521,8 +5520,7 @@ __attribute__((cold)) void r_view_luts(int slot)
 
     if (!md->loaded)
         return;
-    while (scu_dma0_busy())
-        ;                                   /* (the gun's fetch may be under way: not cut short) */
+    DMA_WAIT(3, scu_dma0_busy());           /* (the gun's fetch may be under way: not cut short) */
     if (!r_bright)
         scu_dma0((void *)(VDP1_VRAM + lut_vram + (u32)md->lut0 * 32), md->luts, n * 2, true);
     else
@@ -5532,11 +5530,9 @@ __attribute__((cold)) void r_view_luts(int slot)
             for (i = 0; i < m; ++i)
                 buf[i] = r_gamma(md->luts[k + i]);
             scu_dma0((void *)(VDP1_VRAM + lut_vram + (u32)md->lut0 * 32 + k * 2), buf, m * 2, true);
-            while (scu_dma0_busy())
-                ;
+            DMA_WAIT(3, scu_dma0_busy());
         }
-    while (scu_dma0_busy())
-        ;
+    DMA_WAIT(3, scu_dma0_busy());
 }
 
 static void         sky_colours(void);
@@ -6989,8 +6985,7 @@ static void         upload_one(const void *src, u32 d)
         return;                             /* (with the lists, not waited for: vdp_submit) */
 #endif
     scu_dma0((void *)(VDP1_VRAM + vram), src, bytes, true);
-    while (scu_dma0_busy())
-        ;
+    DMA_WAIT(3, scu_dma0_busy());
 #ifdef UPLOAD_CHECK
     {
         /* (OPT=-DUPLOAD_CHECK: read back and compared) */

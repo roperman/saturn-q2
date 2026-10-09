@@ -578,6 +578,31 @@ static const s32    bench_demo2[][5] = {
 };
 #define NBENCH          (6)                 /* views in each */
 static const s32    (*bench_views)[5];
+#ifdef DMA_WAIT_PROF
+/* each kind of wait for the SCU's DMA (sat.h dma_wait), us a frame, summed: held, turned, the fight */
+static u32          hb_dw[3][5], dmaw_last[4], dmaw_frame[4];     /* ([4]: frames) */
+static void         dmaw_take(void)
+{
+    int             i;
+
+    for (i = 0; i < 4; ++i)
+    {
+        dmaw_frame[i] = frt_to_us(dma_wait[i] - dmaw_last[i]);
+        dmaw_last[i] = dma_wait[i];
+    }
+}
+static void         dmaw_acc(u32 *acc)
+{
+    int             i;
+
+    for (i = 0; i < 4; ++i)
+        acc[i] += dmaw_frame[i];
+    ++acc[4];
+}
+#else
+# define dmaw_take()    ((void)0)
+# define dmaw_acc(a)    ((void)0)
+#endif
 #ifdef HW_BENCH
 /* (OPT=-DHW_BENCH, for a real Saturn, which can't save a picture: START + R runs the views held,
    then each turned full circle (textures and all, as TURN_BENCH), then the fight (FIGHT_BENCH's),
@@ -1434,6 +1459,20 @@ static __attribute__((cold)) void hb_screen(int page)
     vdp_printf(8, y, g, "HW %d LW %d CA %d SL %d", hw, lw, ca, r_tex_slots());
     y += 10;
     vdp_printf(8, y, g, "DSP %s%s GUN %d", r_dsp_ok ? "OK" : "BAD", r_use_dsp ? " ON" : " OFF", gun_dma_bad);
+#ifdef DMA_WAIT_PROF
+    {
+        /* the master's waits for the SCU's DMA, 0.1 ms a frame (held and turned: summed over the views):
+           at a start for the last transfer, vdp_begin's for the lists, the gun's fetch, the rest */
+        u32     m = (hb_dw[0][4] ? hb_dw[0][4] : 1) * 100 / NBENCH, j = (hb_dw[1][4] ? hb_dw[1][4] : 1) * 100 / NBENCH,
+                k = (hb_dw[2][4] ? hb_dw[2][4] : 1) * 100;
+
+        y += 10;
+        vdp_printf(8, y, g, "DW HELD %d %d %d %d TURN %d %d %d %d", hb_dw[0][0] / m, hb_dw[0][1] / m, hb_dw[0][2] / m,
+                   hb_dw[0][3] / m, hb_dw[1][0] / j, hb_dw[1][1] / j, hb_dw[1][2] / j, hb_dw[1][3] / j);
+        y += 10;
+        vdp_printf(8, y, g, "DW FIGHT %d %d %d %d", hb_dw[2][0] / k, hb_dw[2][1] / k, hb_dw[2][2] / k, hb_dw[2][3] / k);
+    }
+#endif
     y += 14;
     vdp_text(8, y, hd, "A: NEXT PAGE  START+R: AGAIN");
 }
@@ -2070,10 +2109,12 @@ void                main(void)
             t0 = frt_read();
             us_frame = frt_to_us((t0 - t_last) & 0xFFFF);
             t_last = t0;
+            dmaw_take();
             if (bench_frame >= 2)           /* the first two: textures settling */
             {
                 u32 *a = bench_acc[bench_view];
 
+                dmaw_acc(hb_dw[bench_turn ? 1 : 0]);
                 if (bench_turn)
                     a[0] += (u32)rs.uploads * 100;
                 else
@@ -2986,6 +3027,7 @@ void                main(void)
         t0 = frt_read();
         us_frame = frt_to_us((t0 - t_last) & 0xFFFF);
         t_last = t0;
+        dmaw_take();
 #ifdef FIGHT_BENCH
         if (fight_frames >= 0)
         {
@@ -3023,6 +3065,7 @@ void                main(void)
             }
             else if (fight_frames > FIGHT_SKIP)
             {
+                dmaw_acc(hb_dw[2]);
                 fight_us += us_frame;
                 fight_cpu += us_cpu;
                 fight_ldma += vdp_us_dma;           /* (the lists' DMA, vdp_submit's: after us_cpu) */

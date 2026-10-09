@@ -252,6 +252,7 @@ Build switches (`OPT=-D... ./build.sh`) and scripts in `tools/`:
 | `OPT="-DHW_BENCH -DSLAVE_PROF -DHW_TEST"` | ...and each CPU's profile of the fight by function (`cd/SYMS.BIN`, `tools/mksyms.py`), and a timing suite run at boot (`src/hwtest.c`): every memory's access, the multiplier and divider, the SCU's and the DSP's DMA, and the CPUs' misses under the others' traffic |
 | `OPT=-DCMD_RING` | the command lists sent to VRAM in pieces as they're made (SCU DMA, both CPUs under a `tas.b` lock), from a 640-command window a writer instead of a 90 KB staging copy of the whole list and 22 KB of Gouraud tables: 45 KB of high work RAM back for the level's hot copies. Pixel-identical; for the Saturn to judge |
 | `OPT=-DGUN_KEEP_HOT` | the gun's kept drawing (18 KB) given high work RAM before the level's copies take it, so it isn't fetched from the cart by DMA every frame |
+| `OPT=-DDMA_WAIT_PROF` | HW_BENCH page 1 gains two lines: the master's time in each kind of wait for the SCU's DMA (a start's for the last transfer, vdp_begin's for the lists, the gun's fetch, the rest), 0.1 ms a frame |
 | `OPT=-DCACHE_STACK` | each CPU's cache in two-way mode, the 2 KB it frees as on-chip RAM holding the drawing's stack (a push there takes 1 cycle; to work RAM, 4-19 on a Saturn); the few big frames (the gun, the game's step, `dl_face`) go back to work RAM through `hw_call2`. The fight page shows each stack's depth |
 | `OPT=-DR_PROFILE` | where the time goes, part by part |
 | `tools/compare.sh` | the benchmark's views with the assembly on and off, pixel by pixel |

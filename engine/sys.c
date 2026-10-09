@@ -385,6 +385,17 @@ void                scu_dma0_debug(u32 *out)
     out[4] = *(volatile u16 *)(VDP1_VRAM + TOKEN_VRAM + 2);
     out[5] = a;
 }
+#ifdef DMA_WAIT_PROF
+u32                 dma_wait[4];
+void                dma_wait_add(int i, u32 t0)
+{
+    u32             sp;
+
+    __asm__ volatile ("mov r15,%0" : "=r" (sp));
+    if (SP_MASTER(sp))
+        dma_wait[i] += (frt_read() - t0) & 0xFFFF;
+}
+#endif
 void                scu_dma0_init(void)
 {
     *(volatile u32 *)(VDP1_VRAM + TOKEN_VRAM) = 0;      /* (VRAM is anything at power-on) */
@@ -397,8 +408,7 @@ static void         dma_start(u32 *table, int n, u32 ad, bool chain)
     u32             seq, slot = VDP1_VRAM + TOKEN_VRAM + ((ad & 7) == 1 ? 2 : 4);   /* (the low half's) */
 
     dma_lock();
-    while (scu_dma0_busy() || (SCU_DSTA & D0_ACTIVE))
-        ;
+    DMA_WAIT(0, scu_dma0_busy() || (SCU_DSTA & D0_ACTIVE));
     seq = UNC(dma_seq) + 1;
     UNC(dma_seq) = seq;
     UNC(dma_tokval) = seq;

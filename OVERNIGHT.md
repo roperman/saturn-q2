@@ -3652,3 +3652,16 @@ copies without the ring's room. Decided: `CMD_RING` and `GUN_KEEP_HOT`
 stay off (both kept as options, documented), the token DMA stays. The
 walk's 55-59 against the hot copies' loss says what high work RAM is
 worth: the nodes and the traces' copies first.
+
+**SUITE 26 on the Saturn** (SUITE 22's build with `OPT=-DDMA_WAIT_PROF`:
+the master's time in each kind of wait for the SCU's DMA counted at the
+wait, sat.h DMA_WAIT): held 291.6, turned 210.4, the fight 63.4 / 61.3,
+and the waits, 0.1 ms a frame summed over the views: held 0 0 0 0,
+turned 1 0 0 6, the fight 0 0 0 0 (a start's wait for the last
+transfer, vdp_begin's for the lists' chain, the gun's fetch, the rest).
+So the master all but never waits for the DMA: the chain's done before
+the next vdp_begin, the gun's copy before draw_viewmodel, and the
+"1.3 ms" set against SUITE 16 was never the token's (SUITE 22 and 26,
+the same code, are 4 apart: a run's noise is that big). Nothing to
+chase in the DMA. The turned view's 0.6 is the texture uploads that
+don't fit the chain's table (upload_one's own transfer, waited for).

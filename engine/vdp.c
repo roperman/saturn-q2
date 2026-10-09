@@ -394,8 +394,7 @@ void                vdp_begin(void)
     int             i, w;
     vdp1_cmd        *c;
 
-    while (!scu_dma0_chain_done())
-        ;                               /* (the last lists still going out: vdp_submit's) */
+    DMA_WAIT(1, !scu_dma0_chain_done());    /* (the last lists still going out: vdp_submit's) */
     for (w = 0; w < 2; ++w)
     {
         vdp_writer *wr = &writers[w];
@@ -740,8 +739,7 @@ __attribute__((cold)) static void         dma_range(int first, int n)
         return;
     scu_dma0((void *)(VDP1_VRAM + list_base(list) + (u32)first * sizeof(vdp1_cmd)), &staging[first],
              (u32)n * sizeof(vdp1_cmd), true);
-    while (scu_dma0_busy())
-        ;
+    DMA_WAIT(3, scu_dma0_busy());
 }
 #endif
 
@@ -803,8 +801,7 @@ void                vdp_run(vdp_writer *w, int n)
            one before) reads from last_off on: waited for only if the run would write over that */
         ring_send(w, true);
         if (w->last_off >= 0 && w->last_off <= n + 1)
-            while (scu_dma0_busy())
-                ;
+            DMA_WAIT(3, scu_dma0_busy());
         w->last_off = -1;
         if (w->count > w->base)
         {
@@ -981,8 +978,7 @@ int                 vdp_submit(void)
         if (writers[w].gcount)
         {
             scu_dma0((void *)(VDP1_VRAM + writers[w].gbase), writers[w].gst, (u32)writers[w].gcount * 8, true);
-            while (scu_dma0_busy())
-                ;
+            DMA_WAIT(3, scu_dma0_busy());
         }
     vdp_us_dma = frt_to_us((frt_read() - t) & 0xFFFF);
     t = frt_read();

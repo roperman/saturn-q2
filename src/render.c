@@ -53,10 +53,15 @@
 /* the world's cells: 4-bit colour tables, Gouraud. OPT=-DHSS adds VDP1's
    high-speed shrink (a cell drawn smaller than its texture skips texels):
    Mednafen's timing doesn't show it, so it's untested where it would count */
-#ifdef HSS
-#define CELL_PMOD       (PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD | PMOD_HSS)
+#ifdef NO_GOURAUD
+#define CELL_GOUR       (0)                 /* (OPT=-DNO_GOURAUD: the walls unlit, to see what VDP1 pays for the shading) */
 #else
-#define CELL_PMOD       (PMOD_ECD | PMOD_LUT4 | PMOD_GOURAUD)
+#define CELL_GOUR       PMOD_GOURAUD
+#endif
+#ifdef HSS
+#define CELL_PMOD       (PMOD_ECD | PMOD_LUT4 | CELL_GOUR | PMOD_HSS)
+#else
+#define CELL_PMOD       (PMOD_ECD | PMOD_LUT4 | CELL_GOUR)
 #endif
 
 /* R_PROFILE: the per-cell and per-row counts and timings (the benchmark's

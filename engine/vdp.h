@@ -172,6 +172,7 @@ void                vdp_color_offset_all(int r, int g, int b);   /* every layer:
 extern u32          vdp_us_dma, vdp_us_wait;            /* last submit: list DMA, waiting for VDP1 */
 extern int          vdp_peak[5];                        /* most commands sent: master's, slave's, overlay; Gouraud tables: master's, slave's */
 extern u32          vdp_gover;                          /* Gouraud tables wanted past a writer's share (drawn with the last one's) */
+extern u32          vdp_overdraw;                       /* (OPT=-DOVERDRAW_PROF) pixels the last list asked for */
 void                vdp_set_pipelined(bool on);         /* submit returns at once, the swap's by interrupt (vdp.c) */
 bool                vdp_dma_queue(u32 vram, const void *src, u32 bytes);    /* into VRAM with the lists (vdp_submit) */
 void                vdp_set_list_hook(void (*fn)(void));    /* in vdp_submit once VDP1's done with the frame before last (VRAM it used is free) */
@@ -179,6 +180,7 @@ bool                vdp_get_pipelined(void);            /* the swap by interrupt
 u32                 vdp_frame_no(void);                 /* frames submitted so far: the one being built */
 extern volatile u32 vdp_shown;                          /* in the vblank hook: the frame now on screen */
 extern volatile u32 vdp_swap_fields[8];                 /* how long pictures stayed up: 1, 2, ... 7+ fields */
+extern volatile u32 vdp_draw_ticks, vdp_draw_late;      /* VDP1's time on the last frame it finished (FRT ticks); ends seen a field late */
 void                vdp_set_field_hook(void (*fn)(void));   /* every field, in the timer interrupt */
 void                vdp_debug_state(int *queued, int *fields);  /* (a test's watchdog) */
 extern u32          late_frames;                        /* VDP1 ran late: polygon clear instead of erase */

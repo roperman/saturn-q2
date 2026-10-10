@@ -90,8 +90,12 @@
    band (GUARD_X, GUARD_Y from the middle): not outside the view, but a cell
    there would have VDP1 going over far more than the screen (cell_split) */
 #define OC_FAR          (32)
-#define GUARD_X         (480)
+#ifndef GUARD_X
+#define GUARD_X         (480)               /* (OPT=-DGUARD_X=n -DGUARD_Y=m to try a tighter band: more splits, fewer off-screen dots) */
+#endif
+#ifndef GUARD_Y
 #define GUARD_Y         (336)
+#endif
 #define OC_NEAR         (16)
 #define OC_LEFT         (1)
 #define OC_RIGHT        (2)

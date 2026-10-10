@@ -976,10 +976,13 @@ int                 vdp_submit(void)
             }
         }
         vdp_us_wait = frt_to_us((frt_read() - t) & 0xFFFF);
-#ifdef DMA_AFTER_DRAW
-        /* (OPT=-DDMA_AFTER_DRAW, a test: nothing sent to VRAM while VDP1 draws, to see what the
-           lists' and textures' DMA cost it in stalls. The frames serialise: the CPUs wait for the
-           whole of VDP1's frame; only V1 on HW_BENCH page 1 means anything) */
+#ifndef DMA_DURING_DRAW
+        /* Nothing sent to VRAM while VDP1 draws: wait for its end, then send this frame's lists and
+           textures in the gap before the swap (the manual: an access to VRAM during the drawing has
+           priority and stops it, 10+ cycles each; on a Saturn the lists' DMA cost a heavy view 15 ms
+           of VDP1's time, OVERNIGHT.md SUITE 32, and the frame's period didn't change: VDP1 draws
+           this frame while the CPUs build the next either way). OPT=-DDMA_DURING_DRAW: the old order,
+           the DMA as soon as the last list's swapped to */
         while (hook_due)
             ;                           /* (the swap's vblank: VDP1 starts, CEF cleared) */
         first = !(VDP1_EDSR & 2);

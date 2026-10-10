@@ -3774,3 +3774,38 @@ rather than a command. SUITE 32 (`OPT=-DDMA_AFTER_DRAW`: nothing sent
 to VRAM while VDP1 draws, the frames serialised) and SUITE 33
 (`OPT=-DBANK_TEST`: the cells as palette codes, no lookup, no Gouraud,
 the colours wrong) are on the card to price each.
+
+**SUITE 32 on the Saturn** (`OPT=-DDMA_AFTER_DRAW`: the lists and textures
+sent to VRAM only after VDP1's end, in the gap before the swap): VDP1
+a held view 39.3 61.4 (0) 52.2 36.3 49.7 against SUITE 30's 44.6 76.7
+25.5 53.1 39.3 51.1 (view 3's end now before the CPUs': no exact
+frame), turned 35.7 58.0 (0) 62.4 42.9 56.4 (biased: a turning view's
+exact frames are its slow ones), the fight 57.0 over 25 frames of
+330 (the fight is the CPUs', 55.5). Frames: held 345.7 (328.5),
+turned 348.6 (347.4), the fight 62.6 (61.0): the same, give or take a
+field's rounding, since VDP1 draws this frame while the CPUs build the
+next either way. So the DMA into VRAM during the drawing was costing
+VDP1 15 ms on the heaviest view and 5 on another for nothing: the
+manual's "more than 10 wait cycles" an access, 64 KB of lists at a
+word a time. Made the default (OPT=-DDMA_DURING_DRAW for the old
+order). The risk in it: the swap needs the chain done by line 216, so
+VDP1 ending within the DMA's ~3 ms of it slips a field. After it,
+VDP1 is 1.4x Mednafen's model on every view (39.3/28.0, 61.4/39.3,
+52.2/37.9, 36.3/28.2, 49.7/35.3), so Mednafen can judge what cuts
+dots and lines, the Saturn confirming.
+
+**SUITE 33 on the Saturn** (`OPT=-DBANK_TEST`: the cells as palette
+codes, no lookup table read, no Gouraud; the colours wrong): held
+(0) (0) 25.5 46.2 (0) (0), V1N 0 0 14 12 0 0: on four views VDP1
+finished before the CPUs every frame, which says only VDP1 <= CPU
+there (view 2's CPU is ~70 ms); view 4 52 -> 46; turned 60.6 49.0
+34.7 42.8 39.3 50.5 (biased), the fight 50.9 (57.0). So the lookup
+costs a heavy view ~12% of VDP1's time: real, per dot on the Saturn
+(Mednafen reads the table once a command), but the lighting needs it
+(RGB textures would be 4x the VRAM). Not a lever.
+
+What is: the off-screen dots. The guard band (render.c GUARD_X 480,
+GUARD_Y 336 from the middle: 320 and 224 px past the edges) lets one
+cell cover 9 screens of dots before it's split; views 2 and 4 ask for
+11.5 and 16.2 screens of dots for 3.1 and 2.6 shown. Now
+`OPT="-DGUARD_X=n -DGUARD_Y=m"`, to be judged on Mednafen first.

@@ -550,6 +550,9 @@ static u32          fight_vph[4];               /* ...its vertices, sort, comman
 static u32          fight_r[14];
 #ifdef OVERDRAW_PROF
 static u32          fight_od;                   /* pixels asked of VDP1, the fight's frames summed */
+static u32          hb_odm[NBENCH][6];          /* each held view's frame 5 by Mednafen's model (vdp_od_model) */
+static u32          hb_odtop[6][10];            /* held view 4's six largest commands */
+static bool         od_keep;
 static u32          fight_odr;                  /* ...and with the off-screen parts (a band of 1024) */
 #endif
 static u32          fight_v1, fight_v1n;        /* VDP1's drawing time (us), the fight's frames whose end was seen summed, and how many */
@@ -628,7 +631,11 @@ __attribute__((section(".lwdata"))) static u32 hb_late[2] = { 0 }, hb_made[2][3]
 # elif defined(SLAVE_PROF)
 #  define HB_PAGES      (6)
 # else
+#  ifdef OVERDRAW_PROF
+#  define HB_PAGES      (3)                 /* (...and the largest commands of held view 4) */
+#  else
 #  define HB_PAGES      (2)
+#  endif
 # endif
 #elif defined(TURN_BENCH)
 /* (OPT=-DTURN_BENCH: at each view a full turn in 90 frames, textures and all:
@@ -1432,6 +1439,31 @@ static __attribute__((cold)) void hb_screen(int page)
         return;
     }
 #endif
+#if defined(OVERDRAW_PROF) && !defined(SLAVE_PROF)
+    if (page == 2)
+    {
+        /* held view 4's six largest commands by raw area: raw and on-screen (tenths of a screen), the corners */
+        vdp_text(8, y, hd, "VIEW 4 LARGEST: RAW ON  A  B  C  D");
+        y += 10;
+        for (v = 0; v < 6; ++v, y += 10)
+            vdp_printf(8, y, w, "%d %d %d,%d %d,%d %d,%d %d,%d", hb_odtop[v][0] * 10 / (SCREEN_W * SCREEN_H),
+                       hb_odtop[v][1] * 10 / (SCREEN_W * SCREEN_H), (s32)hb_odtop[v][2], (s32)hb_odtop[v][3],
+                       (s32)hb_odtop[v][4], (s32)hb_odtop[v][5], (s32)hb_odtop[v][6], (s32)hb_odtop[v][7],
+                       (s32)hb_odtop[v][8], (s32)hb_odtop[v][9]);
+        y += 4;
+        /* each held view by Mednafen's model: commands, lines skipped and walked, dots walked off the
+           screen and on it (tenths of a screen), the model's ms (0.1) */
+        vdp_text(8, y, hd, "V CMDS  LSKIP  LWALK DOFF DON MS");
+        y += 10;
+        for (v = 0; v < NBENCH; ++v, y += 10)
+            vdp_printf(8, y, w, "%d %4d %6d %6d %4d %3d %3d", v + 1, hb_odm[v][0], hb_odm[v][1], hb_odm[v][2],
+                       hb_odm[v][3] * 10 / (SCREEN_W * SCREEN_H), hb_odm[v][4] * 10 / (SCREEN_W * SCREEN_H),
+                       hb_odm[v][5] / 2685);       /* (26.85 MHz: cycles / 2685 = 0.1 ms) */
+        y += 4;
+        vdp_text(8, y, g, "A: NEXT PAGE");
+        return;
+    }
+#endif
     if (page)
     {
         /* each view: CPU and frame (0.1 ms), held and turned; the walk (0.1 ms) held, uploads x 10 turned */
@@ -1458,8 +1490,9 @@ static __attribute__((cold)) void hb_screen(int page)
     vdp_printf(8, y, w, "FIGHT %d.%d CPU %d.%d GAME %d.%d", fight_us / n / 1000, fight_us / n / 100 % 10,
                fight_cpu / n / 1000, fight_cpu / n / 100 % 10, fight_game / n / 1000, fight_game / n / 100 % 10);
     y += 10;
-    vdp_printf(8, y, w, "UP 1:%d 2:%d 3:%d 4:%d DROP %d %d", fight_swaps[1], fight_swaps[2], fight_swaps[3],
-               fight_swaps[4] + fight_swaps[5] + fight_swaps[6] + fight_swaps[7], fight_drop[0], fight_drop[1]);
+    vdp_printf(8, y, w, "UP 1:%d 2:%d 3:%d 4:%d DROP %d %d CW %d", fight_swaps[1], fight_swaps[2], fight_swaps[3],
+               fight_swaps[4] + fight_swaps[5] + fight_swaps[6] + fight_swaps[7], fight_drop[0], fight_drop[1],
+               vdp_swap_chain_wait);      /* (CW: fields a swap waited for the chain's DMA, since boot) */
     y += 14;
     vdp_printf(8, y, g, "HW %d LW %d CA %d SL %d", hw, lw, ca, r_tex_slots());
     y += 10;
@@ -2131,6 +2164,21 @@ void                main(void)
             }
 #endif
             ents_light();
+#ifdef OVERDRAW_PROF
+            if (!bench_turn && bench_frame == 6)
+                memcpy(hb_odm[bench_view], vdp_od_model, sizeof(vdp_od_model));   /* (this view's frame 5, costed at its submit) */
+            if (!bench_turn && bench_frame == 5)
+            {
+                vdp_od_take = true;
+                if (bench_view == 3)
+                    od_keep = true;
+            }
+            if (od_keep && bench_view == 3 && bench_frame == 6)
+            {
+                memcpy(hb_odtop, vdp_od_top, sizeof(hb_odtop));
+                od_keep = false;
+            }
+#endif
             vdp_begin();
             r_two_cpus = slave_ok;
 #ifdef ONE_CPU

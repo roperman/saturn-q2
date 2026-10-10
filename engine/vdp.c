@@ -115,16 +115,142 @@ static u32          quad_pixels(const vdp1_cmd *c, int band)
         a += x[k] * y[(k + 1) & 3] - x[(k + 1) & 3] * y[k];
     return (u32)(a < 0 ? -a : a) >> 1;
 }
+/* the frame's six largest commands by raw area: raw, on-screen, the corners (vdp_od_take: on request) */
+u32                 vdp_od_top[6][10];
+volatile bool       vdp_od_take;
+/* ...and the frame costed by Mednafen's VDP1 model (src/ss/vdp1*.cpp; the Saturn runs 1.4x it): a
+   distorted sprite is dmax+1 lines between its AD and BC sides, dmax the longer in dots; a line
+   with both ends past one screen edge is skipped (12 cycles), else it's walked from its start to
+   where it leaves the screen, 1.19 cycles a dot, plus 12; a command 20, a Gouraud table 4, a
+   lookup table 16. vdp_od_model: commands, lines skipped, lines walked, dots walked off the
+   screen, dots on it, cycles */
+u32                 vdp_od_model[6];
+static void         od_line(s32 x0, s32 y0, s32 x1, s32 y1)
+{
+    s32             dx = x1 - x0, dy = y1 - y0, adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
+    s32             len = (adx > ady ? adx : ady) + 1, t0 = 0, t1 = 65536, walked, off;
+    s32             p[4], q[4];
+    int             k;
+
+    if ((x0 < 0 && x1 < 0) || (x0 >= SCREEN_W && x1 >= SCREEN_W) || (y0 < 0 && y1 < 0) || (y0 >= SCREEN_H && y1 >= SCREEN_H))
+    {
+        ++vdp_od_model[1];
+        vdp_od_model[5] += 12;
+        return;
+    }
+    p[0] = -dx; q[0] = x0;
+    p[1] = dx;  q[1] = SCREEN_W - 1 - x0;
+    p[2] = -dy; q[2] = y0;
+    p[3] = dy;  q[3] = SCREEN_H - 1 - y0;
+    for (k = 0; k < 4; ++k)
+        if (p[k])
+        {
+            s32 t = (s32)(((s64)q[k] << 16) / p[k]);
+
+            if (p[k] < 0) { if (t > t0) t0 = t; }
+            else          { if (t < t1) t1 = t; }
+        }
+    ++vdp_od_model[2];
+    if (t0 > t1)
+    {
+        walked = len;                       /* (misses the screen past a corner: walked whole) */
+        off = len;
+    }
+    else
+    {
+        walked = (s32)(((s64)len * t1) >> 16) + 1;
+        off = (s32)(((s64)len * t0) >> 16);
+        if (walked > len)
+            walked = len;
+    }
+    vdp_od_model[3] += (u32)off;
+    vdp_od_model[4] += (u32)(walked - off);
+    vdp_od_model[5] += 12 + (u32)walked * 119 / 100;
+}
+static void         od_cost(const vdp1_cmd *c)
+{
+    s32             xa, ya, xb, yb, xc, yc, xd, yd, dmax, d, i;
+    int             t = c->ctrl & 0xF;
+
+    if (c->ctrl & 0xC000)
+        return;
+    ++vdp_od_model[0];
+    vdp_od_model[5] += 20 + ((c->pmod & 4) ? 4 : 0) + (((c->pmod >> 3) & 7) == 1 ? 16 : 0);
+    if (t == 0)
+    {
+        xa = c->xa; ya = c->ya;
+        xb = xa + ((c->size >> 8) & 0x3F) * 8 - 1; yb = ya;
+        xc = xb; yc = ya + (c->size & 0xFF) - 1;
+        xd = xa; yd = yc;
+    }
+    else if (t == 2 || t == 4)
+    {
+        xa = c->xa; ya = c->ya; xb = c->xb; yb = c->yb; xc = c->xc; yc = c->yc; xd = c->xd; yd = c->yd;
+    }
+    else
+        return;
+    dmax = 0;
+    d = xd - xa; if (d < 0) d = -d; if (d > dmax) dmax = d;
+    d = yd - ya; if (d < 0) d = -d; if (d > dmax) dmax = d;
+    d = xc - xb; if (d < 0) d = -d; if (d > dmax) dmax = d;
+    d = yc - yb; if (d < 0) d = -d; if (d > dmax) dmax = d;
+    for (i = 0; i <= dmax; ++i)
+    {
+        s32 lx = dmax ? xa + (s32)(((s64)(xd - xa) * i) / dmax) : xa, ly = dmax ? ya + (s32)(((s64)(yd - ya) * i) / dmax) : ya;
+        s32 rx = dmax ? xb + (s32)(((s64)(xc - xb) * i) / dmax) : xb, ry = dmax ? yb + (s32)(((s64)(yc - yb) * i) / dmax) : yb;
+
+        od_line(lx, ly, rx, ry);
+    }
+}
+static void         od_note(const vdp1_cmd *c, u32 raw)
+{
+    int             k, m = 0;
+
+    for (k = 1; k < 6; ++k)
+        if (vdp_od_top[k][0] < vdp_od_top[m][0])
+            m = k;
+    if (raw <= vdp_od_top[m][0])
+        return;
+    vdp_od_top[m][0] = raw;
+    vdp_od_top[m][1] = quad_pixels(c, 0);
+    vdp_od_top[m][2] = (u32)(s16)c->xa; vdp_od_top[m][3] = (u32)(s16)c->ya;
+    vdp_od_top[m][4] = (u32)(s16)c->xb; vdp_od_top[m][5] = (u32)(s16)c->yb;
+    vdp_od_top[m][6] = (u32)(s16)c->xc; vdp_od_top[m][7] = (u32)(s16)c->yc;
+    vdp_od_top[m][8] = (u32)(s16)c->xd; vdp_od_top[m][9] = (u32)(s16)c->yd;
+}
 static u32          list_pixels(int band)
 {
-    u32             n = 0;
+    u32             n = 0, r;
     int             i, w;
+    bool            take = band && vdp_od_take;
 
+    if (take)
+    {
+        memset(vdp_od_top, 0, sizeof(vdp_od_top));
+        memset(vdp_od_model, 0, sizeof(vdp_od_model));
+        od_cost(&staging[0]);               /* (the clear) */
+    }
     for (w = 0; w < 2; ++w)
         for (i = 0; i < writers[w].count; ++i)
-            n += quad_pixels(&writers[w].cmds[i], band);
+        {
+            n += r = quad_pixels(&writers[w].cmds[i], band);
+            if (take)
+            {
+                od_note(&writers[w].cmds[i], r);
+                od_cost(&writers[w].cmds[i]);
+            }
+        }
     for (i = 0; i < overlay_count; ++i)
-        n += quad_pixels(&staging[OVL_FIRST + i], band);
+    {
+        n += r = quad_pixels(&staging[OVL_FIRST + i], band);
+        if (take)
+        {
+            od_note(&staging[OVL_FIRST + i], r);
+            od_cost(&staging[OVL_FIRST + i]);
+        }
+    }
+    if (take)
+        vdp_od_take = false;
     return n;
 }
 #endif
@@ -162,6 +288,7 @@ static volatile bool hook_due;
 static u32          frames_sent;
 volatile u32        vdp_shown;          /* the frame (vdp_frame_no's count) whose picture is on screen */
 volatile u32        vdp_swap_fields[8]; /* pictures that stayed on screen 1, 2, ... 7+ fields (pipelined) */
+volatile u32        vdp_swap_chain_wait;    /* fields a swap was held by the chain's DMA with VDP1 done */
 static int          fields;
 /* How long VDP1 draws a frame (a swap's vblank, when it starts, to its drawing end): the end seen
    by vdp_submit polling while it waits for the swap (exact: the VDP1-bound case), else by the field
@@ -213,6 +340,8 @@ void                swap_isr(void)
     ++fields;
     if (draw_open && (VDP1_EDSR & 2))
         draw_done(2);
+    if (queued >= 0 && (VDP1_EDSR & 2) && !scu_dma0_chain_done())
+        ++vdp_swap_chain_wait;          /* (VDP1 done, the swap held a field by the chain's DMA) */
     if (queued >= 0 && (VDP1_EDSR & 2) && scu_dma0_chain_done())
     {
         ++vdp_swap_fields[fields < 7 ? fields : 7];

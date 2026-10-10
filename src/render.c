@@ -2775,6 +2775,20 @@ static u16          col_lerp(u16 a, u16 b, int t, int n)
     return (u16)(0x8000 | bl << 10 | g << 5 | r);
 }
 
+/* A projected quad wholly past one edge of the screen: nothing of it shows, and VDP1 would walk
+   every dot of it (the manual: only horizontal and vertical lines are pre-clipped). The tests
+   before this are on the tile's grid corners in view space, before the near clip, and miss the
+   cell whose own corners are all just past an edge: two such in one view cost 9 screens of dots
+   for nothing (OVERNIGHT.md 78) */
+static inline bool  quad_off_screen(const u32 *xy)
+{
+    s32             x0 = XY_X(xy[0]), x1 = XY_X(xy[1]), x2 = XY_X(xy[2]), x3 = XY_X(xy[3]);
+    s32             y0 = XY_Y(xy[0]), y1 = XY_Y(xy[1]), y2 = XY_Y(xy[2]), y3 = XY_Y(xy[3]);
+
+    return (x0 < 0 && x1 < 0 && x2 < 0 && x3 < 0) || (x0 >= SCREEN_W && x1 >= SCREEN_W && x2 >= SCREEN_W && x3 >= SCREEN_W)
+        || (y0 < 0 && y1 < 0 && y2 < 0 && y3 < 0) || (y0 >= SCREEN_H && y1 >= SCREEN_H && y2 >= SCREEN_H && y3 >= SCREEN_H);
+}
+
 static void         split_piece(r_ctx *x, const split_cell *sc, int ua, int ub, int va, int vb)
 {
     int             N = lv.N, h = N / 2, k, qv = va >= h, ty0, th;
@@ -2826,6 +2840,8 @@ static void         split_piece(r_ctx *x, const split_cell *sc, int ua, int ub, 
         for (k = 0; k < 4; ++k)
             xy[k] = project(x, q[k].x, q[k].y, q[k].z);
     }
+    if (quad_off_screen(xy))
+        return;
     /* its lights: between the cell's corners' */
     for (k = 0; k < 4; ++k)
     {
@@ -2947,7 +2963,7 @@ static __attribute__((noinline)) bool cell_corners(r_ctx *x, const q_cell *cell,
     }
     for (k = 0; k < 4; ++k)
         xy[k] = project(x, q[k].x, q[k].y, q[k].z);
-    return true;
+    return !quad_off_screen(xy);
 }
 
 /* a grid point: view space, which planes it's outside (x = +-tx, y = +-ty at

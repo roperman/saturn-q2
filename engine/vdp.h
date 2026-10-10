@@ -172,7 +172,11 @@ void                vdp_color_offset_all(int r, int g, int b);   /* every layer:
 extern u32          vdp_us_dma, vdp_us_wait;            /* last submit: list DMA, waiting for VDP1 */
 extern int          vdp_peak[5];                        /* most commands sent: master's, slave's, overlay; Gouraud tables: master's, slave's */
 extern u32          vdp_gover;                          /* Gouraud tables wanted past a writer's share (drawn with the last one's) */
-extern u32          vdp_overdraw, vdp_overdraw_raw;                       /* (OPT=-DOVERDRAW_PROF) pixels the last list asked for */
+extern u32          vdp_overdraw, vdp_overdraw_raw;
+extern u32          vdp_od_top[6][10];                     /* (OVERDRAW_PROF) the six largest commands: raw, on-screen, corners */
+extern volatile bool vdp_od_take;                        /* set to have the next frame's taken */
+extern u32          vdp_od_model[6];                      /* that frame by Mednafen's model: commands, lines skipped, walked, dots off, on, cycles */
+extern volatile u32 vdp_swap_chain_wait;                       /* (OPT=-DOVERDRAW_PROF) pixels the last list asked for */
 void                vdp_set_pipelined(bool on);         /* submit returns at once, the swap's by interrupt (vdp.c) */
 bool                vdp_dma_queue(u32 vram, const void *src, u32 bytes);    /* into VRAM with the lists (vdp_submit) */
 void                vdp_set_list_hook(void (*fn)(void));    /* in vdp_submit once VDP1's done with the frame before last (VRAM it used is free) */

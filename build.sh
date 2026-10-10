@@ -32,10 +32,10 @@ for m in demo1 demo2 demo3; do
     # of their resolution; the maps are rebaked when it changes. README: Settings)
     cell=${CELL:-32}
     if [ ! -f "$out" ] || [ ! -f "${out%.MAP}.SKY" ] || [ -n "$(find tools -newer "$out" -name '*.py')" ] \
-        || [ "$(cat "obj/$m.facevis" 2>/dev/null)" != "$facevis c$cell" ]; then
+        || [ "$(cat "obj/$m.facevis" 2>/dev/null)" != "$facevis c$cell p$portals" ]; then
         python3 tools/bake_map.py data/pak0.pak "maps/$m.bsp" "$out" --cell=$cell --res=${RES:-$((cell / 16))} \
             --lodmin=$lodmin --portals=$portals --facevis=$facevis
-        echo "$facevis c$cell" > "obj/$m.facevis"
+        echo "$facevis c$cell p$portals" > "obj/$m.facevis"
     fi
 done
 # the status bar's pictures

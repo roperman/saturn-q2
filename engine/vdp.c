@@ -92,8 +92,8 @@ u32                 vdp_gover;              /* Gouraud tables asked for past a w
 /* (OPT=-DOVERDRAW_PROF) the pixels the list asks VDP1 for: each sprite's and polygon's area with its
    corners held to the screen (near, not exact, for the ones far past it), summed; a measure of the
    overdraw the painter's order costs, 71,680 a screen */
-u32                 vdp_overdraw;
-static u32          quad_pixels(const vdp1_cmd *c)
+u32                 vdp_overdraw, vdp_overdraw_raw;     /* (raw: the corners held to a band of 1024 past the screen) */
+static u32          quad_pixels(const vdp1_cmd *c, int band)
 {
     int             x[4], y[4], k, t = c->ctrl & 0xF;
     s32             a;
@@ -107,24 +107,24 @@ static u32          quad_pixels(const vdp1_cmd *c)
     x[0] = c->xa; y[0] = c->ya; x[1] = c->xb; y[1] = c->yb; x[2] = c->xc; y[2] = c->yc; x[3] = c->xd; y[3] = c->yd;
     for (k = 0; k < 4; ++k)
     {
-        x[k] = x[k] < 0 ? 0 : x[k] > SCREEN_W ? SCREEN_W : x[k];
-        y[k] = y[k] < 0 ? 0 : y[k] > SCREEN_H ? SCREEN_H : y[k];
+        x[k] = x[k] < -band ? -band : x[k] > SCREEN_W + band ? SCREEN_W + band : x[k];
+        y[k] = y[k] < -band ? -band : y[k] > SCREEN_H + band ? SCREEN_H + band : y[k];
     }
     a = 0;
     for (k = 0; k < 4; ++k)
         a += x[k] * y[(k + 1) & 3] - x[(k + 1) & 3] * y[k];
     return (u32)(a < 0 ? -a : a) >> 1;
 }
-static u32          list_pixels(void)
+static u32          list_pixels(int band)
 {
     u32             n = 0;
     int             i, w;
 
     for (w = 0; w < 2; ++w)
         for (i = 0; i < writers[w].count; ++i)
-            n += quad_pixels(&writers[w].cmds[i]);
+            n += quad_pixels(&writers[w].cmds[i], band);
     for (i = 0; i < overlay_count; ++i)
-        n += quad_pixels(&staging[OVL_FIRST + i]);
+        n += quad_pixels(&staging[OVL_FIRST + i], band);
     return n;
 }
 #endif
@@ -170,12 +170,14 @@ static int          fields;
    far VDP1 is from the next field down, which FRM can't. */
 static u32          draw_t0;
 static volatile bool draw_open;
-volatile u32        vdp_draw_ticks, vdp_draw_late;
+volatile u32        vdp_draw_ticks, vdp_draw_late, vdp_draw_kind;
 
-static void         draw_done(bool late)
+static void         draw_done(u32 kind)
 {
     vdp_draw_ticks = (frt_read() - draw_t0) & 0xFFFF;
-    vdp_draw_late += late;
+    vdp_draw_kind = kind;               /* 0 the end seen while polling; 1 done already when the polling
+                                           began (the CPU's time bounds it); 2 the field interrupt's */
+    vdp_draw_late += kind == 2;
     draw_open = false;
 }
 
@@ -210,7 +212,7 @@ void                swap_isr(void)
 {
     ++fields;
     if (draw_open && (VDP1_EDSR & 2))
-        draw_done(true);
+        draw_done(2);
     if (queued >= 0 && (VDP1_EDSR & 2) && scu_dma0_chain_done())
     {
         ++vdp_swap_fields[fields < 7 ? fields : 7];
@@ -942,11 +944,14 @@ int                 vdp_submit(void)
     if (pipelined)
     {
         /* the last list swapped to (VDP1 was done with this slot's then) */
+        bool    first = true;
+
         t = frt_read();
         while (queued >= 0)
         {
             if (draw_open && (VDP1_EDSR & 2))
-                draw_done(false);
+                draw_done(first ? 1 : 0);
+            first = false;
             if (VDP2_TVSTAT & 8)
             {
                 ++waited;
@@ -971,6 +976,18 @@ int                 vdp_submit(void)
             }
         }
         vdp_us_wait = frt_to_us((frt_read() - t) & 0xFFFF);
+#ifdef DMA_AFTER_DRAW
+        /* (OPT=-DDMA_AFTER_DRAW, a test: nothing sent to VRAM while VDP1 draws, to see what the
+           lists' and textures' DMA cost it in stalls. The frames serialise: the CPUs wait for the
+           whole of VDP1's frame; only V1 on HW_BENCH page 1 means anything) */
+        while (hook_due)
+            ;                           /* (the swap's vblank: VDP1 starts, CEF cleared) */
+        first = !(VDP1_EDSR & 2);
+        while (!(VDP1_EDSR & 2))
+            ;
+        if (draw_open)
+            draw_done(first ? 0 : 1);
+#endif
     }
     /* this list slot was last drawn two frames ago, so it's free to overwrite (and
        VRAM that frame used: list_hook's) */
@@ -1024,7 +1041,8 @@ int                 vdp_submit(void)
             if (writers[w].gcount)
                 dma_add(VDP1_VRAM + writers[w].gbase, writers[w].gst, (u32)writers[w].gcount * 8);
 # ifdef OVERDRAW_PROF
-        vdp_overdraw = list_pixels();
+        vdp_overdraw = list_pixels(0);
+        vdp_overdraw_raw = list_pixels(1024);
 # endif
 #endif
         STEP(75);

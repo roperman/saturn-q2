@@ -254,12 +254,14 @@ Build switches (`OPT=-D... ./build.sh`) and scripts in `tools/`:
 |---|---|
 | `tools/bench.sh` | the static benchmark: six views, both CPUs' time (START + R in the game) |
 | `OPT=-DFIGHT_BENCH`, `tools/fight.sh` | the fight benchmark |
-| `OPT=-DHW_BENCH` | for a real Saturn: START + R runs the benchmark's views held, then turned, then the fight; the results on one screen to photograph (A: each view's) |
+| `OPT=-DHW_BENCH` | for a real Saturn: START + R runs the benchmark's views held, then turned, then the fight; the results on one screen to photograph (A: each view's). Its V1 lines are VDP1's own drawing time a frame (a swap's vblank to the drawing end), 0.1 ms, each view and the fight, over the frames whose end the master saw while waiting for the swap (V1N: how many; 0 when VDP1 finished before the CPUs every frame) |
 | `OPT="-DHW_BENCH -DSLAVE_PROF -DHW_TEST"` | ...and each CPU's profile of the fight by function (`cd/SYMS.BIN`, `tools/mksyms.py`), and a timing suite run at boot (`src/hwtest.c`): every memory's access, the multiplier and divider, the SCU's and the DSP's DMA, and the CPUs' misses under the others' traffic |
 | `OPT=-DCMD_RING` | the command lists sent to VRAM in pieces as they're made (SCU DMA, both CPUs under a `tas.b` lock), from a 640-command window a writer instead of a 90 KB staging copy of the whole list and 22 KB of Gouraud tables: 45 KB of high work RAM back for the level's hot copies. Pixel-identical; for the Saturn to judge |
 | `OPT=-DGUN_KEEP_HOT` | the gun's kept drawing (18 KB) given high work RAM before the level's copies take it, so it isn't fetched from the cart by DMA every frame |
 | `OPT=-DNO_GOURAUD` | the walls flat-lit (no Gouraud on the cells), to see what VDP1 pays for the shading: nothing it can measure (OVERNIGHT.md, SUITE 28) |
-| `OPT=-DOVERDRAW_PROF` | HW_BENCH page 1 gains the pixels asked of VDP1 a frame, in tenths of a screen, each view and the fight (counted from the commands, so the same on an emulator) |
+| `OPT=-DOVERDRAW_PROF` | HW_BENCH page 1 gains the pixels asked of VDP1 a frame, in tenths of a screen, each view and the fight (counted from the commands, so the same on an emulator): OD with the corners held to the screen, OR with them held to a band of 1024 past it (the off-screen dots VDP1 walks) |
+| `OPT=-DDMA_AFTER_DRAW` | a test: nothing sent to VRAM while VDP1 draws (the CPUs wait for its frame, so the frame rate collapses); page 1's V1 is then VDP1's time with no DMA stalling it |
+| `OPT=-DBANK_TEST` | a test: the cells drawn as 16-colour palette codes, no lookup table read and no Gouraud (the colours wrong), to see what VDP1 pays for the lookup |
 | `OPT=-DNO_CLEAR` | no clear polygon at all (the picture smears where nothing's drawn), to see what the clear costs VDP1 |
 | `OPT=-DDMA_WAIT_PROF` | HW_BENCH page 1 gains two lines: the master's time in each kind of wait for the SCU's DMA (a start's for the last transfer, vdp_begin's for the lists, the gun's fetch, the rest), 0.1 ms a frame |
 | `OPT=-DCACHE_STACK` | each CPU's cache in two-way mode, the 2 KB it frees as on-chip RAM holding the drawing's stack (a push there takes 1 cycle; to work RAM, 4-19 on a Saturn); the few big frames (the gun, the game's step, `dl_face`) go back to work RAM through `hw_call2`. The fight page shows each stack's depth |

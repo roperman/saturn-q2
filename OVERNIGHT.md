@@ -3732,3 +3732,45 @@ counted as L on page 1): page 1's V1 lines, 0.1 ms a frame each view and
 the fight. SUITE 30 (the lean bake, V1 lines) and SUITE 31 (the same
 with `OPT=-DNO_CLEAR`: no clear polygon, to price the 72k pixels it
 fills every frame) are on the card.
+
+**SUITE 30 and 31 on the Saturn** (the lean bake; 31 with `OPT=-DNO_CLEAR`):
+VDP1's drawing time a view (V1, ms), held 44.6 76.7 25.5 53.1 39.3 51.1
+and without the clear 39.3 73.3 25.5 50.2 39.3 48.7; turned 57.8 57.3
+36.4 48.1 41.4 53.2 and 54.6 54.2 33.7 45.5 38.4 50.1; the fight 58.6
+and 57.1. Frames: held 328.5 / 309.3, turned 347.4 / 330.9, the fight
+61.0 / 59.8. So the clear polygon costs 3 ms a frame (72k dots at a
+dot a clock: VDP1's plain fill rate is as the manual says) and the
+textured cells run at a seventh of that. Mednafen's V1 for the same
+build: 28.0 39.3 25.6 37.9 28.2 35.3 / 48.0 44.0 29.6 37.5 32.2 41.5 /
+44.8: the lightest view the same to the tenth, the heavy ones up to
+twice as long on the Saturn. (The 25.5 and 39.3 that never move are
+the measure's flaw: when VDP1 finished before the CPUs, the "end" was
+when the master arrived to wait; the measure now marks each frame's end
+exact, bounded by the CPU or seen by the field interrupt, and averages
+the exact ones, V1N counting them.)
+
+Mednafen's VDP1 model (src/ss/vdp1*.cpp, the only cycle model there is:
+Sega's manuals say a dot a 28 MHz clock and no more; ST-103, ST-238 and
+the library manuals downloaded tonight add nothing): a distorted sprite
+is dmax+1 lines, dmax the longest side in dots, each line walked dot by
+dot from edge to edge at 1.19 cycles a dot whether on screen or not,
+~10 cycles a line, ~20 a command, the lookup table read once a command
+(16 cycles), the Gouraud table 4. Off-screen dots counted on Mednafen
+(OR, the corners held to 1024 past the screen): held 8.3 11.5 5.5 16.2
+4.5 2.9 screens against 1.6 3.1 1.3 2.6 1.9 1.7 on it; turned 12.5 9.9
+6.9 8.6 4.9 8.6; the fight 16.7 against 2.8. So view 4 asks for 16
+screens of dots to show 2.6: the near cells reaching past the screen
+cost their whole area (the manual: pre-clipping skips off-screen dots
+only on horizontal and vertical lines). But the Saturn's V1 follows
+neither area: the views' commands (page 2's M+S) are ~730 1600 400
+1250 630 1100 and V1 44.6 76.7 25.5 53.1 39.3 51.1, about 8 ms + 40 us
+a cell, while view 6 (2.9 screens raw, 1100 cells) costs twice view 3
+(5.5 screens raw, 400 cells). 40 us is 1,150 clocks a cell for ~110
+on-screen dots. What's left to explain it: the SCU's DMA of the next
+frame's lists and textures into VRAM during the drawing (the manual:
+the DMA has priority and stops the drawing, 10+ cycles a time; a
+frame's lists are 32 bytes a cell), and a lookup-table read a dot
+rather than a command. SUITE 32 (`OPT=-DDMA_AFTER_DRAW`: nothing sent
+to VRAM while VDP1 draws, the frames serialised) and SUITE 33
+(`OPT=-DBANK_TEST`: the cells as palette codes, no lookup, no Gouraud,
+the colours wrong) are on the card to price each.

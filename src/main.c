@@ -550,8 +550,9 @@ static u32          fight_vph[4];               /* ...its vertices, sort, comman
 static u32          fight_r[14];
 #ifdef OVERDRAW_PROF
 static u32          fight_od;                   /* pixels asked of VDP1, the fight's frames summed */
+static u32          fight_odr;                  /* ...and with the off-screen parts (a band of 1024) */
 #endif
-static u32          fight_v1;                   /* VDP1's drawing time (us), the fight's frames summed */
+static u32          fight_v1, fight_v1n;        /* VDP1's drawing time (us), the fight's frames whose end was seen summed, and how many */
 #ifdef R_PROFILE
 static u32          fight_p[13];                 /* the world: setup, grid, cells, slow cells (us); faces, cells, C cells */
 #endif                /* the drawing: master, slave; models, their polygons; the
@@ -615,7 +616,7 @@ static bool         bench_turn;             /* (the views turning) */
 static int          hb_stage;               /* 1 the views held, 2 turning, 3 the fight, 4 done */
 static bool         hb_go;                  /* (the fight's start, as START + R starts it in FIGHT_BENCH) */
 /* (low work RAM: a level with the walls' and the maker's buffers has ~100 bytes of high to spare) */
-__attribute__((section(".lwdata"))) static u32 hb_v[2][NBENCH + 1][7] = { { { 0 } } };  /* held, turned: each
+__attribute__((section(".lwdata"))) static u32 hb_v[2][NBENCH + 1][9] = { { { 0 } } };  /* held, turned: each
                                                view's CPU, frame (0.1 ms), walk or uploads; all */
 __attribute__((section(".lwdata"))) static u32 hb_late[2] = { 0 }, hb_made[2][3] = { { 0 } };  /* late uploads;
                                                textures made by the DSP, the CPU, bad reads */
@@ -704,7 +705,7 @@ static void         far_lineup(int view)
     }
 }
 #endif
-static u32          bench_acc[NBENCH][11];   /* walk, master, slave, cpu, frame (us, summed), vblanks waiting for VDP1, the lists' DMA */
+static u32          bench_acc[NBENCH][13];   /* walk, master, slave, cpu, frame (us, summed), vblanks waiting for VDP1, the lists' DMA */
 static u32          bench_drop[2];          /* commands dropped (a CPU's list full), textures not drawn (its cache full) */
 static u32          bench_prof[15];         /* setup, grid, cells, slow, models, nfast, nslow, faces, the models' light, verts, polys */
 #ifdef R_PROFILE
@@ -1470,15 +1471,27 @@ static __attribute__((cold)) void hb_screen(int page)
     y += 10;
     vdp_printf(8, y, g, "OD TURN %d %d %d %d %d %d FIGHT %d", hb_v[1][0][5], hb_v[1][1][5], hb_v[1][2][5],
                hb_v[1][3][5], hb_v[1][4][5], hb_v[1][5][5], fight_od / n * 10 / (SCREEN_W * SCREEN_H));
-#endif
-    /* VDP1's drawing time a frame, 0.1 ms, each view and the fight (L: frames whose end the field
-       interrupt saw, up to 20 ms late) */
+    /* the same with the parts past the screen's edges (VDP1 walks a slanted line's off-screen dots) */
     y += 10;
-    vdp_printf(8, y, g, "V1 HELD %d %d %d %d %d %d L %d", hb_v[0][0][6], hb_v[0][1][6], hb_v[0][2][6], hb_v[0][3][6],
-               hb_v[0][4][6], hb_v[0][5][6], vdp_draw_late);
+    vdp_printf(8, y, g, "OR HELD %d %d %d %d %d %d", hb_v[0][0][7], hb_v[0][1][7], hb_v[0][2][7], hb_v[0][3][7],
+               hb_v[0][4][7], hb_v[0][5][7]);
+    y += 10;
+    vdp_printf(8, y, g, "OR TURN %d %d %d %d %d %d FIGHT %d", hb_v[1][0][7], hb_v[1][1][7], hb_v[1][2][7],
+               hb_v[1][3][7], hb_v[1][4][7], hb_v[1][5][7], fight_odr / n * 10 / (SCREEN_W * SCREEN_H));
+#endif
+    /* VDP1's drawing time a frame, 0.1 ms, each view and the fight, over the frames whose end was
+       seen (0: none were: VDP1 finished before the CPUs did); N: how many of each view's, and the
+       fight's frames */
+    y += 10;
+    vdp_printf(8, y, g, "V1 HELD %d %d %d %d %d %d", hb_v[0][0][6], hb_v[0][1][6], hb_v[0][2][6], hb_v[0][3][6],
+               hb_v[0][4][6], hb_v[0][5][6]);
     y += 10;
     vdp_printf(8, y, g, "V1 TURN %d %d %d %d %d %d F %d", hb_v[1][0][6], hb_v[1][1][6], hb_v[1][2][6],
-               hb_v[1][3][6], hb_v[1][4][6], hb_v[1][5][6], fight_v1 / n / 100);
+               hb_v[1][3][6], hb_v[1][4][6], hb_v[1][5][6], fight_v1n ? fight_v1 / fight_v1n / 100 : 0);
+    y += 10;
+    vdp_printf(8, y, g, "V1N %d %d %d %d %d %d|%d %d %d %d %d %d|%d", hb_v[0][0][8], hb_v[0][1][8], hb_v[0][2][8],
+               hb_v[0][3][8], hb_v[0][4][8], hb_v[0][5][8], hb_v[1][0][8], hb_v[1][1][8], hb_v[1][2][8],
+               hb_v[1][3][8], hb_v[1][4][8], hb_v[1][5][8], fight_v1n);
 #ifdef DMA_WAIT_PROF
     {
         /* the master's waits for the SCU's DMA, 0.1 ms a frame (held and turned: summed over the views):
@@ -1984,6 +1997,7 @@ void                main(void)
                 bench_frame = 0;
                 bench_done = false;
                 memset(bench_acc, 0, sizeof(bench_acc));
+                vdp_draw_late = 0;
 #ifdef R_PROFILE
                 memset(bench_ax, 0, sizeof(bench_ax));
 #endif
@@ -2145,7 +2159,11 @@ void                main(void)
                 a[4] += us_frame;
                 a[5] += (u32)waited;
                 a[6] += vdp_us_dma;
-                a[10] += frt_to_us(vdp_draw_ticks);
+                if (vdp_draw_kind == 0)         /* (VDP1's end seen: the others bound it only) */
+                {
+                    a[10] += frt_to_us(vdp_draw_ticks);
+                    ++a[12];
+                }
                 if ((u32)vdp_peak[0] > a[7])   /* most commands a frame, each writer (vdp_peak: since the last frame) */
                     a[7] = (u32)vdp_peak[0];
                 if ((u32)vdp_peak[1] > a[8])
@@ -2153,6 +2171,7 @@ void                main(void)
                 vdp_peak[0] = vdp_peak[1] = 0;
 #ifdef OVERDRAW_PROF
                 a[9] += vdp_overdraw;
+                a[11] += vdp_overdraw_raw;
 #endif
                 bench_prof[0] += rs.p_setup;
                 bench_prof[1] += rs.p_grid;
@@ -2214,7 +2233,9 @@ void                main(void)
                             hb_v[t][v][3] = bench_acc[v][7];
                             hb_v[t][v][4] = bench_acc[v][8];
                             hb_v[t][v][5] = bench_acc[v][9] / (u32)n * 10 / (SCREEN_W * SCREEN_H);   /* (0.1 screens) */
-                            hb_v[t][v][6] = bench_acc[v][10] / (u32)n / 100;    /* VDP1's drawing, 0.1 ms */
+                            hb_v[t][v][6] = bench_acc[v][12] ? bench_acc[v][10] / bench_acc[v][12] / 100 : 0;  /* VDP1's drawing, 0.1 ms */
+                            hb_v[t][v][8] = bench_acc[v][12];
+                            hb_v[t][v][7] = bench_acc[v][11] / (u32)n * 10 / (SCREEN_W * SCREEN_H);
                             hb_v[t][NBENCH][0] += hb_v[t][v][0];
                             hb_v[t][NBENCH][1] += hb_v[t][v][1];
                             hb_v[t][NBENCH][2] += hb_v[t][v][2];
@@ -3094,10 +3115,15 @@ void                main(void)
                 dmaw_acc(hb_dw[2]);
 #ifdef OVERDRAW_PROF
                 fight_od += vdp_overdraw;
+                fight_odr += vdp_overdraw_raw;
 #endif
                 fight_us += us_frame;
                 fight_cpu += us_cpu;
-                fight_v1 += frt_to_us(vdp_draw_ticks);
+                if (vdp_draw_kind == 0)
+                {
+                    fight_v1 += frt_to_us(vdp_draw_ticks);
+                    ++fight_v1n;
+                }
                 fight_ldma += vdp_us_dma;           /* (the lists' DMA, vdp_submit's: after us_cpu) */
                 fight_game += us_game;
                 fight_drop[0] += (u32)rs.dropped;

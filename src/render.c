@@ -63,6 +63,13 @@
 #else
 #define CELL_PMOD       (PMOD_ECD | PMOD_LUT4 | CELL_GOUR)
 #endif
+#ifdef BANK_TEST
+/* (OPT=-DBANK_TEST: the cells in 16-colour bank mode, the texels as palette codes with no lookup
+   table read from VRAM a pixel, and no Gouraud (invalid with palette codes): the colours wrong, to
+   see what VDP1 pays for the lookup) */
+#undef CELL_PMOD
+#define CELL_PMOD       (PMOD_ECD)
+#endif
 
 /* R_PROFILE: the per-cell and per-row counts and timings (the benchmark's
    breakdown). Each is a store, and on the SH-2 a store waits for the bus (the

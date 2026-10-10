@@ -3682,3 +3682,30 @@ the perspective bends more within a near cell. Outer Base: 41,411 cells
 1,726 KB. The tour loads all three levels, low work RAM left 356, 256
 and 226 KB against 95, 12 and 6. On the card as SUITE 27.
 
+**SUITE 27 on the Saturn:** held CPU 253.5 (SUITE 26 291.6), frame 328.8
+(353.1), the walk 54.8; turned CPU 180.2 (210.4), frame 347.5 (306.9),
+uploads 841 (1,397); the fight 61.1 (63.4), CPU 56.9 (61.3), the game
+15.9; the pictures up 3 fields 305 times, 4 fields 22 (260 and 56);
+slots 1,394, low work RAM left 247,600. So 57% fewer cells took 13% off
+the CPUs and 4 ms off a heavy view's frame: the frame is VDP1's. A
+heavy held view's CPU is 42 ms and its frame 55, which is how long VDP1
+draws it, and VDP1's time hardly moved with the cells, so it's pixels
+(the overdraw of the painter's order), not commands. The fight's CPU
+57 ms and its VDP1 ~55 both need a third off for 25 fps.
+
+
+**SUITE 28 on the Saturn** (the lean bake with `OPT=-DNO_GOURAUD
+-DOVERDRAW_PROF`: the cells flat-lit, and the frame's pixels counted
+from the commands, vdp.c quad_pixels, as tenths of a screen on page 1):
+held CPU 251.4 (SUITE 27 253.5), frame 340.0 (328.8); turned 180.7
+(180.2), frame 335.0 (347.5); the fight 67.4 (61.1), CPU 56.5 (56.9),
+the game 15.6. The frames moved both ways by a run's noise and the
+CPUs not at all: Gouraud costs VDP1 nothing it can measure, and the
+walls look flat without it, so the lighting stays. The overdraw, the
+same on the Saturn as on Mednafen (geometry): held 1.6 3.1 1.3 2.6 1.9
+1.7 screens, turned 2.7 2.7 1.4 2.2 1.9 2.9, the fight 2.8, plus the
+clear polygon's one. So the heaviest view is some 3-4 screens of pixels
+in 55 ms, about 4 million pixels a second: VDP1's cost is per pixel and
+it isn't the shading. Occlusion could take at most the overdraw's
+third off. SUITE 29 (`OPT=-DHSS`) tests the other per-pixel suspect:
+a shrunk cell's 16 texels a line read whatever its width on screen.

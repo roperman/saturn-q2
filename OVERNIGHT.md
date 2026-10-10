@@ -3867,3 +3867,16 @@ assembly); judged off when Mednafen made VDP1 look free, worth
 re-judging now VDP1 is the Saturn's limit on the held views, or the
 cheaper way it named: a finer facevis (the bake's per-cluster
 visibility, free at run time).
+
+**SUITE 35B on the Saturn** (section 29's portals, the C flow, the
+lean bake; SUITE 35 was SUITE 34 again: build.sh's rebake key hadn't
+the portals setting, now it has): held CPU 383.2 (249.6), the walk
+185.5 (54.9: the flow's 22 ms a view), frame 416.2; turned CPU 251.5
+(178.2); the fight 73.1 / 71.6 (61.4 / 55.3). VDP1 where it was still
+seen (the CPUs now slower than it on most views): view 4 45.4 (51.0),
+view 6 48.7 (49.6), the fight 50.4 (55.8) over 10 frames; turned,
+biased, 65.0 53.3 - 37.6 43.1 54.1 (35.7 58.8 - 61.7 42.9 54.9). So
+11% off view 4's VDP1, 2% off view 6's, 10% off the fight's, for 22 ms
+of C (5 of assembly, unwritten): the benchmark's views see far less
+culled than the fight room's 29%, and even that is short of the 25-40%
+the heavy views need. Not the lever; off, as before.

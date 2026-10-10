@@ -3880,3 +3880,27 @@ biased, 65.0 53.3 - 37.6 43.1 54.1 (35.7 58.8 - 61.7 42.9 54.9). So
 of C (5 of assembly, unwritten): the benchmark's views see far less
 culled than the fight room's 29%, and even that is short of the 25-40%
 the heavy views need. Not the lever; off, as before.
+
+## 79. VDP1 erases the frame buffer itself in the swap's vblank
+
+The clear polygon cost 3 ms of VDP1's time a frame (SUITE 31). The
+manual's "erase & change" (ST-013 4.2: VBE with FCM and FCT; decide by
+the last line, set VBE right after the vblank-in, the erase runs from
+then, is cut off at the vblank's end and the buffers change, clear VBE
+after the vblank-out) does it in the vblank: vdp.c sets TVMR's VBE with
+FBCR=3 at line 216 (Mednafen samples VBE at the vblank-in event) and
+again in the vblank-in interrupt, clears it in the vblank-out's, and
+vdp_begin skips the polygon (pipelined frames only). The erase runs a
+pixel a clock, so PAL's 88-line vblank clears the screen with room to
+spare and NTSC's 22 lines about 125 rows: there the polygon still
+clears from row 104 (VBE_NTSC_ROWS) down, half the saving.
+`OPT=-DNO_VBE_ERASE`: the polygon, as before.
+
+**SUITE 36 on the Saturn** (the lean bake, the erase): VDP1 a held view
+36.0 57.9 (0) 47.7 33.0 46.4 against SUITE 34's 39.3 61.2 (0) 51.0
+36.3 49.6, turned 32.3 54.2 (0) 41.2 34.9 53.5, the fight's 52.5
+(55.8): the 3.3 ms, every view; frames held 316.3 (343.1: view 1 now
+two fields), turned 331.1 (346.6), the fight 60.7 (61.4), up 3 fields
+315 and 4 fields 15 (299 and 27); the picture clean; CW 2. On Mednafen
+(PAL) the fight went from four fields to two with it: its V1 36.6 is
+under the second field's line 216.

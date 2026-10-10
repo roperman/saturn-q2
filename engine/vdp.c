@@ -84,6 +84,18 @@ static u32          frame_ticks = FRT_TICKS(16683u);            /* one NTSC fiel
 static u32          last_swap;
 static bool         hw_erase;           /* VDP1 erases the displayed buffer in the spare vblank */
 static bool         no_hw_erase;
+/* Pipelined: VDP1 erases the frame buffer itself in the vblank of each swap (TVMR's VBE with
+   FBCR=3, the manual's "erase & change": the displayed buffer erased during that vblank, then the
+   change, then the drawing), so no clear polygon: 3 ms of VDP1's time a frame on a Saturn
+   (OVERNIGHT.md SUITE 31). VBE is set with the swap at line 216 and again right after the vblank-in
+   (the manual's timing; Mednafen samples it at the vblank-in), and cleared at the vblank-out, before
+   the next vblank could erase the picture. OPT=-DNO_VBE_ERASE: the clear polygon, as before */
+#define VBE_NTSC_ROWS   (104)           /* (NTSC: rows the vblank erase is trusted with; the polygon does the rest) */
+#ifndef NO_VBE_ERASE
+static bool         vbe_erase = true;
+#else
+static bool         vbe_erase;
+#endif
 static void         (*vblank_hook)(void);
 u32                 vdp_us_dma, vdp_us_wait;
 int                 vdp_peak[5];
@@ -285,6 +297,7 @@ void                (*vdp_stall_hook)(const u32 *r);    /* (a test: vdp_submit w
                                                        words)) */
 static volatile u32 queued_frame;
 static volatile bool hook_due;
+static volatile bool vbe_clear;         /* VBE set for this swap's vblank: clear it at the vblank-out */
 static u32          frames_sent;
 volatile u32        vdp_shown;          /* the frame (vdp_frame_no's count) whose picture is on screen */
 volatile u32        vdp_swap_fields[8]; /* pictures that stayed on screen 1, 2, ... 7+ fields (pipelined) */
@@ -347,6 +360,8 @@ void                swap_isr(void)
         ++vdp_swap_fields[fields < 7 ? fields : 7];
         fields = 0;
         ((volatile u16 *)(VDP1_VRAM + HDR_JUMP * sizeof(vdp1_cmd)))[1] = (u16)((queued ? LIST_B : LIST_A) >> 3);
+        if (vbe_erase)
+            VDP1_TVMR = 8;              /* (VBE: erase in the coming vblank, then change) */
         VDP1_FBCR = 3;
         vdp_shown = queued_frame - 1;   /* VDP1 starts on that one; the one before it appears */
         hook_due = true;
@@ -361,6 +376,9 @@ void                vblank_isr(void)
     if (hook_due)
     {
         hook_due = false;
+        if (vbe_erase)
+            VDP1_TVMR = 8;              /* (again, "immediately after the V-blank IN": the manual's timing) */
+        vbe_clear = vbe_erase;
         draw_t0 = frt_read();           /* the swap's taken: VDP1 starts on the next list (PTMR=2) */
         draw_open = true;
         if (vblank_hook)
@@ -371,6 +389,11 @@ void                vblank_isr(void)
 /* the pad (sys.c): the SMPC reads at the top of the picture */
 void                vblank_out_isr(void)
 {
+    if (vbe_clear)
+    {
+        VDP1_TVMR = 0;                  /* (the erase done and the change made: not again next vblank) */
+        vbe_clear = false;
+    }
     pad_vblank();
 }
 
@@ -626,17 +649,33 @@ void                vdp_begin(void)
        screen can shrink it with vdp_set_clear(). */
     c = &staging[0];
     memset(c, 0, sizeof(*c));
+    {
+        s16     top = clear_rect[1];
+
 #ifdef NO_CLEAR
-    c->ctrl = JP_SKIP_ASSIGN;           /* (OPT=-DNO_CLEAR: no clear at all, to see what the polygon costs VDP1) */
+        c->ctrl = JP_SKIP_ASSIGN;       /* (OPT=-DNO_CLEAR: no clear at all, to see what the polygon costs VDP1) */
 #else
-    c->ctrl = hw_erase ? JP_SKIP_ASSIGN : (JP_ASSIGN | VDP1_POLYGON);
+        c->ctrl = hw_erase ? JP_SKIP_ASSIGN : (JP_ASSIGN | VDP1_POLYGON);
+        if (vbe_erase && pipelined && !hw_erase)
+        {
+            /* the vblank erase runs a pixel a clock and is cut off at the vblank's end (the manual: "erase
+               the rest with polygons"): PAL's 88 lines take the whole screen, NTSC's 22 lines about 125
+               rows of it, so there the polygon clears from row VBE_NTSC_ROWS down */
+            if (VDP2_TVSTAT & 1)
+                c->ctrl = JP_SKIP_ASSIGN;
+            else if (top < VBE_NTSC_ROWS)
+                top = VBE_NTSC_ROWS;
+        }
 #endif
-    c->pmod = 0x00C0;
-    c->colr = 0x0000;
-    c->xa = clear_rect[0]; c->ya = clear_rect[1];
-    c->xb = clear_rect[2]; c->yb = clear_rect[1];
-    c->xc = clear_rect[2]; c->yc = clear_rect[3];
-    c->xd = clear_rect[0]; c->yd = clear_rect[3];
+        c->pmod = 0x00C0;
+        c->colr = 0x0000;
+        c->xa = clear_rect[0]; c->ya = top;
+        c->xb = clear_rect[2]; c->yb = top;
+        c->xc = clear_rect[2]; c->yc = clear_rect[3];
+        c->xd = clear_rect[0]; c->yd = clear_rect[3];
+        if (top >= clear_rect[3])
+            c->ctrl = JP_SKIP_ASSIGN;
+    }
 }
 
 void                vdp_set_min_frame(int vblanks)

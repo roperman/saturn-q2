@@ -3837,3 +3837,33 @@ leave it, and the setup of every line of every cell.
 As Mednafen said: a ms on view 4. CW 2 (swaps held a field by the
 chain's DMA since boot: the new order's slip risk is nothing on the
 Saturn, though on Mednafen the fight slipped to 4 fields, CW 14-19).
+
+**Each held view's frame by Mednafen's model** (page 3: commands, lines
+skipped, lines walked, dots walked off the screen and on it in screens,
+the model's ms; then Mednafen's measured V1):
+view 1: 603, 4265, 8663, 0.6, 3.1, 18.6 (26.4); view 2: 1563, 2300,
+16853, 0.7, 5.2, 29.9 (35.4); view 3: 112, 536, 4406, 0.4, 3.1, 13.6
+(25.6); view 4: 819, 2960, 9793, 2.4, 4.3, 28.4 (37.3); view 5: 566,
+464, 8859, 0.4, 3.7, 18.2 (26.5); view 6: 1078, 371, 12293, 1.6, 3.5,
+23.3 (34.3). So for the heaviest view the on-screen dots are 55% of
+VDP1's time, the lines' setup 25%, the off-screen dots 7%, the
+commands 8%; view 4 is the one with off-screen dots worth having
+(27%). The dots on screen are 1.7-2.4x the pixels covered (OD): the
+lines are walked in Chebyshev steps with a dot at each end, and a
+small cell's 5 lines of 5 dots cover 16 pixels; VDP1 also plots a
+second dot at a line's diagonal steps (the AA dot, Mednafen's PBODY).
+The model's constant shortfall of 8-12 ms a frame is mostly the
+vblank: Mednafen (vdp1.cpp SetHBVB) swaps the buffers and starts the
+drawing on *leaving* the vblank, 5.6 ms (PAL's 88 lines) after the
+vblank-in that stamps V1's start. So a view's drawing is V1 - 5.6, and
+a two-field frame needs it under 33.6 ms (the swap's line 216 of the
+second field): view 2's 55.6 needs 40% off, view 4's 45.4 26%, view
+6's 44.0 24%, view 1's 33.7 is there, view 5's 30.7 is.
+
+What cuts on-screen dots and lines together is drawing fewer cells:
+occlusion. Section 29's portals cull 29% of the fight room's cells,
+correct to the pixel, for a flow of 21 ms in C (~5 estimated in
+assembly); judged off when Mednafen made VDP1 look free, worth
+re-judging now VDP1 is the Saturn's limit on the held views, or the
+cheaper way it named: a finer facevis (the bake's per-cluster
+visibility, free at run time).

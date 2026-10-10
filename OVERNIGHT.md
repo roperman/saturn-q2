@@ -3809,3 +3809,31 @@ GUARD_Y 336 from the middle: 320 and 224 px past the edges) lets one
 cell cover 9 screens of dots before it's split; views 2 and 4 ask for
 11.5 and 16.2 screens of dots for 3.1 and 2.6 shown. Now
 `OPT="-DGUARD_X=n -DGUARD_Y=m"`, to be judged on Mednafen first.
+
+## 78. Where VDP1's dots are: the off-screen lines
+
+Mednafen's three guard bands (480/336, 200/140, 176/124) changed
+nothing in VDP1's time (held 26.4 35.4 - 37.8 26.5 34.3 at the loosest,
+24.9 35.5 - 37.8 26.7 33.2 at the tightest) and cost the CPUs 16%, and
+view 4's raw dots stayed 16.2 screens: the band wasn't where they came
+from. The six largest commands of that view (page 3 of an
+OVERDRAW_PROF build) were two near-clipped cells wholly off the screen
+(one from y 227 to 1161, the screen ending at 224; one from x 305 to
+1546), 9 screens between them: the cull is on the tile's grid corners
+in view space before the near clip, and a cell whose own corners all
+land just past an edge gets clipped, projected and sent. Now
+quad_off_screen drops a projected quad whose corners are all past one
+edge (cell_corners, split_piece). On Mednafen view 4's raw dots went
+16.2 -> 12.7 screens but its VDP1 time 37.8 -> 37.3 ms: a line with
+both ends past one edge costs VDP1 about 12 cycles, not its dots
+(the manual's pre-clipping; Mednafen reduces it to a point), so the
+wholly-off cells were nearly free already. What costs is the lines
+that are partly on the screen, walked from their start to where they
+leave it, and the setup of every line of every cell.
+
+**SUITE 34 on the Saturn** (the drop, the new DMA order): held 39.3
+61.2 (0) 51.0 36.3 49.6 against SUITE 32's 39.3 61.4 (0) 52.2 36.3
+49.7, the fight 61.4 / 55.3, V1 55.8; frames held 343.1, turned 346.6.
+As Mednafen said: a ms on view 4. CW 2 (swaps held a field by the
+chain's DMA since boot: the new order's slip risk is nothing on the
+Saturn, though on Mednafen the fight slipped to 4 fields, CW 14-19).

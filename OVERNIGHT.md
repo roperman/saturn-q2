@@ -3709,3 +3709,26 @@ in 55 ms, about 4 million pixels a second: VDP1's cost is per pixel and
 it isn't the shading. Occlusion could take at most the overdraw's
 third off. SUITE 29 (`OPT=-DHSS`) tests the other per-pixel suspect:
 a shrunk cell's 16 texels a line read whatever its width on screen.
+
+**SUITE 29 on the Saturn** (the lean bake with `OPT=-DHSS`, high-speed
+shrink on every cell): held CPU 254.3, frame 328.7 (SUITE 27 253.5,
+328.8); turned 181.0, 347.7 (180.2, 347.5); the fight 61.1 / 56.9 / the
+game 15.8 (61.1 / 56.9 / 15.9). The same to the tenth (the bit was in
+the build: the cells' mode word 0x108C0000 in the image where SUITE 27
+has 0x008C0000), so the shrunk cells' spare texel reads cost VDP1
+nothing either: at 64-texel cells most of what's on screen is drawn
+larger than its 16 stored texels, and VDP1's time is the destination's
+pixels. HSS stays off (it drops texels where it does apply).
+
+So two per-pixel suspects cleared, and the frame's period itself is
+suspect: the swap is made in the line-216 interrupt once VDP1 has
+finished, so a frame shows for whole fields (20 ms PAL), 3 fields for
+anything VDP1 draws in 40-59 ms. FRM 55 a held view is some views at
+2 fields and most at 3; what VDP1 actually takes within that nobody
+measured. vdp.c now stamps the swap's vblank (when VDP1 starts, PTMR=2)
+and the drawing end (polled in vdp_submit's wait for the swap, exact
+when VDP1-bound; else seen by the field interrupt, up to a field late,
+counted as L on page 1): page 1's V1 lines, 0.1 ms a frame each view and
+the fight. SUITE 30 (the lean bake, V1 lines) and SUITE 31 (the same
+with `OPT=-DNO_CLEAR`: no clear polygon, to price the 72k pixels it
+fills every frame) are on the card.

@@ -550,7 +550,7 @@ static u32          fight_vph[4];               /* ...its vertices, sort, comman
 static u32          fight_r[14];
 #ifdef OVERDRAW_PROF
 static u32          fight_od;                   /* pixels asked of VDP1, the fight's frames summed */
-static u32          hb_odm[NBENCH][6];          /* each held view's frame 5 by Mednafen's model (vdp_od_model) */
+static u32          hb_odm[6][6];               /* each held view's (NBENCH) frame 5 by Mednafen's model (vdp_od_model) */
 static u32          hb_odtop[6][10];            /* held view 4's six largest commands */
 static bool         od_keep;
 static u32          fight_odr;                  /* ...and with the off-screen parts (a band of 1024) */

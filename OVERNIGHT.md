@@ -4075,6 +4075,26 @@ reads of the face); walk_asm 1E0:56 2A0:51 240:38 250:37; cells_asm
 7C:95 11C:53 8C:32 84:31; grid_face_asm 3A:30 72:30 12:26 A2:25;
 face_cells B0:51 210:27 A30:27 640:26.
 
+So the slave idles 12.4 ms a frame of which the master's wait for VDP1
+(frame less CPU, views 2, 4 and 6 mostly) is 7.2: about 5 ms a frame
+is the master working alone, the frame's serial part (its start before
+the walk lists anything, and after the two meet: the uploads, the HUD,
+the submit). HW_BENCH page 2 now has each view's slave idle (IDL, 0.1
+ms, held and turned) in place of the commands' peaks: idle less (frame
+less CPU) is the master-only time. Mednafen's held views: CPU 28.3
+49.7 7.5 30.9 27.8 33.1, frame 39.8 51.8 19.8 39.9 39.9 39.6, idle 13.4
+4.9 13.4 11.7 14.5 9.0: master-only 1.9 2.8 1.1 2.7 2.4 2.5 ms. The
+Saturn's: SUITE 40.
+
+What's left on the CPU, then, each worth under a millisecond of frame
+and none measured yet: the face record read in one cache line instead
+of two (its hot fields first: a rebake), the multiplies in face.s read
+a few instructions later, the HUD drawn by the slave at the start of
+its list (pushed first into bucket 1, so drawn last), the uploads and
+the submit's DMA started by whichever CPU finishes first. The walls'
+records' misses from low work RAM are the rest, and high work RAM is
+full.
+
 ## 83. The frame of floor alone: VBE left up at a vblank with no change
 
 Roper: "there is an occasional flicker where only the background is

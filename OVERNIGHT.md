@@ -4083,8 +4083,20 @@ the submit). HW_BENCH page 2 now has each view's slave idle (IDL, 0.1
 ms, held and turned) in place of the commands' peaks: idle less (frame
 less CPU) is the master-only time. Mednafen's held views: CPU 28.3
 49.7 7.5 30.9 27.8 33.1, frame 39.8 51.8 19.8 39.9 39.9 39.6, idle 13.4
-4.9 13.4 11.7 14.5 9.0: master-only 1.9 2.8 1.1 2.7 2.4 2.5 ms. The
-Saturn's: SUITE 40.
+4.9 13.4 11.7 14.5 9.0: master-only 1.9 2.8 1.1 2.7 2.4 2.5 ms.
+
+**SUITE 40 on the Saturn** (the erase guarded, 83): held CPU 2526,
+frames 302.7, walk 55.7; each view's CPU / frame / walk / idle, 0.1 ms:
+416/459/99/75, 687/732/125/76, 108/199/23/115, 442/598/111/183,
+417/441/116/49, 456/598/79/172: **the master alone 3.2 3.1 2.4 2.7 2.5
+3.0 ms a frame**. Turned (CPU / frame / uploads / idle): 287/473/103/216,
+397/539/197/186, 137/398/41/285, 341/467/206/163, 313/412/125/130,
+349/535/172/224: alone 3.0 4.4 2.4 3.7 3.1 3.8, the uploads on top.
+Views 1 and 5 are 1.6-1.7 ms of CPU over two fields (41.6, 41.7); the
+serial 3 ms is the one place that much could come from in one piece:
+the HUD drawn by the slave, the frame's start split so the walk starts
+sooner. Views 4 and 6 (44.2, 45.6) are VDP1-bound as well (41.1, 39.9).
+The fight 59.8, CPU 53.8, game 11.2.
 
 What's left on the CPU, then, each worth under a millisecond of frame
 and none measured yet: the face record read in one cache line instead
@@ -4124,3 +4136,10 @@ field. HW_BENCH page 1 counts both late cases (LV, since boot). On the
 card: "lean bake, erase guarded" (the fix), "lean bake, polygon clear"
 (OPT=-DNO_VBE_ERASE, the A/B: no erase at all, so no such flicker if
 this is the cause), SUITE 40 (the bench with the counts).
+
+**SUITE 40 on the Saturn: LV 2** (the second count off the screen's
+edge): in a three-minute bench the swap's interrupt ran late, in the
+vblank, twice. Before the guard each was a field of floor alone. The
+cause is real; what holds the interrupt off for 8 lines now and then
+isn't known (nothing of ours masks interrupts that long: the BIOS's
+dispatcher during another handler, or the SMPC's traffic, perhaps).

@@ -823,6 +823,27 @@ static void         prof_start(u32 *vt, void (*isr)(void))
     *(volatile u16 *)0xFFFFFE80 = 0x5A00;                       /* WTCNT = 0 */
     *(volatile u16 *)0xFFFFFE80 = 0xA521;                       /* WTCSR: interval timer, on, clock/64 */
 }
+
+/* the master's watchdog on (once), both histograms cleared, counting (at the fight's start; with
+   OPT=-DPROF_HELD at the held views' instead, so pages 2-5 are theirs, not the fight's) */
+static void         prof_run_on(void)
+{
+    static bool     started;
+    extern void     prof_isr_m(void);
+    u32             *vbr;
+
+    if (!started)
+    {
+        /* (the master's table: the BIOS's) */
+        __asm__ volatile ("stc vbr,%0" : "=r" (vbr));
+        prof_start(vbr, prof_isr_m);
+        started = true;
+    }
+    memset((void *)0x202F0000, 0, 0x10000);
+    *(volatile u32 *)0x202E7FF8 = 0;
+    *(volatile u32 *)0x202E7FFC = 0;
+    PROF_ON = 1;
+}
 #endif
 
 /* The next frame's move, early (OPT=-DNO_PREMOVE: at its start, as before). The slave, its
@@ -1423,7 +1444,11 @@ static __attribute__((cold)) void hb_screen(int page)
 #ifdef SLAVE_PROF
     if (page == 2 || page == 3)
     {
+#ifdef PROF_HELD
+        ht_prof_page(page == 2, NBENCH * 16, y); /* (the held views': 16 frames each) */
+#else
         ht_prof_page(page == 2, fight_n, y);    /* (the fight's: the master's, the slave's) */
+#endif
         return;
     }
     if (page == 4 || page == 5)
@@ -1957,24 +1982,8 @@ void                main(void)
                 }
                 fight_frames = 0;
                 fight_done = false;
-#ifdef SLAVE_PROF
-                {
-                    static bool started;
-                    extern void prof_isr_m(void);
-                    u32         *vbr;
-
-                    if (!started)
-                    {
-                        /* (the master's table: the BIOS's) */
-                        __asm__ volatile ("stc vbr,%0" : "=r" (vbr));
-                        prof_start(vbr, prof_isr_m);
-                        started = true;
-                    }
-                    memset((void *)0x202F0000, 0, 0x10000);
-                    *(volatile u32 *)0x202E7FF8 = 0;
-                    *(volatile u32 *)0x202E7FFC = 0;
-                    PROF_ON = 1;
-                }
+#if defined(SLAVE_PROF) && !defined(PROF_HELD)
+                prof_run_on();
 #endif
                 counts_reset();
                 fight_ldma = fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
@@ -2029,6 +2038,9 @@ void                main(void)
                 bench_view = 0;
                 bench_frame = 0;
                 bench_done = false;
+#if defined(SLAVE_PROF) && defined(PROF_HELD)
+                prof_run_on();                  /* (the held views sampled, not the fight) */
+#endif
                 memset(bench_acc, 0, sizeof(bench_acc));
                 vdp_draw_late = 0;
 #ifdef R_PROFILE
@@ -2301,6 +2313,9 @@ void                main(void)
                             counts_reset();
                             memset(mk_total, 0, sizeof(mk_total));
                             hb_stage = 2;
+#if defined(SLAVE_PROF) && defined(PROF_HELD)
+                            PROF_ON = 0;        /* (the held views' samples kept) */
+#endif
                         }
                         else
                         {

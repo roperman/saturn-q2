@@ -4022,3 +4022,29 @@ wall refused again, tick after tick, each refusal a box trace or two.
   refused too. `OPT=-DNO_BLOCK_MEMO`.
 
 SUITE 38 (the lean bake, the flip, both) is the card's.
+
+## 82. Where a held view's CPU goes: the profiler on the held views
+
+Roper: "anything else we can save on the cpu?" With the two CPUs sharing
+the drawing (the slave from the front as the walk lists, the master from
+the back once it's walked, meeting in the middle), a frame is about the
+frame's serial parts (its start, the submit, the HUD) plus half of the
+walk and the drawing. High work RAM is full on every level in both bakes
+(the tour: 0-112 bytes to spare), so moving the walls' records up from
+low work RAM (60 cycles a miss against 10, ~2,000-2,700 lines a frame)
+means freeing room first: .bss is 251 KB (the lists' staging copy 90,
+the render contexts 36, the entities 34, the Gouraud stage 22, the DSP
+models' output 12, the faces' slots 18), the code 117 KB.
+
+The sampling profiler only ran during the fight. `OPT="-DHW_BENCH
+-DSLAVE_PROF -DPROF_HELD"` (main.c prof_run_on) samples the six held
+views instead (16 frames each), pages 2-5 then theirs. Mednafen's first
+look (the lean bake; its held frames are VDP1-bound there, 38.5 ms a
+view against the CPU's 29.9, so the master's wait shows as vdp_submit),
+ms a frame: the master vdp_submit 7.3, walk 5.9, face_asm 4.7, cells 4.2,
+the grid 3.1, face_cells 2.4, fb_add 1.1, render_world 1.1; the slave
+idle 11.9, face_asm 5.5, cells 3.7, the grid 3.3, face_cells 2.4, and
+the models 8.0 (draw_model 2.3, polygons 2.2, vertices 1.9, commands
+1.6) even standing still: the views have monsters in them. What the
+Saturn's pages say decides what to cut (its faces' code runs 2-3x
+slower than Mednafen's): on the card as SUITE 39.

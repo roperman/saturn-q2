@@ -518,7 +518,11 @@ void                ht_prof_page(int cpu, u32 frames, int y)
     prof_rank(h, &total, top, PROF_TOP);
     if (!frames)
         frames = 1;
+#ifdef PROF_HELD
+    vdp_printf(8, y, hd, "HELD %s: %d SAMPLES, ELSEWHERE %d", cpu ? "MASTER" : "SLAVE", total, other);
+#else
     vdp_printf(8, y, hd, "%s: %d SAMPLES, ELSEWHERE %d", cpu ? "MASTER" : "SLAVE", total, other);
+#endif
     y += 12;
     if (!nsyms)
     {

@@ -4176,3 +4176,12 @@ against 283 497 75 309 278 331 (nothing: the HUD was a tenth of a
 millisecond there), the fight's 35.4 (35.7). The Saturn's HUD cost is
 what SUITE 41 (against 40) will say; it wasn't in the profile's top
 twelve (under 0.7 ms).
+
+**SUITE 41 on the Saturn:** held CPU 2510 (40's 2526), each view 413
+683 107 440 412 455 (416 687 108 442 417 456): 0.1-0.5 ms a view;
+frames 298.0 (302.7); the fight's CPU 53.1 (53.8), 59.8 a frame still
+(three fields); the slave's idle 58 47 113 173 46 157 (75 76 115 183 49
+172: it draws the HUD and starts sooner, spinning for the walk's first
+faces, which isn't counted as idle). Views 1 and 5 at 41.3 and 41.2:
+1.2-1.3 ms of CPU over two fields. LV 3 in this run: the late swap
+interrupt keeps coming and is caught each time.

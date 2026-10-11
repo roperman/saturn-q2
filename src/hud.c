@@ -14,6 +14,9 @@ typedef struct { u16 srca, size, w, h; char name[12]; } t_pic;
 
 static t_pic        pics[MAX_PICS];
 static int          npics;
+/* the status bar's pictures, found once (hud_init): the names compared each frame were a tenth of a
+   millisecond, and the slave draws the HUD now (main.c: at its job's start, into its own overlays) */
+static const t_pic  *p_health, *p_ammo[AMMO_COUNT], *p_armor[3], *p_quad, *p_ch, *p_num[11], *p_anum[11];
 static const u16    *hud_pal;               /* Quake's palette (on the cart) */
 
 /* the palette into VDP2's colour RAM, at the brightness chosen */
@@ -26,6 +29,8 @@ void                hud_palette(void)
         for (i = 0; i < 256; ++i)
             cram[CRAM_BANK + i] = r_gamma(hud_pal[i]);
 }
+
+static const t_pic  *pic(const char *name);
 
 __attribute__((cold)) void                hud_init(void)
 {
@@ -58,6 +63,31 @@ __attribute__((cold)) void                hud_init(void)
         base = (base + (u32)w * h + 31) & ~31u;
     }
     vdp_tex_release(base);
+    {
+        static const char *ammo_pic[AMMO_COUNT] = { "a_blaster", "a_shells", "a_bullets", "a_grenades", "a_rockets",
+                                                    NULL, NULL };
+        char        name[12] = "num_0";
+
+        p_health = pic("i_health");
+        for (i = 0; i < AMMO_COUNT; ++i)
+            p_ammo[i] = ammo_pic[i] ? pic(ammo_pic[i]) : NULL;
+        p_armor[0] = pic("i_jacketarmor");
+        p_armor[1] = pic("i_combatarmor");
+        p_armor[2] = pic("i_bodyarmor");
+        p_quad = pic("p_quad");
+        p_ch = pic("ch1");
+        for (i = 0; i < 10; ++i)
+        {
+            name[4] = (char)('0' + i);
+            p_num[i] = pic(name);
+            name[0] = 'a'; name[1] = 'n'; name[2] = 'u'; name[3] = 'm'; name[4] = '_'; name[5] = (char)('0' + i); name[6] = 0;
+            p_anum[i] = pic(name);
+            name[0] = 'n'; name[1] = 'u'; name[2] = 'm'; name[3] = '_'; name[5] = 0;
+        }
+        p_num[10] = pic("num_minus");
+        p_anum[10] = pic("anum_minus");
+    }
+    vdp_text_colr(RGB(255, 255, 255));     /* (the messages' colour given its LUT now, by the master) */
 }
 
 static const t_pic  *pic(const char *name)
@@ -107,24 +137,9 @@ static void         draw_field(int x, int y, int value, bool alt)
     x += 16 * (3 - n);
     for (i = 0; i < n; ++i, x += 16)
     {
-        char name[12] = "num_minus";
+        int d = buf[i] == '-' ? 10 : buf[i] - '0';
 
-        if (buf[i] != '-')
-        {
-            name[0] = 'n'; name[1] = 'u'; name[2] = 'm'; name[3] = '_';
-            name[4] = buf[i];
-            name[5] = 0;
-        }
-        if (alt)
-        {
-            /* anum_: the yellow ones */
-            int k;
-
-            for (k = 11; k > 0; --k)
-                name[k] = name[k - 1];
-            name[0] = 'a';
-        }
-        draw_pic(pic(name), x, y);
+        draw_pic(alt ? p_anum[d] : p_num[d], x, y);     /* (anum_: the yellow ones) */
     }
 }
 
@@ -149,32 +164,28 @@ static void         draw_center(const char *m, int y)
 
 void                hud_draw(void)
 {
-    static const char *ammo_pic[AMMO_COUNT] = { "a_blaster", "a_shells", "a_bullets", "a_grenades", "a_rockets",
-                                                NULL, NULL };
     const g_weapon  *w = &weapons[client.weapon];
     int             y = SCREEN_H - 26;
-    const t_pic     *ch = opt_crosshair && !g_player->dead && !menu_active() ? pic("ch1") : NULL;
+    const t_pic     *ch = opt_crosshair && !g_player->dead && !menu_active() ? p_ch : NULL;
 
     if (ch)
         draw_pic(ch, SCREEN_W / 2 - ch->w / 2, SCREEN_H / 2 - ch->h / 2);   /* (Quake's crosshair 1) */
     if (npics)
     {
-        draw_pic(pic("i_health"), 8, y);
+        draw_pic(p_health, 8, y);
         draw_field(34, y, g_player->health, g_player->health < 25);
         if (w->ammo != AMMO_NONE)
         {
-            draw_pic(pic(ammo_pic[w->ammo]), 114, y);
+            draw_pic(p_ammo[w->ammo], 114, y);
             draw_field(140, y, client.ammo[w->ammo], client.ammo[w->ammo] < 5);
         }
         if (client.armor)
         {
-            draw_pic(pic(client.armor_protect >= 80 ? "i_bodyarmor" : client.armor_protect >= 60 ? "i_combatarmor"
-                                                                                                    : "i_jacketarmor"),
-                     216, y);
+            draw_pic(p_armor[client.armor_protect >= 80 ? 2 : client.armor_protect >= 60 ? 1 : 0], 216, y);
             draw_field(242, y, client.armor, false);
         }
         if (level.time < client.quad_until)
-            draw_pic(pic("p_quad"), 290, y - 28);
+            draw_pic(p_quad, 290, y - 28);
     }
     else
         vdp_printf(16, SCREEN_H - 20, RGB(255, 220, 120), "HEALTH %d  AMMO %d  ARMOR %d", g_player->health,

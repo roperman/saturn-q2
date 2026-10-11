@@ -535,6 +535,7 @@ static u32          fight_why[4];               /* (lit faces the DSP's weren't:
 u32                 fs_sum[11];
 #endif
 static u32          fight_po[5];                /* (the portals: the flow's us, clusters reached, portals projected, faces culled) */                /* (the world's dynamic lights: the faces' test, the sums, us; faces lit) */
+static u32          fight_pre2[4];              /* (render_world's pre-walk parts: the wait for the slave's entities, their leaves, the models to the DSP, the gun's fetch) */
 static u32          fight_pre[8], fight_pref[8], fight_pt;  /* (the master before the walk, us: movers, pmove, camera+gun,
                                                    sky+effects, entities+sprites, their light, the tint; render_world to
                                                    the slave's signal. fight_pref: this frame's, added in while timing) */
@@ -994,6 +995,7 @@ u32                 fight_sl[3];
 #ifdef HW_BENCH
 static u32          sl_idle_acc, sl_idle_pub;   /* (the slave's waits for jobs, FRT ticks a frame; page 2's IDL) */
 #endif
+static bool         hud_slave;              /* this frame's status bar is the slave's (OPT=-DNO_SLAVE_HUD: never) */
 
 static void         slave_loop(void);
 u32                 chip_used[2];               /* (CACHE_STACK) most of each CPU's on-chip stack used, bytes */
@@ -1089,6 +1091,15 @@ static void         slave_loop(void)
         *(volatile u32 *)UNCACHED(&sl_idle_pub) = sl_idle_acc;   /* (since its last drawing job: the master reads it) */
         sl_idle_acc = 0;
 #endif
+        if (hud_slave)
+        {
+            /* the status bar, while the walk's listing its first faces: the slave's own overlays, chained
+               before the master's (menus, text) at the submit; the game's state as the master left it
+               before the walk (its tick runs after), a frame older than the master's own drawing of it */
+            vdp_overlay_slave_begin();
+            hud_draw();
+            vdp_overlay_slave_end();
+        }
         render_slave();
 #ifdef FIGHT_BENCH
         sl_endt = frt_read();
@@ -2003,6 +2014,7 @@ void                main(void)
 #endif
                 counts_reset();
                 fight_ldma = fight_us = fight_cpu = fight_game = fight_gmax = fight_n = fight_ntr = fight_ttr = 0;
+                memset(fight_pre2, 0, sizeof(fight_pre2));
                 memset(fight_r, 0, sizeof(fight_r));
                 memset(fight_seg, 0, sizeof(fight_seg));
                 memset(fight_pre, 0, sizeof(fight_pre));
@@ -2537,6 +2549,9 @@ void                main(void)
 #endif
         if (game_during_draw && !paused)
             r_during = game_step;
+#ifndef NO_SLAVE_HUD
+        hud_slave = r_two_cpus && !(paused && menu_at_title());    /* (the slave draws the status bar at its job's start) */
+#endif
 #ifdef DSP_SWAP_TEST
         dsp_wait();
         dsp_init_models();                      /* (the models' program back) */
@@ -2564,8 +2579,8 @@ void                main(void)
         PM_DRAWN = 1;
 #endif
         FT(5);
-        /* the status bar and messages; a menu over them */
-        if (!(paused && menu_at_title()))
+        /* the status bar and messages (the slave's, as a rule: hud_slave); a menu over them */
+        if (!hud_slave && !(paused && menu_at_title()))
             hud_draw();
         if (paused)
             menu_draw();
@@ -2807,8 +2822,9 @@ void                main(void)
 #ifndef DSP_WALLS                           /* (the overlay's room: the DSP's line instead) */
             vdp_printf(8, 44, RGB(160, 220, 255), "PRE US M%d P%d V%d F%d", fight_pre[0] / n, fight_pre[1] / n,
                        fight_pre[2] / n, fight_pre[3] / n);
-            vdp_printf(8, 53, RGB(160, 220, 255), "E%d L%d T%d R%d", fight_pre[4] / n, fight_pre[5] / n,
-                       fight_pre[6] / n, fight_pre[7] / n);
+            vdp_printf(8, 53, RGB(160, 220, 255), "E%d L%d T%d R%d: W%d N%d D%d V%d", fight_pre[4] / n, fight_pre[5] / n,
+                       fight_pre[6] / n, fight_pre[7] / n, fight_pre2[0] / n, fight_pre2[1] / n, fight_pre2[2] / n,
+                       fight_pre2[3] / n);
 #endif
 #ifdef WALLS_AHEAD
             vdp_printf(8, 71, RGB(160, 220, 255), "DLIGHTS US SUMS %d FACES %d AHEAD %d", fight_dl[1] / n, fight_dl[2] / n,
@@ -3265,6 +3281,10 @@ void                main(void)
                         fight_pre[k] += fight_pref[k];
                 }
                 fight_pre[7] += rs.us_rwpre;
+                fight_pre2[0] += rs.us_pwait;
+                fight_pre2[1] += rs.us_ents;
+                fight_pre2[2] += rs.us_todsp;
+                fight_pre2[3] += rs.us_vfetch;
                 fight_dl[0] += rs.t_dltest;
                 fight_dl[1] += rs.t_dlsum;
                 fight_dl[2] += (u32)rs.n_dlfaces;

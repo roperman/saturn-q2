@@ -4144,3 +4144,35 @@ cause is real; what holds the interrupt off for 8 lines now and then
 isn't known (nothing of ours masks interrupts that long: the BIOS's
 dispatcher during another handler, or the SMPC's traffic, perhaps).
 Roper, playing the guarded build: "flicker fix seems to have worked".
+
+## 84. The status bar the slave's, the slave told sooner
+
+Roper: "go ahead with the hud and walk changes" (82: the master alone
+2.4-3.2 ms a held frame on the Saturn). What's in the master's time
+before the walk, the fight on Mednafen (FIGHT_BENCH's PRE line, us):
+movers 243, the view and gun 191, the sky and effects 188, the tint
+55, then render_world's 1472: the wait for the slave's entities 165,
+their leaves 184, the models to the DSP 844, the gun's fetch 18. After
+the two CPUs meet: the uploads, the HUD, the submit's DMA.
+
+- **The status bar is the slave's** (main.c hud_slave, hud.c, vdp.c
+  OVL_SLAVE): drawn at the start of its job, into the first 96 of the
+  overlay region, chained before the master's overlays at the submit
+  (so menus and text still go over it), the count sent over uncached.
+  The game's state it shows is as the master left it before the walk
+  (the tick runs after), a frame older than before. Its pictures are
+  found once at hud_init, not by name each frame, and the messages'
+  white LUT is made there by the master. The benchmarks' pages of text
+  get 96 more overlay commands (3 KB of VRAM a list, 3 KB of .bss) so
+  they still fit. `OPT=-DNO_SLAVE_HUD`.
+- **The slave told before the models go to the DSP** (render.c): it
+  draws the status bar while the master packs the models (0.84 ms in
+  the fight), not while the walk's listing. draw_model on the slave
+  reads the models' DSP places uncached, its job starting before they're
+  written. `OPT=-DNO_EARLY_SIGNAL`.
+
+Mednafen, the lean bake: the held views' CPU 284 498 76 309 278 333
+against 283 497 75 309 278 331 (nothing: the HUD was a tenth of a
+millisecond there), the fight's 35.4 (35.7). The Saturn's HUD cost is
+what SUITE 41 (against 40) will say; it wasn't in the profile's top
+twelve (under 0.7 ms).

@@ -151,7 +151,9 @@ static inline u16   vdp_gouraud_fast(vdp_writer *w, u32 c01, u32 c23)
 }
 
 /* overlays: drawn after all sorted polygons, in call order */
-vdp1_cmd            *vdp_overlay(void);
+vdp1_cmd            *vdp_overlay(void);                    /* (on the slave: from its own block, chained first) */
+void                vdp_overlay_slave_begin(void);          /* the slave, at its job's start, before its overlays... */
+void                vdp_overlay_slave_end(void);            /* ...and after: their count for the submit */
 vdp1_cmd            *vdp_overlay_block(int *room);         /* the next free ones, written in order... */
 void                vdp_overlay_add(int n);                 /* ...and how many were */
 void                vdp_rect(int x0, int y0, int x1, int y1, u16 color, bool half_transparent);

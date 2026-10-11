@@ -419,6 +419,7 @@ typedef struct
     int             models, mpolys, nfast, nslow, nexact, pieces, faces_out, cells_all, cells_384, cells_512, muploads, mcpu, mdsp, ns_dl, ns_crop, ns_exact, g_same, g_flat, occ_faces, occ_cells, occ_occluders, ns_small;
     u32             us_walk, t_face, t_grid, t_models, t_mlight, t_mverts, t_mpolys, t_mwait, t_masm, t_mnorm;
     u32             us_rwpre, t_dltest, t_dlsum;    /* (FIGHT_BENCH: render_world to the slave's signal; the world's dynamic lights) */
+    u32             us_pwait, us_ents, us_todsp, us_vfetch;   /* (FIGHT_BENCH: the pre-walk's parts: the wait for the slave's entities, their leaves, the models to the DSP, the gun's fetch) */
     int             n_dlfaces, n_dlpts;            /* (and dl_face's points x lights) */
 #ifdef FS_STATS
     int             fs[10];                         /* (lit whole faces: points <=16 <=32 <=48 <=64 more; rows over 12, 16 points; lights 1, 2, 3+) */

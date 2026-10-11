@@ -6443,6 +6443,13 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     }
 #endif
 
+    if (x == &ctx[1])
+    {
+        /* the slave: its job may start before models_to_dsp has written these (render_world's early
+           signal), so not from its cache, which could hold the line from before */
+        ent_dsp[ei] = *(volatile s16 *)UNCACHED(&ent_dsp[ei]);
+        ent_blk[ei] = *(volatile s16 *)UNCACHED(&ent_blk[ei]);
+    }
     if (ent_dsp[ei] < 0 && !model_xf(e, &xf))
         return;
     ++x->st.models;
@@ -7500,8 +7507,20 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         movers_relist();
     }
     /* (the entities' list and light may be the slave's: done by now, as a rule) */
+#ifdef FIGHT_BENCH
+    {
+        u32 tq = frt_read();
+
+        if (r_pre_wait)
+            r_pre_wait();
+        rs.us_pwait = frt_to_us((frt_read() - tq) & 0xFFFF);
+        tq = frt_read();
+        rs.us_ents = tq;                    /* (the loop's start: taken off below) */
+    }
+#else
     if (r_pre_wait)
         r_pre_wait();
+#endif
     for (i = 0; i < nents; ++i)
     {
         int l;
@@ -7525,16 +7544,12 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
         }
     }
     PROF(rs.us_pre = frt_to_us((frt_read() - t0) & 0xFFFF));
-    /* the models' vertices: the DSP starts on them now; the gun's records on their way */
-#ifdef LW_COUNT
-    ++lwc[0][7];
+#ifdef FIGHT_BENCH
+    rs.us_ents = frt_to_us((frt_read() - rs.us_ents) & 0xFFFF);
 #endif
-    BT(0, 11);
-    models_to_dsp();
-    BT(0, 13);
-    view_fetch_start(w0);
-    PROF(rs.us_mdsp = frt_to_us((frt_read() - t0) & 0xFFFF) - rs.us_pre);
-    /* the slave starts on the list as the walk fills it */
+    /* the slave starts on the list as the walk fills it: told now, before the models go to the DSP, so
+       it draws the status bar (main.c hud_slave) while the master's still at that, not while the walk's
+       listing (OPT=-DNO_EARLY_SIGNAL: told after, as before) */
     ctx[0].w = w0;
     ctx[1].w = w1;
     ctx[0].bucket = 0;
@@ -7545,11 +7560,38 @@ void                render_world(vdp_writer *w0, vdp_writer *w1)
     SHARE->lo = 0;
     SHARE->hi = 0x7FFFFFFF;
     SHARE->walk_done = 0;
+#ifndef NO_EARLY_SIGNAL
+    if (r_two_cpus)
+        signal_slave();
+#endif
+    /* the models' vertices: the DSP starts on them now; the gun's records on their way */
+#ifdef LW_COUNT
+    ++lwc[0][7];
+#endif
+    BT(0, 11);
+#ifdef FIGHT_BENCH
+    {
+        u32 tq = frt_read();
+
+        models_to_dsp();
+        rs.us_todsp = frt_to_us((frt_read() - tq) & 0xFFFF);
+        tq = frt_read();
+        view_fetch_start(w0);
+        rs.us_vfetch = frt_to_us((frt_read() - tq) & 0xFFFF);
+    }
+#else
+    models_to_dsp();
+    BT(0, 13);
+    view_fetch_start(w0);
+#endif
+    PROF(rs.us_mdsp = frt_to_us((frt_read() - t0) & 0xFFFF) - rs.us_pre);
 #ifdef FIGHT_BENCH
     rs.us_rwpre = frt_to_us((frt_read() - t0) & 0xFFFF);
 #endif
+#ifdef NO_EARLY_SIGNAL
     if (r_two_cpus)
         signal_slave();
+#endif
 #ifdef R_PROFILE
     {
         u32 tw = frt_read();

@@ -51,7 +51,14 @@
 #define CMD_END         (0x8000)
 
 #define OVL_FIRST       (1 + W0_CMDS + W1_CMDS)
-#define OVL_MAX         (MAX_CMDS - (1 + WRITER_CMDS + WRITER1_CMDS) - 1)
+/* (the benchmarks' pages of text need the overlays' room the slave's block took: theirs is bigger, 3 KB of
+   VRAM a list and of work RAM off the level's hot copies) */
+#if defined(HW_BENCH) || defined(FIGHT_BENCH)
+# define OVL_EXTRA      (96)
+#else
+# define OVL_EXTRA      (0)
+#endif
+#define OVL_MAX         (MAX_CMDS - (1 + WRITER_CMDS + WRITER1_CMDS) - 1 + OVL_EXTRA)
 
 #ifdef CMD_RING
 /* the static part of a list in work RAM: the clear, each writer's bucket trampolines (jump-only
@@ -72,6 +79,13 @@ static vdp1_cmd     staging[MAX_CMDS] __attribute__((aligned(16)));
 #endif
 static vdp_writer   writers[2];
 static int          overlay_count;
+/* The slave's overlays (the HUD, drawn at the start of its job while the walk's listing: OPT=-DNO_SLAVE_HUD
+   has the master draw it after everything, as before): the first OVL_SLAVE of the region, chained before the
+   master's. Its count comes over uncached (vdp_ovl_slave_n: the master zeroes it at the submit) */
+#define OVL_SLAVE       (96)
+static int          ovl_slave_count;    /* (the slave's own) */
+u32                 vdp_ovl_slave_n;
+static int          ovl_slave_sent;     /* (this submit's) */
 static int          list;               /* 0 = A, 1 = B: the list being built */
 static bool         drawing;            /* VDP1 has a list in flight */
 static u16          lut_color[MAX_TEXT_COLORS];
@@ -306,13 +320,24 @@ static u32          list_pixels(int band)
                 od_cost(&writers[w].cmds[i]);
             }
         }
-    for (i = 0; i < overlay_count; ++i)
+    for (i = 0; i < ovl_slave_sent; ++i)
     {
-        n += r = quad_pixels(&staging[OVL_FIRST + i], band);
+        const vdp1_cmd *c = (const vdp1_cmd *)UNCACHED(&staging[OVL_IDX + i]);   /* (the slave's HUD) */
+
+        n += r = quad_pixels(c, band);
         if (take)
         {
-            od_note(&staging[OVL_FIRST + i], r);
-            od_cost(&staging[OVL_FIRST + i]);
+            od_note(c, r);
+            od_cost(c);
+        }
+    }
+    for (i = 0; i < overlay_count; ++i)
+    {
+        n += r = quad_pixels(&staging[OVL_IDX + OVL_SLAVE + i], band);
+        if (take)
+        {
+            od_note(&staging[OVL_IDX + OVL_SLAVE + i], r);
+            od_cost(&staging[OVL_IDX + OVL_SLAVE + i]);
         }
     }
     if (take)
@@ -815,20 +840,42 @@ vdp_writer          *vdp_get_writer(int which)
 vdp1_cmd            *vdp_overlay(void)
 {
     vdp1_cmd        *c;
+    u32             sp;
 
-    if (overlay_count >= OVL_MAX)
+    __asm__ volatile ("mov r15,%0" : "=r" (sp));
+    if (!SP_MASTER(sp))
+    {
+        /* the slave's block (the HUD) */
+        if (ovl_slave_count >= OVL_SLAVE)
+            return NULL;
+        c = &staging[OVL_IDX + ovl_slave_count++];
+        c->ctrl = JP_ASSIGN;
+        return c;
+    }
+    if (overlay_count >= OVL_MAX - OVL_SLAVE)
         return NULL;
-    c = &staging[OVL_IDX + overlay_count++];
+    c = &staging[OVL_IDX + OVL_SLAVE + overlay_count++];
     c->ctrl = JP_ASSIGN;
     return c;
+}
+
+/* the slave: its overlays start again (at its job's start), and how many there were, for the submit */
+void                vdp_overlay_slave_begin(void)
+{
+    ovl_slave_count = 0;
+}
+
+void                vdp_overlay_slave_end(void)
+{
+    *(volatile u32 *)UNCACHED(&vdp_ovl_slave_n) = (u32)ovl_slave_count;
 }
 
 /* the overlay's next free commands, to be written in order (their links are made at the
    submit); vdp_overlay_add says how many were */
 vdp1_cmd            *vdp_overlay_block(int *room)
 {
-    *room = OVL_MAX - overlay_count;
-    return &staging[OVL_IDX + overlay_count];
+    *room = OVL_MAX - OVL_SLAVE - overlay_count;
+    return &staging[OVL_IDX + OVL_SLAVE + overlay_count];
 }
 
 void                vdp_overlay_add(int n)
@@ -990,7 +1037,7 @@ void                vdp_color_offset_all(int r, int g, int b)
 
 int                 vdp_cmd_count(void)
 {
-    return 1 + writers[0].count + writers[1].count + overlay_count + 1;
+    return 1 + writers[0].count + writers[1].count + OVL_SLAVE + overlay_count + 1;
 }
 
 /* (pipelined) the frame's transfers into VRAM, for SCU DMA's indirect mode (count, destination,
@@ -1163,16 +1210,29 @@ int                 vdp_submit(void)
                 prev = &writers[w].cmds[writers[w].tail[b]];
             }
 #endif
+    {
+        /* the slave's overlays first (the HUD, under the master's: menus, text), through the cache's back
+           door both ways: it wrote them */
+        int ns = (int)*(volatile u32 *)UNCACHED(&vdp_ovl_slave_n);
+
+        *(volatile u32 *)UNCACHED(&vdp_ovl_slave_n) = 0;
+        for (i = 0; i < ns; ++i)
+        {
+            prev->link = link_to(OVL_FIRST + i);
+            prev = (vdp1_cmd *)UNCACHED(&staging[OVL_IDX + i]);
+        }
+        ovl_slave_sent = ns;
+    }
     for (i = 0; i < overlay_count; ++i)
     {
-        prev->link = link_to(OVL_FIRST + i);
-        prev = &staging[OVL_IDX + i];
+        prev->link = link_to(OVL_FIRST + OVL_SLAVE + i);
+        prev = &staging[OVL_IDX + OVL_SLAVE + i];
     }
-    staging[OVL_IDX + overlay_count].ctrl = CMD_END;
-    prev->link = link_to(OVL_FIRST + overlay_count);
+    staging[OVL_IDX + OVL_SLAVE + overlay_count].ctrl = CMD_END;
+    prev->link = link_to(OVL_FIRST + OVL_SLAVE + overlay_count);
     vdp_peak[0] = writers[0].count > vdp_peak[0] ? writers[0].count : vdp_peak[0];
     vdp_peak[1] = writers[1].count > vdp_peak[1] ? writers[1].count : vdp_peak[1];
-    vdp_peak[2] = overlay_count > vdp_peak[2] ? overlay_count : vdp_peak[2];
+    vdp_peak[2] = overlay_count + ovl_slave_sent > vdp_peak[2] ? overlay_count + ovl_slave_sent : vdp_peak[2];
     vdp_gover += (u32)(writers[0].gover + writers[1].gover);
     vdp_peak[3] = writers[0].gcount > vdp_peak[3] ? writers[0].gcount : vdp_peak[3];
     vdp_peak[4] = writers[1].gcount > vdp_peak[4] ? writers[1].gcount : vdp_peak[4];
@@ -1272,11 +1332,11 @@ int                 vdp_submit(void)
                         (u32)(wr->gcount - wr->gsent) * 8);
         }
         dma_add(VDP1_VRAM + list_base(list) + (u32)OVL_FIRST * sizeof(vdp1_cmd), &staging[OVL_IDX],
-                (u32)(overlay_count + 1) * sizeof(vdp1_cmd));
+                (u32)(OVL_SLAVE + overlay_count + 1) * sizeof(vdp1_cmd));
 #else
         tab_range(0, 1 + writers[0].count);
         tab_range(writers[1].first, writers[1].count);
-        tab_range(OVL_FIRST, overlay_count + 1);
+        tab_range(OVL_FIRST, OVL_SLAVE + overlay_count + 1);
         for (w = 0; w < 2; ++w)
             if (writers[w].gcount)
                 dma_add(VDP1_VRAM + writers[w].gbase, writers[w].gst, (u32)writers[w].gcount * 8);
@@ -1300,7 +1360,7 @@ int                 vdp_submit(void)
 #else
     dma_range(0, 1 + writers[0].count);
     dma_range(writers[1].first, writers[1].count);
-    dma_range(OVL_FIRST, overlay_count + 1);
+    dma_range(OVL_FIRST, OVL_SLAVE + overlay_count + 1);
 #endif
     for (w = 0; w < 2; ++w)
         if (writers[w].gcount)

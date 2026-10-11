@@ -4143,3 +4143,4 @@ vblank, twice. Before the guard each was a field of floor alone. The
 cause is real; what holds the interrupt off for 8 lines now and then
 isn't known (nothing of ours masks interrupts that long: the BIOS's
 dispatcher during another handler, or the SMPC's traffic, perhaps).
+Roper, playing the guarded build: "flicker fix seems to have worked".

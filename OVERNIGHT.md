@@ -3969,3 +3969,16 @@ SUITE 37 is this build for the card.
 Also: the gun missing in a BENCH_HOLD build on Mednafen (79) didn't
 come back: four builds (the erase's register writes with the polygon
 kept, neither, the polygon alone, the default) all show it; a one-off.
+
+**SUITE 37 on the Saturn** (the lean bake, the erase, the flip): VDP1 a
+held view 34.2 57.5 19.1 41.1 31.7 39.9 against SUITE 36's 36.0 57.9
+(0) 47.7 33.0 46.4, turned 31.7 47.3 (0) 36.6 32.8 44.4 (32.3 54.2 (0)
+41.2 34.9 53.5), the fight's 45.9 (52.5): views 4 and 6 14% off,
+turned 11-17%, the fight 13%, views 1, 2 and 5 1-5% (the model said
+14, 9 and 9: the Saturn's off-screen dots are cheaper than its on-screen
+ones, or the model's lead-in is longer than VDP1's); frames held 303.1
+(316.3), turned 283.0 (331.1), the fight 60.8 (60.7); up 3 fields 313,
+4 fields 16; the picture clean; CW 2. The held views' CPU is 2551 for
+the six, 42.5 ms a view: with VDP1 under 42 on five of them the CPU is
+now the wall of the held views as much as VDP1 (view 2's 57.5), and
+the fight's CPU 56.8 was its wall already.

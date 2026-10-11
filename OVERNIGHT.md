@@ -4021,7 +4021,13 @@ wall refused again, tick after tick, each refusal a box trace or two.
   in), as a step of a fraction of a unit less than a remembered one is
   refused too. `OPT=-DNO_BLOCK_MEMO`.
 
-SUITE 38 (the lean bake, the flip, both) is the card's.
+**SUITE 38 on the Saturn** (the lean bake, the flip, both): the fight
+59.8 ms a frame, its CPU 55.0 (SUITE 37's 56.8), the game 11.3 (Mednafen's
+8.x: the Saturn's traces and ticks are dearer, as ever); the held views'
+CPU 2588 (2551, noise), frames 304.1, turned 284.1, V1 the same as 37's
+(34.2 57.5 19.1 41.1 31.7 39.9); up 3 fields 335, 4 fields 0; CW 8.
+So 1.8 ms off the fight's CPU on the Saturn for the memo; the game's
+11.3 is now a fifth of the fight's frame, the walls the rest.
 
 ## 82. Where a held view's CPU goes: the profiler on the held views
 
@@ -4047,4 +4053,7 @@ idle 11.9, face_asm 5.5, cells 3.7, the grid 3.3, face_cells 2.4, and
 the models 8.0 (draw_model 2.3, polygons 2.2, vertices 1.9, commands
 1.6) even standing still: the views have monsters in them. What the
 Saturn's pages say decides what to cut (its faces' code runs 2-3x
-slower than Mednafen's): on the card as SUITE 39.
+slower than Mednafen's): on the card as SUITE 39. **Its page 1 on the
+Saturn:** held CPU 2578, frames 303.2, the fight 59.8 / 54.6, game 11.4:
+the sampler costs nothing measurable (SUITE 38's 2588, 304.1, 59.8 /
+55.0). Pages 2-5 to come.

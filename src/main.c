@@ -550,7 +550,7 @@ static u32          fight_vph[4];               /* ...its vertices, sort, comman
 static u32          fight_r[14];
 #ifdef OVERDRAW_PROF
 static u32          fight_od;                   /* pixels asked of VDP1, the fight's frames summed */
-static u32          hb_odm[6][6];               /* each held view's (NBENCH) frame 5 by Mednafen's model (vdp_od_model) */
+static u32          hb_odm[6][11];               /* each held view's (NBENCH) frame 5 by Mednafen's model (vdp_od_model) */
 static u32          hb_odtop[6][10];            /* held view 4's six largest commands */
 static bool         od_keep;
 static u32          fight_odr;                  /* ...and with the off-screen parts (a band of 1024) */
@@ -1453,12 +1453,12 @@ static __attribute__((cold)) void hb_screen(int page)
         y += 4;
         /* each held view by Mednafen's model: commands, lines skipped and walked, dots walked off the
            screen and on it (tenths of a screen), the model's ms (0.1) */
-        vdp_text(8, y, hd, "V CMDS  LSKIP  LWALK DOFF DON MS");
+        vdp_text(8, y, hd, "V CMDS DOFF MS BEST FLPR FLIP ALL");
         y += 10;
         for (v = 0; v < NBENCH; ++v, y += 10)
-            vdp_printf(8, y, w, "%d %4d %6d %6d %4d %3d %3d", v + 1, hb_odm[v][0], hb_odm[v][1], hb_odm[v][2],
-                       hb_odm[v][3] * 10 / (SCREEN_W * SCREEN_H), hb_odm[v][4] * 10 / (SCREEN_W * SCREEN_H),
-                       hb_odm[v][5] / 2685);       /* (26.85 MHz: cycles / 2685 = 0.1 ms) */
+            vdp_printf(8, y, w, "%d %4d %3d %3d %3d %3d %3d %3d", v + 1, hb_odm[v][0],
+                       hb_odm[v][3] * 10 / (SCREEN_W * SCREEN_H), hb_odm[v][5] / 2685, hb_odm[v][6] / 2685,
+                       hb_odm[v][8] / 2685, hb_odm[v][9] / 2685, hb_odm[v][10] / 2685);  /* (26.85 MHz: cycles / 2685 = 0.1 ms) */
         y += 4;
         vdp_text(8, y, g, "A: NEXT PAGE");
         return;

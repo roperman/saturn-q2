@@ -134,9 +134,10 @@ class Baker:
 
     # ---- tiles and their variants ----
 
-    def tile(self, name, tx, ty):
-        """a T x T texel window of a texture (wrapping), downsampled and quantised: its index"""
-        key = (name, tx, ty, self.res)
+    def tile(self, name, tx, ty, transposed=False):
+        """a T x T texel window of a texture (wrapping), downsampled and quantised: its index
+        (transposed: its rows run down the texture's columns, for a face whose u and v are swapped)"""
+        key = (name, tx, ty, self.res, transposed)
         if key in self.tiles:
             return self.tiles[key]
         w = self.wal(name)
@@ -148,7 +149,10 @@ class Baker:
                 acc = [0, 0, 0]
                 for yy in range(r):
                     for xx in range(r):
-                        c = w.rgb[((ty + y * r + yy) % w.h) * w.w + (tx + x * r + xx) % w.w]
+                        if transposed:
+                            c = w.rgb[((ty + x * r + xx) % w.h) * w.w + (tx + y * r + yy) % w.w]
+                        else:
+                            c = w.rgb[((ty + y * r + yy) % w.h) * w.w + (tx + x * r + xx) % w.w]
                         acc[0] += c[0]
                         acc[1] += c[1]
                         acc[2] += c[2]
@@ -293,6 +297,20 @@ class Baker:
         S, Tv = ti["s"], ti["t"]
         pts = [(sum(v[k] * S[k] for k in range(3)) + S[3], sum(v[k] * Tv[k] for k in range(3)) + Tv[3])
                for v in b.face_verts(fi)]
+        # VDP1 draws a cell as lines along its texture's rows (u), one line a step along v, each
+        # line costing some 12 cycles besides its dots; --swapuv=1 puts the rows along the face's
+        # shorter extent (the one foreshortened in the usual view of it: a wall's height) and the
+        # lines stepping along the other: the face's u and v swapped where u's extent is the
+        # longer, the tiles cut transposed to match. Fewer lines, but a line that starts off the
+        # screen walks its dots till it enters, and a wall's vertical lines start above it: it
+        # lost by Mednafen's model (OVERNIGHT.md 80), so the default leaves them as the map has them
+        swap = self.swapuv and (max(p[0] for p in pts) - min(p[0] for p in pts)
+                                > max(p[1] for p in pts) - min(p[1] for p in pts))
+        lm_pts = pts
+        if swap:
+            self.stats["faces swapped"] += 1
+            pts = [(p[1], p[0]) for p in pts]
+            A, B = B, A
         u0 = math.floor(min(p[0] for p in pts) / self.T + EPS)
         u1 = math.ceil(max(p[0] for p in pts) / self.T - EPS)
         v0 = math.floor(min(p[1] for p in pts) / self.T + EPS)
@@ -305,7 +323,7 @@ class Baker:
         cells = []
         for cv in range(v0, v0 + nv):
             for cu in range(u0, u0 + nu):
-                cells.append(self.bake_cell(ti["texture"], w, pts, cu, cv))
+                cells.append(self.bake_cell(ti["texture"], w, pts, cu, cv, swap))
         # the grid's outer lines go on the face's edges rather than the tiles': the first column
         # starts at eu0 (stored texels into its tile), the last ends at eu1, the rows likewise;
         # so a cell cropped only by the face's edge is exactly its grid cell (no corners to work out)
@@ -324,7 +342,10 @@ class Baker:
         us[nu] = (u0 + nu - 1) * self.T + eu1 * r
         vs[0] += ev0 * r
         vs[nv] = (v0 + nv - 1) * self.T + ev1 * r
-        sample = self.lightmap(fi, pts)
+        sample = self.lightmap(fi, lm_pts)
+        if sample and swap:
+            sample0 = sample
+            sample = lambda u, v: sample0(v, u)
         lights = []
         for j in range(nv + 1):
             for i in range(nu + 1):
@@ -335,8 +356,9 @@ class Baker:
         return {"flags": flags, "plane": f["plane"], "origin": origin, "du": du, "dv": dv, "edges": (eu0, eu1, ev0, ev1),
                 "nu": nu, "nv": nv, "cells": cells, "lights": lights, "start": (us[0], vs[0])}
 
-    def bake_cell(self, name, w, pts, cu, cv):
-        """(texture, ty0, th, u0, u1, v0, v1): crop in stored texels of the cell"""
+    def bake_cell(self, name, w, pts, cu, cv, swap=False):
+        """(texture, ty0, th, u0, u1, v0, v1): crop in stored texels of the cell (swap: the face's u
+        is the texture's t and v its s: the tile cut transposed)"""
         N, r = self.N, self.res
         poly = clip(pts, cu * self.T, 0, True)
         if poly:
@@ -369,7 +391,10 @@ class Baker:
         if not any(mask):
             self.stats["cells empty"] += 1
             return (0xFFFF, 0, 0, 0, 0, 0, 0)
-        t = self.tile(name, (cu * self.T) % w.w, (cv * self.T) % w.h)
+        if swap:
+            t = self.tile(name, (cv * self.T) % w.w, (cu * self.T) % w.h, True)
+        else:
+            t = self.tile(name, (cu * self.T) % w.w, (cv * self.T) % w.h)
         if all(mask):
             self.stats["cells full"] += 1
             return ("full", self.tex_tile(t), t)
@@ -1014,6 +1039,7 @@ def main():
     baker.lod_min = int(opts.get("lodmin", LOD_MIN))     # (a bigger level, fewer coarse grids: the cart's 4 MB)
     baker.facevis_setting = opts.get("facevis", "24")      # (--facevis=64c: more samples, the leaves' corners)
     baker.portals = int(opts.get("portals", 0))          # (--portals=1: the renderer's test, OPT=-DPORTALS)
+    baker.swapuv = int(opts.get("swapuv", 0))            # (--swapuv=1: a face's u and v swapped where u's extent is the longer)
     baker.bake(args[2], opts.get("preview"))
 
 

@@ -175,7 +175,7 @@ extern u32          vdp_gover;                          /* Gouraud tables wanted
 extern u32          vdp_overdraw, vdp_overdraw_raw;
 extern u32          vdp_od_top[6][10];                     /* (OVERDRAW_PROF) the six largest commands: raw, on-screen, corners */
 extern volatile bool vdp_od_take;                        /* set to have the next frame's taken */
-extern u32          vdp_od_model[6];                      /* that frame by Mednafen's model: commands, lines skipped, walked, dots off, on, cycles */
+extern u32          vdp_od_model[11];                      /* that frame by Mednafen's model: commands, lines skipped, walked, dots off, on, cycles */
 extern volatile u32 vdp_swap_chain_wait;                       /* (OPT=-DOVERDRAW_PROF) pixels the last list asked for */
 void                vdp_set_pipelined(bool on);         /* submit returns at once, the swap's by interrupt (vdp.c) */
 bool                vdp_dma_queue(u32 vram, const void *src, u32 bytes);    /* into VRAM with the lists (vdp_submit) */

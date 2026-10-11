@@ -3904,3 +3904,68 @@ two fields), turned 331.1 (346.6), the fight 60.7 (61.4), up 3 fields
 315 and 4 fields 15 (299 and 27); the picture clean; CW 2. On Mednafen
 (PAL) the fight went from four fields to two with it: its V1 36.6 is
 under the second field's line 216.
+
+## 80. The lines and the dots: which way a cell is drawn, and from which end
+
+Mednafen's model of VDP1 (78), costed at each held view's submit and
+printed on HW_BENCH's page 3 (OVERDRAW_PROF): a cell is dmax + 1 lines
+from its edge AD to its edge BC, each 12 cycles and 1.19 a dot, and a
+line is walked from its start till it leaves the screen, so a line
+that starts off the screen pays for its dots till it enters, while
+one wholly past an edge is 12 cycles (vdp1_common.h: `drawn_ac`, the
+line returns at the first clipped dot after a drawn one). Two choices
+the renderer has for free follow. The page's columns, 0.1 ms a view:
+MS the commands as sent; BEST each with its lines along whichever of
+its sides costs less; TR all of them the other way (transposed); RULE
+each along whichever side is the shorter on the screen (a rule the
+renderer could apply); FLIP each from whichever end costs less; FLPR
+each from the end the renderer's rule picks; ALL the cheapest of the
+four. The lean bake, Outer Base, Mednafen:
+
+| view | MS | BEST | TR | RULE | FLIP | FLPR | ALL |
+|---|---|---|---|---|---|---|---|
+| 1 | 154 | 125 | 145 | 146 | 133 | 133 | 122 |
+| 2 | 266 | 223 | 277 | 240 | 241 | 241 | 214 |
+| 3 | 104 | 79 | 123 | 96 | 90 | 90 | 77 |
+| 4 | 251 | 192 | 260 | 243 | 188 | 188 | 166 |
+| 5 | 149 | 124 | 141 | 137 | 135 | 135 | 118 |
+| 6 | 200 | 134 | 149 | 148 | 149 | 149 | 131 |
+
+**Which way (the bake's u/v swap, SWAPUV=1): a loss.** The idea: a
+cell's lines should step along the side foreshortened in the usual
+view of it (a wall's length), so there are fewer of them: the bake
+swaps a face's u and v where u's extent is the longer and cuts its
+tiles transposed (bake_map.py `swapuv`, the lightmap sampled the other
+way round; cells.s and the C already draw a transposed texture). It
+rebakes and looks right, and by the model it costs more: views 2, 3
+and 4 up 8%, 38% and 6%, the lines walked up a tenth and the dots off
+the screen up four times on view 3. A wall's cell drawn in vertical
+lines pays, in every line, for the part above the screen, where its
+horizontal lines above the screen were 12 cycles each. The per-cell
+BEST (16-33% under MS) needs the view, not the face: RULE (the shorter
+screen side) gets 3-26% of it and would need both orientations of
+every texture in VRAM. Left in as an option, off.
+
+**From which end (the flip): 9-26% off a view, for nothing.** The
+same cell drawn from its other end, corners B A D C with its texture
+read mirrored (CMDCTRL's horizontal flip, bit 4), is the same picture,
+and its lines start where B and C are. Where A and D are the further
+off the screen, that's the end to start from: the lead-in dots go. The
+renderer's rule (render.c FLIP_START, `off_screen`: how far a corner
+is past the screen's edges, the two ends' summed) is as good as the
+ideal (FLPR = FLIP, every view); cell_emit and split_piece apply it to
+the C's cells, and cells.s (`.Lflip`, out of the loop: a cell whose
+corner A is outside an edge, then A and D both outside one edge and
+B and C not, the Gouraud table the other way round too, the CTRL with
+the flip's bit from `spare[0]`) to the fast path's. The fast path's
+loop had no room for more than its seven-instruction test: a longer
+one made the assembler stretch the loop's branches. With both: MS 133
+241 90 188 137 151 (FLIP 133 241 90 188 135 149), the dots off the
+screen 0 0 0 4 0 0 tenths of a screen (6 7 4 24 4 16); Mednafen's V1
+held 208 316 0 272 219 232 against 231 321 0 341 233 310, frames held
+3141 (3392), turned 2587 (3158). `OPT=-DNO_FLIP_START`: as before.
+SUITE 37 is this build for the card.
+
+Also: the gun missing in a BENCH_HOLD build on Mednafen (79) didn't
+come back: four builds (the erase's register writes with the polygon
+kept, neither, the polygon alone, the default) all show it; a one-off.

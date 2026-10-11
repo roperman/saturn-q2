@@ -31,11 +31,15 @@ for m in demo1 demo2 demo3; do
     # (CELL=64: the lean bake, cells twice the side and a quarter the count, the textures at a quarter
     # of their resolution; the maps are rebaked when it changes. README: Settings)
     cell=${CELL:-32}
+    # (SWAPUV=1: a face's u and v swapped where u's extent is the longer, so VDP1's lines step along
+    # the foreshortened side: fewer lines, but more dots walked off the screen, so it lost by the
+    # model, OVERNIGHT.md 80; the default leaves them as the map has them)
+    swapuv=${SWAPUV:-0}
     if [ ! -f "$out" ] || [ ! -f "${out%.MAP}.SKY" ] || [ -n "$(find tools -newer "$out" -name '*.py')" ] \
-        || [ "$(cat "obj/$m.facevis" 2>/dev/null)" != "$facevis c$cell p$portals" ]; then
+        || [ "$(cat "obj/$m.facevis" 2>/dev/null)" != "$facevis c$cell p$portals s$swapuv" ]; then
         python3 tools/bake_map.py data/pak0.pak "maps/$m.bsp" "$out" --cell=$cell --res=${RES:-$((cell / 16))} \
-            --lodmin=$lodmin --portals=$portals --facevis=$facevis
-        echo "$facevis c$cell p$portals" > "obj/$m.facevis"
+            --lodmin=$lodmin --portals=$portals --facevis=$facevis --swapuv=$swapuv
+        echo "$facevis c$cell p$portals s$swapuv" > "obj/$m.facevis"
     fi
 done
 # the status bar's pictures

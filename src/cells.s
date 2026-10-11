@@ -221,6 +221,15 @@ _cells_asm:
         mov.l   r0,@(24,r9)
 2:
 .Lgouraud:
+        ! the end the lines start from (OVERNIGHT.md 80, render.c FLIP_START): a cell with its
+        ! corner A outside an edge of the screen: .Lflip (out of the way: the loop's branches
+        ! are short ones)
+        mov.l   @(G_OC,r4),r0
+        swap.w  r0,r0
+        shlr8   r0
+        tst     #15,r0
+        bf      .Lflip
+.Lflipped:
         ! the Gouraud table: the corners' lights in the same order
         mov.w   @r7,r1                  ! light[i]
         mov.w   @(2,r7),r0              ! light[i + 1]
@@ -248,9 +257,9 @@ _cells_asm:
         shll16  r0
         mov.l   r0,@(28,r9)             ! GRDA
         add     #1,r13
-        ! CTRL and LINK
+        ! CTRL and LINK (.Lctrl: a flipped cell's, its CTRL in r0)
         mov.l   @(C_CTRL,r14),r0
-        mov.l   @(C_FIFO,r14),r1
+.Lctrl: mov.l   @(C_FIFO,r14),r1
         tst     r1,r1
         bf      4f
         or      r11,r0                  ! pushed: to the one before
@@ -346,6 +355,82 @@ _cells_asm:
         mov.l   @r15+,r9
         rts
         mov.l   @r15+,r8
+
+.Lflip:
+        ! where A and D are both outside one edge of the screen and B and C aren't, the lines
+        ! start from the other end: the corners B A D C and the texture read mirrored (CTRL's
+        ! horizontal flip; C_ROW + 28, spare[0]: the flip's bit, or 0 for none of this); then
+        ! the Gouraud table as .Lflipped's, the other way round too
+        mov     r14,r3
+        add     #C_ROW,r3
+        mov.l   @(28,r3),r3
+        tst     r3,r3
+        bt      1f
+        mov.l   @(G_OC+G_SIZE,r4),r0    ! top[i + 1]: B (D if transposed)
+        mov.l   @(G_OC,r5),r1           ! bot[i]: D (B if transposed)
+        tst     r2,r2
+        bt      2f
+        mov     r0,r3
+        mov     r1,r0
+        mov     r3,r1
+2:      mov.l   @(G_OC,r4),r3           ! A
+        and     r3,r1                   ! A and D
+        mov.l   @(G_OC+G_SIZE,r5),r3    ! C
+        and     r3,r0                   ! B and C
+        mov     #15,r3                  ! the four edges' bits (the top byte)
+        shll16  r3
+        shll8   r3
+        and     r3,r1
+        and     r3,r0
+        tst     r1,r1
+        bt      1f                      ! A and D aren't both outside one edge
+        tst     r0,r0
+        bt      3f                      ! B and C aren't: flip
+1:      bra     .Lflipped
+        nop
+3:      mov.l   @(12,r9),r0
+        mov.l   @(16,r9),r1
+        mov.l   r1,@(12,r9)
+        mov.l   r0,@(16,r9)
+        mov.l   @(20,r9),r0
+        mov.l   @(24,r9),r1
+        mov.l   r1,@(20,r9)
+        mov.l   r0,@(24,r9)
+        mov.w   @r7,r1                  ! light[i]
+        mov.w   @(2,r7),r0              ! light[i + 1]
+        shll16  r1
+        extu.w  r0,r0
+        or      r0,r1                   ! A B
+        mov.l   @(C_STRIDE2,r14),r0
+        mov.w   @(r0,r7),r3             ! D: the row below's light[i]
+        add     #2,r0
+        mov.w   @(r0,r7),r0             ! C: its light[i + 1]
+        shll16  r0
+        extu.w  r3,r3
+        or      r3,r0                   ! C D
+        tst     r2,r2
+        bt      4f
+        mov     r1,r3                   ! transposed: A D, C B (swap the low halves)
+        xor     r0,r3
+        extu.w  r3,r3
+        xor     r3,r1
+        xor     r3,r0
+4:      swap.w  r1,r1                   ! flipped: B A, D C
+        swap.w  r0,r0
+        mov.l   r1,@r12
+        mov.l   r0,@(4,r12)
+        add     #8,r12
+        mov     r13,r0
+        shll16  r0
+        mov.l   r0,@(28,r9)             ! GRDA
+        add     #1,r13
+        mov.l   @(C_CTRL,r14),r0
+        mov     r14,r3
+        add     #C_ROW,r3
+        mov.l   @(28,r3),r3
+        or      r3,r0                   ! CTRL with the flip
+        bra     .Lctrl
+        nop
 
         .align  1
 .Lmask: .short  0x3FFF

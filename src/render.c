@@ -1416,6 +1416,36 @@ static inline u32   gv_xy(r_ctx *c, const gv *v)
 #define XY_X(p)         ((s32)(p) >> 16)
 #define XY_Y(p)         ((s32)(s16)(p))
 
+/* VDP1 walks a line from its start till it leaves the screen, so a line that starts off the
+   screen pays for its dots till it enters (OVERNIGHT.md 80). A command's lines run from its
+   edge AD to its edge BC: where A and D are the further off the screen, it's given from the
+   other end, corners B A D C and its texture read mirrored (CMDCTRL's horizontal flip): the
+   same picture. The measure: how far off the screen a corner is, the two ends' summed.
+   OPT=-DNO_FLIP_START: as it was */
+#ifndef NO_FLIP_START
+static inline s32   off_screen(u32 p)
+{
+    s32             x = XY_X(p), y = XY_Y(p), d = 0;
+
+    if (x < 0)
+        d = -x;
+    else if (x >= SCREEN_W)
+        d = x - (SCREEN_W - 1);
+    if (y < 0)
+    {
+        if (-y > d)
+            d = -y;
+    }
+    else if (y >= SCREEN_H && y - (SCREEN_H - 1) > d)
+        d = y - (SCREEN_H - 1);
+    return d;
+}
+#define FLIP_START(a, b, c, d)  (off_screen(a) + off_screen(d) > off_screen(b) + off_screen(c))
+#else
+#define FLIP_START(a, b, c, d)  (0)
+#endif
+#define VDP1_HFLIP      (0x10)
+
 static inline void  lerp3(v3 *o, const v3 *p, const v3 *q, s32 t)
 {
     o->x = p->x + fmul(q->x - p->x, t);
@@ -1608,25 +1638,40 @@ static __attribute__((noinline)) void cell_emit(r_ctx *x, const q_cell *cell, in
         lc = dlight_add(x->dmask, &P[2], lc);
         ld = dlight_add(x->dmask, &P[3], ld);
     }
-    d[0] = 0x10020000u | link;              /* jump assign, distorted sprite */
-    d[1] = x->cpmod | ((lut_vram + lut * 32) >> 3);
-    d[2] = ((vram + (u32)ty0 * (u32)(tw >> 1)) >> 3) << 16 | (u32)(((tw >> 3) << 8) | th);
-    d[3] = xy[0];
-    d[5] = xy[2];
-    if (tl & TEX_TRANSPOSED)
     {
-        /* the texture's rows run down the cell: A (u0, v0), B (u0, v1), C (u1, v1), D (u1, v0) */
-        d[4] = xy[3];
-        d[6] = xy[1];
-        grda = vdp_gouraud_fast(w, (u32)la << 16 | ld, (u32)lc << 16 | lb);
-    }
-    else
-    {
-        d[4] = xy[1];
-        d[6] = xy[3];
+        u32 ca = xy[0], cb, cc = xy[2], cd, ctrl = 0x10020000u | link;  /* jump assign, distorted sprite */
+
+        if (tl & TEX_TRANSPOSED)
+        {
+            /* the texture's rows run down the cell: A (u0, v0), B (u0, v1), C (u1, v1), D (u1, v0) */
+            cb = xy[3]; cd = xy[1];
+            lb ^= ld; ld ^= lb; lb ^= ld;
+        }
+        else
+        {
+            cb = xy[1]; cd = xy[3];
+        }
+        if (FLIP_START(ca, cb, cc, cd))
+        {
+            u32 t;
+            u16 l;
+
+            t = ca; ca = cb; cb = t;
+            t = cc; cc = cd; cd = t;
+            l = la; la = lb; lb = l;
+            l = lc; lc = ld; ld = l;
+            ctrl |= VDP1_HFLIP << 16;
+        }
+        d[0] = ctrl;
+        d[1] = x->cpmod | ((lut_vram + lut * 32) >> 3);
+        d[2] = ((vram + (u32)ty0 * (u32)(tw >> 1)) >> 3) << 16 | (u32)(((tw >> 3) << 8) | th);
+        d[3] = ca;
+        d[4] = cb;
+        d[5] = cc;
+        d[6] = cd;
         grda = vdp_gouraud_fast(w, (u32)la << 16 | lb, (u32)lc << 16 | ld);
+        d[7] = (u32)grda << 16;
     }
-    d[7] = (u32)grda << 16;
 }
 
 /* where grid point (i, j) of the face being drawn is in view space: its grid
@@ -2858,6 +2903,17 @@ static void         split_piece(r_ctx *x, const split_cell *sc, int ua, int ub, 
         return;
     PROF(++x->st.pieces);
     d[0] = 0x10020000u | link;
+    if (FLIP_START(xy[0], xy[1], xy[2], xy[3]))
+    {
+        u32 t;
+        u16 m;
+
+        t = xy[0]; xy[0] = xy[1]; xy[1] = t;
+        t = xy[2]; xy[2] = xy[3]; xy[3] = t;
+        m = l[0]; l[0] = l[1]; l[1] = m;
+        m = l[2]; l[2] = l[3]; l[3] = m;
+        d[0] |= VDP1_HFLIP << 16;
+    }
     d[1] = x->cpmod | ((lut_vram + sc->lut * 32) >> 3);
     /* quarter (qv, qu), from its row ty0: h / 2 bytes a row */
     d[2] = (((u32)vram >> 3) + (u32)((qv * 2 + (ua >= h)) * h + ty0) * (u32)h / 16) << 16
@@ -3103,6 +3159,11 @@ static void         cells_frame(r_ctx *x)
     a->tail = &x->w->tail[x->bucket];
     a->fast = CELL_FULL | CELL_EXACT;
     a->near24 = (u32)(OC_NEAR | OC_FAR) << 24;
+#ifndef NO_FLIP_START
+    a->spare[0] = (u32)VDP1_HFLIP << 16;    /* (the lines' start end chosen: cells.s .Lgouraud) */
+#else
+    a->spare[0] = 0;
+#endif
     a->N = (u32)lv.N;
     a->rcp = rcp;
     a->slot_lut = slot_lut;

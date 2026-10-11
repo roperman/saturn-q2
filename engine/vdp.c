@@ -136,7 +136,15 @@ volatile bool       vdp_od_take;
    where it leaves the screen, 1.19 cycles a dot, plus 12; a command 20, a Gouraud table 4, a
    lookup table 16. vdp_od_model: commands, lines skipped, lines walked, dots walked off the
    screen, dots on it, cycles */
-u32                 vdp_od_model[6];
+u32                 vdp_od_model[11];   /* ...[6] the cycles with each command's lines along its cheaper side,
+                                           [7] with every command's along the other side (transposed),
+                                           [8] with each run from the end the renderer's rule picks (the corners'
+                                           distances off the screen: od_off, as render.c FLIP_START),
+                                           [9] with each command's lines run from whichever end is cheaper (its
+                                           texture flipped, B and C the first corners: a line walks from its
+                                           start till it leaves the screen, so one starting off it pays for the
+                                           dots till it enters), [10] the cheapest of the four */
+static u32          od_acc[6];          /* one command's lines skipped, walked, dots off, on, cycles */
 static void         od_line(s32 x0, s32 y0, s32 x1, s32 y1)
 {
     s32             dx = x1 - x0, dy = y1 - y0, adx = dx < 0 ? -dx : dx, ady = dy < 0 ? -dy : dy;
@@ -146,8 +154,8 @@ static void         od_line(s32 x0, s32 y0, s32 x1, s32 y1)
 
     if ((x0 < 0 && x1 < 0) || (x0 >= SCREEN_W && x1 >= SCREEN_W) || (y0 < 0 && y1 < 0) || (y0 >= SCREEN_H && y1 >= SCREEN_H))
     {
-        ++vdp_od_model[1];
-        vdp_od_model[5] += 12;
+        ++od_acc[1];
+        od_acc[5] += 12;
         return;
     }
     p[0] = -dx; q[0] = x0;
@@ -162,7 +170,7 @@ static void         od_line(s32 x0, s32 y0, s32 x1, s32 y1)
             if (p[k] < 0) { if (t > t0) t0 = t; }
             else          { if (t < t1) t1 = t; }
         }
-    ++vdp_od_model[2];
+    ++od_acc[2];
     if (t0 > t1)
     {
         walked = len;                       /* (misses the screen past a corner: walked whole) */
@@ -175,19 +183,54 @@ static void         od_line(s32 x0, s32 y0, s32 x1, s32 y1)
         if (walked > len)
             walked = len;
     }
-    vdp_od_model[3] += (u32)off;
-    vdp_od_model[4] += (u32)(walked - off);
-    vdp_od_model[5] += 12 + (u32)walked * 119 / 100;
+    od_acc[3] += (u32)off;
+    od_acc[4] += (u32)(walked - off);
+    od_acc[5] += 12 + (u32)walked * 119 / 100;
+}
+/* a quad's lines: stepped along AD and BC (as VDP1 does), or, transposed, along AB and DC */
+static s32          od_quad(s32 xa, s32 ya, s32 xb, s32 yb, s32 xc, s32 yc, s32 xd, s32 yd, bool transposed)
+{
+    s32             dmax = 0, d, i;
+
+    memset(od_acc, 0, sizeof(od_acc));
+    if (transposed)
+    {
+        s32 t;
+
+        t = xb; xb = xd; xd = t;            /* B and D swapped: AD is the old AB, BC the old DC */
+        t = yb; yb = yd; yd = t;
+    }
+    d = xd - xa; if (d < 0) d = -d; if (d > dmax) dmax = d;
+    d = yd - ya; if (d < 0) d = -d; if (d > dmax) dmax = d;
+    d = xc - xb; if (d < 0) d = -d; if (d > dmax) dmax = d;
+    d = yc - yb; if (d < 0) d = -d; if (d > dmax) dmax = d;
+    for (i = 0; i <= dmax; ++i)
+    {
+        s32 lx = dmax ? xa + (s32)(((s64)(xd - xa) * i) / dmax) : xa, ly = dmax ? ya + (s32)(((s64)(yd - ya) * i) / dmax) : ya;
+        s32 rx = dmax ? xb + (s32)(((s64)(xc - xb) * i) / dmax) : xb, ry = dmax ? yb + (s32)(((s64)(yc - yb) * i) / dmax) : yb;
+
+        od_line(lx, ly, rx, ry);
+    }
+    return dmax;
+}
+static s32          od_off(s32 x, s32 y)    /* (how far off the screen: the renderer's measure) */
+{
+    s32             d = 0;
+
+    if (x < 0) d = -x; else if (x >= SCREEN_W) d = x - (SCREEN_W - 1);
+    if (y < 0) { if (-y > d) d = -y; } else if (y >= SCREEN_H && y - (SCREEN_H - 1) > d) d = y - (SCREEN_H - 1);
+    return d;
 }
 static void         od_cost(const vdp1_cmd *c)
 {
-    s32             xa, ya, xb, yb, xc, yc, xd, yd, dmax, d, i;
+    s32             xa, ya, xb, yb, xc, yc, xd, yd;
+    u32             over, c1, c2, c3, c4, m;
     int             t = c->ctrl & 0xF;
 
     if (c->ctrl & 0xC000)
         return;
     ++vdp_od_model[0];
-    vdp_od_model[5] += 20 + ((c->pmod & 4) ? 4 : 0) + (((c->pmod >> 3) & 7) == 1 ? 16 : 0);
+    over = 20 + ((c->pmod & 4) ? 4 : 0) + (((c->pmod >> 3) & 7) == 1 ? 16 : 0);
     if (t == 0)
     {
         xa = c->xa; ya = c->ya;
@@ -201,18 +244,25 @@ static void         od_cost(const vdp1_cmd *c)
     }
     else
         return;
-    dmax = 0;
-    d = xd - xa; if (d < 0) d = -d; if (d > dmax) dmax = d;
-    d = yd - ya; if (d < 0) d = -d; if (d > dmax) dmax = d;
-    d = xc - xb; if (d < 0) d = -d; if (d > dmax) dmax = d;
-    d = yc - yb; if (d < 0) d = -d; if (d > dmax) dmax = d;
-    for (i = 0; i <= dmax; ++i)
-    {
-        s32 lx = dmax ? xa + (s32)(((s64)(xd - xa) * i) / dmax) : xa, ly = dmax ? ya + (s32)(((s64)(yd - ya) * i) / dmax) : ya;
-        s32 rx = dmax ? xb + (s32)(((s64)(xc - xb) * i) / dmax) : xb, ry = dmax ? yb + (s32)(((s64)(yc - yb) * i) / dmax) : yb;
-
-        od_line(lx, ly, rx, ry);
-    }
+    od_quad(xa, ya, xb, yb, xc, yc, xd, yd, true);
+    c2 = od_acc[5];
+    od_quad(xd, yd, xa, ya, xb, yb, xc, yc, false);     /* (transposed, from the D end) */
+    c4 = od_acc[5];
+    od_quad(xb, yb, xa, ya, xd, yd, xc, yc, false);     /* (flipped: from the B end) */
+    c3 = od_acc[5];
+    od_quad(xa, ya, xb, yb, xc, yc, xd, yd, false);
+    c1 = od_acc[5];
+    vdp_od_model[1] += od_acc[1];
+    vdp_od_model[2] += od_acc[2];
+    vdp_od_model[3] += od_acc[3];
+    vdp_od_model[4] += od_acc[4];
+    vdp_od_model[5] += c1 + over;
+    vdp_od_model[6] += (c1 < c2 ? c1 : c2) + over;
+    vdp_od_model[7] += c2 + over;
+    vdp_od_model[8] += (od_off(xa, ya) + od_off(xd, yd) > od_off(xb, yb) + od_off(xc, yc) ? c3 : c1) + over;
+    vdp_od_model[9] += (c3 < c1 ? c3 : c1) + over;
+    m = c1 < c2 ? c1 : c2; if (c3 < m) m = c3; if (c4 < m) m = c4;
+    vdp_od_model[10] += m + over;
 }
 static void         od_note(const vdp1_cmd *c, u32 raw)
 {

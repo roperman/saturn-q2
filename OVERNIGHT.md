@@ -4056,4 +4056,51 @@ Saturn's pages say decides what to cut (its faces' code runs 2-3x
 slower than Mednafen's): on the card as SUITE 39. **Its page 1 on the
 Saturn:** held CPU 2578, frames 303.2, the fight 59.8 / 54.6, game 11.4:
 the sampler costs nothing measurable (SUITE 38's 2588, 304.1, 59.8 /
-55.0). Pages 2-5 to come.
+55.0).
+
+**Its pages 2-5** (the held views, ms a frame averaged over the six, so
+the VDP1-bound views' waits are in them). Each view's CPU / frame / walk,
+0.1 ms: 426/460/100, 702/729/128, 108/199/24, 451/598/112, 425/448/117,
+466/598/80: the walk 10-12.8 ms on a Saturn against Mednafen's 5.9. The
+master: face_asm 7.5, walk_asm 7.3, vdp_submit 7.2 (1067 of its 1133
+samples in one spot, the wait for VDP1: views 2, 4 and 6), cells_asm 6.6,
+grid_face_asm 5.1, face_cells 4.6, fb_add 1.9, render_world 1.5, the
+models 2.8. The slave: idle 12.4, face_asm 8.8, cells_asm 5.1,
+face_cells 5.0, grid_face_asm 4.7, the models 9.1 (polygons 2.5,
+draw_model 2.5, vertices 2.1, commands 2.0), fb_add 2.0, render_slave
+1.0. The faces' setup is 16.3 ms of the pair's time a frame, the cells
+11.7, face_cells 9.6, the grid 9.8, the models 11.9. The master's hot
+spots (offset: samples): face_asm 40:81 28:63 18:44 230:33 (its first
+reads of the face); walk_asm 1E0:56 2A0:51 240:38 250:37; cells_asm
+7C:95 11C:53 8C:32 84:31; grid_face_asm 3A:30 72:30 12:26 A2:25;
+face_cells B0:51 210:27 A30:27 640:26.
+
+## 83. The frame of floor alone: VBE left up at a vblank with no change
+
+Roper: "there is an occasional flicker where only the background is
+drawn (im guessing just the vdp2), and no walls floors etc", first seen
+during the VDP1 work. vdp.c's old manual-erase code describes the
+picture exactly: a wiped buffer left on screen for a frame. Since SUITE
+36 VDP1 erases the frame buffer itself (79): the swap's interrupt at
+line 216 sets VBE with FBCR=3, the vblank-in interrupt sets it again
+(the manual's timing) and the vblank-out's cleared it, but only when
+that vblank-in had seen the swap. The manual (ST-013 4.2): once VBE is
+1 the erase runs in every vblank till it's cleared, and the change
+happens at the end of the vblank FBCR was written in. So two late
+interrupts make a blank field:
+
+- the swap's interrupt running after the vblank-in (8 lines late): its
+  VBE erases and changes at that vblank's end, nothing clears VBE, and
+  the next vblank-in sets it again with no change queued (the CPUs are
+  mid-frame): the picture on screen is erased;
+- the vblank-in interrupt running after the vblank-out: its VBE is set
+  for a whole field and the next vblank erases the picture.
+
+Mednafen samples VBE at the vblank-in only, so it never shows this.
+Now the swap's interrupt puts the swap off a field when it finds the
+vblank begun, the vblank-in interrupt clears VBE instead of setting it
+when it finds the vblank over, and the vblank-out clears VBE every
+field. HW_BENCH page 1 counts both late cases (LV, since boot). On the
+card: "lean bake, erase guarded" (the fix), "lean bake, polygon clear"
+(OPT=-DNO_VBE_ERASE, the A/B: no erase at all, so no such flicker if
+this is the cause), SUITE 40 (the bench with the counts).

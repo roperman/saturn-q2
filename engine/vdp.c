@@ -88,8 +88,12 @@ static bool         no_hw_erase;
    FBCR=3, the manual's "erase & change": the displayed buffer erased during that vblank, then the
    change, then the drawing), so no clear polygon: 3 ms of VDP1's time a frame on a Saturn
    (OVERNIGHT.md SUITE 31). VBE is set with the swap at line 216 and again right after the vblank-in
-   (the manual's timing; Mednafen samples it at the vblank-in), and cleared at the vblank-out, before
-   the next vblank could erase the picture. OPT=-DNO_VBE_ERASE: the clear polygon, as before */
+   (the manual's timing; Mednafen samples it at the vblank-in), and cleared at every vblank-out, before
+   the next vblank could erase the picture. A swap's interrupt that runs late, in the vblank, puts
+   the swap off a field, and a vblank-in interrupt that runs after the vblank-out clears VBE instead
+   of setting it: either way VBE is never up at a vblank with no change, which would erase the
+   picture on screen (a frame of VDP2's floor alone, seen now and then on a Saturn: OVERNIGHT.md 83).
+   OPT=-DNO_VBE_ERASE: the clear polygon, as before */
 #define VBE_NTSC_ROWS   (104)           /* (NTSC: rows the vblank erase is trusted with; the polygon does the rest) */
 #ifndef NO_VBE_ERASE
 static bool         vbe_erase = true;
@@ -347,7 +351,8 @@ void                (*vdp_stall_hook)(const u32 *r);    /* (a test: vdp_submit w
                                                        words)) */
 static volatile u32 queued_frame;
 static volatile bool hook_due;
-static volatile bool vbe_clear;         /* VBE set for this swap's vblank: clear it at the vblank-out */
+volatile u32        vdp_swap_in_vblank; /* swaps put off a field: the swap's interrupt ran late, in the vblank */
+volatile u32        vdp_vblank_late;    /* vblank-in interrupts that ran after the vblank-out (VBE cleared there) */
 static u32          frames_sent;
 volatile u32        vdp_shown;          /* the frame (vdp_frame_no's count) whose picture is on screen */
 volatile u32        vdp_swap_fields[8]; /* pictures that stayed on screen 1, 2, ... 7+ fields (pipelined) */
@@ -405,7 +410,12 @@ void                swap_isr(void)
         draw_done(2);
     if (queued >= 0 && (VDP1_EDSR & 2) && !scu_dma0_chain_done())
         ++vdp_swap_chain_wait;          /* (VDP1 done, the swap held a field by the chain's DMA) */
-    if (queued >= 0 && (VDP1_EDSR & 2) && scu_dma0_chain_done())
+    if (queued >= 0 && (VDP1_EDSR & 2) && scu_dma0_chain_done() && (VDP2_TVSTAT & 8))
+        ++vdp_swap_in_vblank;           /* (late: the vblank's begun, so the vblank-in interrupt has run. VBE set
+                                           now would erase and change at this vblank's end, but nothing would clear
+                                           it before the next, which would erase the picture on screen with no
+                                           change: a frame of VDP2's floor alone. The swap waits a field) */
+    if (queued >= 0 && (VDP1_EDSR & 2) && scu_dma0_chain_done() && !(VDP2_TVSTAT & 8))
     {
         ++vdp_swap_fields[fields < 7 ? fields : 7];
         fields = 0;
@@ -427,8 +437,18 @@ void                vblank_isr(void)
     {
         hook_due = false;
         if (vbe_erase)
-            VDP1_TVMR = 8;              /* (again, "immediately after the V-blank IN": the manual's timing) */
-        vbe_clear = vbe_erase;
+        {
+            if (VDP2_TVSTAT & 8)
+                VDP1_TVMR = 8;          /* (again, "immediately after the V-blank IN": the manual's timing) */
+            else
+            {
+                /* late, past the vblank-out (which cleared VBE already, or ran before this and
+                   didn't): the erase and change are done on line 216's VBE; set again now it would
+                   erase the picture at the next vblank with no change */
+                VDP1_TVMR = 0;
+                ++vdp_vblank_late;
+            }
+        }
         draw_t0 = frt_read();           /* the swap's taken: VDP1 starts on the next list (PTMR=2) */
         draw_open = true;
         if (vblank_hook)
@@ -439,11 +459,10 @@ void                vblank_isr(void)
 /* the pad (sys.c): the SMPC reads at the top of the picture */
 void                vblank_out_isr(void)
 {
-    if (vbe_clear)
-    {
-        VDP1_TVMR = 0;                  /* (the erase done and the change made: not again next vblank) */
-        vbe_clear = false;
-    }
+    if (vbe_erase)
+        VDP1_TVMR = 0;                  /* (the erase done and the change made: not again next vblank; every
+                                           vblank-out, whether or not this one's swap set it: a VBE left set
+                                           erases the picture on screen) */
     pad_vblank();
 }
 

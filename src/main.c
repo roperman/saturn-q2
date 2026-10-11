@@ -1515,9 +1515,9 @@ static __attribute__((cold)) void hb_screen(int page)
     vdp_printf(8, y, w, "FIGHT %d.%d CPU %d.%d GAME %d.%d", fight_us / n / 1000, fight_us / n / 100 % 10,
                fight_cpu / n / 1000, fight_cpu / n / 100 % 10, fight_game / n / 1000, fight_game / n / 100 % 10);
     y += 10;
-    vdp_printf(8, y, w, "UP 1:%d 2:%d 3:%d 4:%d DROP %d %d CW %d", fight_swaps[1], fight_swaps[2], fight_swaps[3],
+    vdp_printf(8, y, w, "UP 1:%d 2:%d 3:%d 4:%d DROP %d %d CW %d LV %d %d", fight_swaps[1], fight_swaps[2], fight_swaps[3],
                fight_swaps[4] + fight_swaps[5] + fight_swaps[6] + fight_swaps[7], fight_drop[0], fight_drop[1],
-               vdp_swap_chain_wait);      /* (CW: fields a swap waited for the chain's DMA, since boot) */
+               vdp_swap_chain_wait, vdp_swap_in_vblank, vdp_vblank_late);      /* (CW: fields a swap waited for the chain's DMA, since boot) */
     y += 14;
     vdp_printf(8, y, g, "HW %d LW %d CA %d SL %d", hw, lw, ca, r_tex_slots());
     y += 10;

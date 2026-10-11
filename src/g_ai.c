@@ -122,6 +122,23 @@ static __attribute__((cold, noinline)) bool SV_flystep(g_ent *ent, const s32 *mo
 }
 
 /* a walking step: up a stair or down one, not off a ledge; false (and no move) if it can't */
+#ifdef TICK_PROF
+u32                 tp_estep[2];            /* (steps blocked by an entity before the world's trace: at the start, lowered too) */
+u32                 tp_fail[8];             /* (steps: taken; failed all solid, start solid twice, water, off an edge, the
+                                               bottom check, flying; the world's trace start solid) */
+u32                 tp_memo[2];             /* (steps refused from memory; refusals remembered) */
+#define TP_ESTEP(k) (++tp_estep[k])
+#define TP_FAIL(k)  (++tp_fail[k])
+#else
+#define TP_ESTEP(k) ((void)0)
+#define TP_FAIL(k)  ((void)0)
+#endif
+#ifdef TICK_PROF
+#define TP_MEMO(k)  (++tp_memo[k])
+#else
+#define TP_MEMO(k)  ((void)0)
+#endif
+static bool         step_world_no;          /* the last step failed in the world: from here it fails again */
 static bool         SV_movestep(g_ent *ent, const s32 *move)
 {
     s32             oldorg[3], neworg[3], end[3], test[3];
@@ -129,8 +146,12 @@ static bool         SV_movestep(g_ent *ent, const s32 *move)
     g_ent           *hit;
     int             k;
 
+    step_world_no = false;
     if (ent->flags & FL_FLY)
+    {
+        TP_FAIL(6);
         return SV_flystep(ent, move);
+    }
     for (k = 0; k < 3; ++k)
     {
         oldorg[k] = ent->origin[k];
@@ -140,15 +161,50 @@ static bool         SV_movestep(g_ent *ent, const s32 *move)
     for (k = 0; k < 3; ++k)
         end[k] = neworg[k];
     end[2] -= STEPSIZE * 2;
-    t = g_trace(neworg, ent->mins, ent->maxs, end, ent, MASK_MONSTERSOLID, &hit);
-    if (t.allsolid)
-        return false;
-    if (t.startsolid)
+#ifndef NO_STEP_ENTS_FIRST
+    /* the entities first (g_start_in_solid): a box inside one is the trace's startsolid, which
+       lowers the start a step and asks again; inside one there too, the step fails: in a crowd
+       that's most of a blocked monster's tries, each two world traces (OPT=-DNO_STEP_ENTS_FIRST:
+       the traces alone, as Quake) */
+    if (g_start_in_solid(neworg, ent->mins, ent->maxs, ent, MASK_MONSTERSOLID))
     {
+        TP_ESTEP(0);
         neworg[2] -= STEPSIZE;
+        if (g_start_in_solid(neworg, ent->mins, ent->maxs, ent, MASK_MONSTERSOLID))
+        {
+            TP_ESTEP(1);
+            return false;
+        }
         t = g_trace(neworg, ent->mins, ent->maxs, end, ent, MASK_MONSTERSOLID, &hit);
         if (t.allsolid || t.startsolid)
+        {
+            TP_FAIL(t.allsolid ? 1 : 2);
+            step_world_no = t.allsolid;
             return false;
+        }
+    }
+    else
+#endif
+    {
+        t = g_trace(neworg, ent->mins, ent->maxs, end, ent, MASK_MONSTERSOLID, &hit);
+        if (t.allsolid)
+        {
+            TP_FAIL(1);
+            step_world_no = true;
+            return false;
+        }
+        if (t.startsolid)
+        {
+            TP_FAIL(7);
+            neworg[2] -= STEPSIZE;
+            t = g_trace(neworg, ent->mins, ent->maxs, end, ent, MASK_MONSTERSOLID, &hit);
+            if (t.allsolid || t.startsolid)
+            {
+                TP_FAIL(t.allsolid ? 1 : 2);
+                step_world_no = t.allsolid;
+                return false;
+            }
+        }
     }
     /* don't walk into water */
     if (ent->waterlevel == 0)
@@ -157,7 +213,10 @@ static bool         SV_movestep(g_ent *ent, const s32 *move)
         test[1] = t.endpos[1];
         test[2] = t.endpos[2] + ent->mins[2] + FIX(1);
         if (point_contents(test, 0) & MASK_WATER)
+        {
+            TP_FAIL(3);
             return false;
+        }
     }
     if (t.fraction == FIX(1))
     {
@@ -166,8 +225,11 @@ static bool         SV_movestep(g_ent *ent, const s32 *move)
             for (k = 0; k < 3; ++k)
                 ent->origin[k] += move[k];
             ent->on_ground = false;
+            TP_FAIL(0);
             return true;
         }
+        TP_FAIL(4);
+        step_world_no = true;
         return false;                       /* walked off an edge */
     }
     for (k = 0; k < 3; ++k)
@@ -175,14 +237,20 @@ static bool         SV_movestep(g_ent *ent, const s32 *move)
     if (!M_CheckBottom(ent))
     {
         if (ent->flags & FL_PARTIALGROUND)
+        {
+            TP_FAIL(0);
             return true;                    /* the floor was mostly pulled out from under it */
+        }
         for (k = 0; k < 3; ++k)
             ent->origin[k] = oldorg[k];
+        TP_FAIL(5);
+        step_world_no = true;
         return false;
     }
     ent->flags &= ~FL_PARTIALGROUND;
     ent->flags |= FL_STEPPED;
     ent->on_ground = true;                  /* (on what the step's trace found: Quake's groundentity) */
+    TP_FAIL(0);
     return true;
 }
 
@@ -205,6 +273,28 @@ static bool         SV_StepDirection(g_ent *ent, int yaw, s32 dist)
 
     ent->ideal_yaw = yaw & 0xFFFF;
     M_ChangeYaw(ent);
+#ifndef NO_BLOCK_MEMO
+    /* a step the world refused from this spot (all solid, off an edge, no bottom) is refused
+       again, this way and this far or further, without its traces: most of a blocked monster's
+       search each tick is the same directions again; remembered for a second at most, so a
+       door opening or a lift arriving is tried again (OPT=-DNO_BLOCK_MEMO: as Quake) */
+    if (ent->blk_org[0] != ent->origin[0] || ent->blk_org[1] != ent->origin[1] || ent->blk_org[2] != ent->origin[2]
+        || level.time - ent->blk_time > FIX(1))
+    {
+        /* (moved, or half a second on: a door may have opened) */
+        for (k = 0; k < 3; ++k)
+            ent->blk_org[k] = ent->origin[k];
+        ent->blk_time = level.time;
+        ent->blk_n = 0;
+    }
+    else
+        for (k = 0; k < ent->blk_n; ++k)
+            if (ent->blk_yaw[k] == (yaw & 0xFFFF) && (s32)ent->blk_dist[k] << 16 <= dist)
+            {
+                TP_MEMO(0);
+                return false;
+            }
+#endif
     move[0] = fmul(fcos(yaw), dist);
     move[1] = fmul(fsin(yaw), dist);
     move[2] = 0;
@@ -218,6 +308,14 @@ static bool         SV_StepDirection(g_ent *ent, int yaw, s32 dist)
                 ent->origin[k] = old[k];    /* not turned far enough: don't take the step */
         return true;
     }
+#ifndef NO_BLOCK_MEMO
+    if (step_world_no && ent->blk_n < 4 && dist < FIX(256))
+    {
+        ent->blk_yaw[ent->blk_n] = (u16)yaw;
+        ent->blk_dist[ent->blk_n++] = (u8)(dist >> 16);
+        TP_MEMO(1);
+    }
+#endif
     return false;
 }
 

@@ -3982,3 +3982,43 @@ ones, or the model's lead-in is longer than VDP1's); frames held 303.1
 the six, 42.5 ms a view: with VDP1 under 42 on five of them the CPU is
 now the wall of the held views as much as VDP1 (view 2's 57.5), and
 the fight's CPU 56.8 was its wall already.
+
+## 81. The monsters' steps: the ones the world refused, remembered
+
+Roper, with SUITE 37 showing the CPU as much a wall as VDP1 (80): "do
+we need to simplify how enemies work? or make them more efficient? ie
+if they commit to doing an action then we can skip checking on them".
+The ticks are already 10 Hz in eight groups (59), and a monster keeps
+the direction it last found till it's blocked (Quake's ideal_yaw), so
+the time is in what a blocked one does: the fight on Mednafen (the lean
+bake, `OPT="-DFIGHT_BENCH -DTICK_PROF"`), 2,349 running monsters' ticks
+in 502 frames, 3.2 ms each, 15.1 ms of a frame; 2,152 of those ticks
+searched for a way (CHASE 66 41 939 250 286 51 519+: found on the
+third try 939 times, the seventh or later 519). Counted by why a step
+failed (the new line): 2,353 taken, 7,023 all solid in the world (the
+box at the step's end in a wall or a crate), 2,029 off an edge, 1,026
+inside another monster, none start-solid. So the search is the same
+wall refused again, tick after tick, each refusal a box trace or two.
+
+- **The other monsters first** (g_main.c `g_start_in_solid`, in
+  SV_movestep): a step whose box is inside another monster's is the
+  trace's start-solid, which lowers the start a step and traces again;
+  inside one there too, it fails. Asking the boxes first gives the same
+  answer without the two world traces. 1,026 steps in the fight, and
+  only 0.3 ms of the game's 11.4: those traces were the cheap ones.
+  `OPT=-DNO_STEP_ENTS_FIRST`.
+- **The refusals remembered** (g_ai.c SV_StepDirection, game.h
+  `blk_*`): a step the world refused from where the monster stands (all
+  solid, off an edge, no bottom) is refused again in that direction, at
+  that length or longer, without its traces; up to four a monster,
+  forgotten when it moves or a second on (a door may have opened; half
+  a second gave back a third of the saving). 5,253 steps answered from
+  memory in the fight: the running monsters' tick 3.2 -> 2.2 ms, 15.1 ->
+  10.7 ms of a frame; the fight's CPU 37.4 -> 35.8 ms, the game 11.4 ->
+  8.x; every frame two fields on Mednafen's PAL (501 + 1 of 3 before).
+  The fight runs a little differently with it (CHASE 965 258 293 51
+  537+: the searches that still happen find their way the same tries
+  in), as a step of a fraction of a unit less than a remembered one is
+  refused too. `OPT=-DNO_BLOCK_MEMO`.
+
+SUITE 38 (the lean bake, the flip, both) is the card's.

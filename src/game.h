@@ -169,6 +169,11 @@ struct g_ent_s
     void            (*pain)(g_ent *self, g_ent *other, int damage);
     void            (*die)(g_ent *self, g_ent *attacker, int damage, const s32 *point);
     s32             chase_fail;             /* the tick its whole search for a way failed (M_MoveToGoal) */
+    /* steps the world refused from where it stands (g_ai.c SV_StepDirection: all solid, off an
+       edge, no bottom): the directions and their lengths, in units; forgotten when it moves */
+    s32             blk_org[3], blk_time;   /* (and when they were first refused: a second, then tried again) */
+    u16             blk_yaw[4];
+    u8              blk_dist[4], blk_n;
 };
 #define G_SHORT         (__builtin_offsetof(g_ent, old_origin))
 _Static_assert(G_SHORT % 16 == 0, "g_ent: the short ones a whole number of lines");
@@ -218,6 +223,7 @@ void                g_free(g_ent *e);       /* one gone (an item: g_render_ents 
 g_ent               *g_drawn(int s);        /* (debugging) the entity render entity s is, or NULL */
 q_trace             g_trace(const s32 *start, const s32 *mins, const s32 *maxs, const s32 *end, const g_ent *pass,
                             int mask, g_ent **hit);
+bool                g_start_in_solid(const s32 *start, const s32 *mins, const s32 *maxs, const g_ent *pass, int mask);
 void                g_damage(g_ent *targ, g_ent *attacker, int damage, const s32 *point);
 g_ent               *g_ent_for_model(int model);
 void                g_fire_blaster(g_ent *self, const s32 *start, const s32 *dir, int damage, s32 speed);

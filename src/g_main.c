@@ -249,6 +249,41 @@ q_trace             g_trace(const s32 *start, const s32 *mins, const s32 *maxs, 
     return t;
 }
 
+/* Is a box at start inside a solid entity: what box_sweep's start test would say of the
+   entities a trace with this mask meets there (STEP_ENTS_FIRST: a monster's step asks before
+   the world's trace, since in a crowd most of its tries are blocked by another monster, and
+   the step's answer is then the same without the trace) */
+bool                g_start_in_solid(const s32 *start, const s32 *mins, const s32 *maxs, const g_ent *pass, int mask)
+{
+    int             i, k;
+    s32             lo[3], hi[3];
+
+    for (k = 0; k < 3; ++k)
+    {
+        lo[k] = start[k] + mins[k];
+        hi[k] = start[k] + maxs[k];
+    }
+    for (i = 0; i < g_nsolids; ++i)
+    {
+        const g_solidbox *sb = &g_solids[i];
+        g_ent   *e = sb->e;
+
+        if (sb->hi[0] < lo[0] || sb->lo[0] > hi[0] || sb->hi[1] < lo[1] || sb->lo[1] > hi[1]
+            || sb->hi[2] < lo[2] || sb->lo[2] > hi[2])
+            continue;
+        if (e == pass || e->kind == EK_FREE || !e->solid)
+            continue;
+        if (e->kind == EK_PLAYER ? pl.noclip || e->dead : e->dead && !(mask & CONTENTS_DEADMONSTER))
+            continue;
+        for (k = 0; k < 3; ++k)
+            if (start[k] <= e->origin[k] + e->mins[k] - maxs[k] || start[k] >= e->origin[k] + e->maxs[k] - mins[k])
+                break;
+        if (k == 3)
+            return true;
+    }
+    return false;
+}
+
 /* ---- damage ---- */
 
 s32                 player_flash;           /* the red flash when you're hit, 0..255 */

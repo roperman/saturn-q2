@@ -2685,10 +2685,16 @@ void                main(void)
                            NC(tp_worst_name, 1), NC(tp_worst_name, 2), NC(tp_worst_name, 3), tp_worst_tr);
                 y += 9;
                 {
-                    extern u32 tp_chase[8];
+                    extern u32 tp_chase[8], tp_estep[2], tp_fail[8], tp_memo[2];
 
                     vdp_printf(8, y, RGB(255, 255, 120), "CHASE %d %d %d %d %d %d %d+ UP%d", tp_chase[1],
                                tp_chase[2], tp_chase[3], tp_chase[4], tp_chase[5], tp_chase[6], tp_chase[7], tp_chase[0]);
+                    y += 9;
+                    /* (steps blocked by an entity first; refused from memory, of those remembered; taken;
+                       failed all solid, off an edge, no bottom, the rest) */
+                    vdp_printf(8, y, RGB(255, 255, 120), "ENT%d MEMO%d/%d OK%d ALL%d EDGE%d BOT%d %d", tp_estep[0],
+                               tp_memo[0], tp_memo[1], tp_fail[0], tp_fail[1], tp_fail[4], tp_fail[5],
+                               tp_fail[2] + tp_fail[3] + tp_fail[6] + tp_fail[7]);
                     y += 9;
                 }
                 for (k = 0; k < 8 && tp_name[k]; ++k, y += 9)

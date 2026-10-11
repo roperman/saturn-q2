@@ -35,12 +35,16 @@ for m in demo1 demo2 demo3; do
     # the foreshortened side: fewer lines, but more dots walked off the screen, so it lost by the
     # model, OVERNIGHT.md 80; the default leaves them as the map has them)
     swapuv=${SWAPUV:-0}
-    if [ ! -f "$out" ] || [ ! -f "${out%.MAP}.SKY" ] || [ -n "$(find tools -newer "$out" -name '*.py')" ] \
-        || [ "$(cat "obj/$m.facevis" 2>/dev/null)" != "$facevis c$cell p$portals s$swapuv" ]; then
-        python3 tools/bake_map.py data/pak0.pak "maps/$m.bsp" "$out" --cell=$cell --res=${RES:-$((cell / 16))} \
+    # each setting's bake kept in obj/bake/ (the original and the lean bake side by side: a switch
+    # between them is a copy, not a rebake) and copied to cd/ when it differs
+    cache=obj/bake/${facevis}_c${cell}_p${portals}_s${swapuv}_l${lodmin}; mkdir -p "$cache"
+    b=$cache/$(basename "$out")
+    if [ ! -f "$b" ] || [ ! -f "${b%.MAP}.SKY" ] || [ -n "$(find tools -newer "$b" -name '*.py')" ]; then
+        python3 tools/bake_map.py data/pak0.pak "maps/$m.bsp" "$b" --cell=$cell --res=${RES:-$((cell / 16))} \
             --lodmin=$lodmin --portals=$portals --facevis=$facevis --swapuv=$swapuv
-        echo "$facevis c$cell p$portals s$swapuv" > "obj/$m.facevis"
     fi
+    cmp -s "$b" "$out" || cp "$b" "$out"
+    cmp -s "${b%.MAP}.SKY" "${out%.MAP}.SKY" || cp "${b%.MAP}.SKY" "${out%.MAP}.SKY"
 done
 # the status bar's pictures
 [ -f cd/HUD.BIN ] && [ cd/HUD.BIN -nt tools/bake_hud.py ] || python3 tools/bake_hud.py data/pak0.pak cd/HUD.BIN

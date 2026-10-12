@@ -4206,3 +4206,17 @@ extra faces as differences).
 Mednafen's six held views pixel-identical with it (BENCH_HOLD, the
 walk before against after). On the card as SUITE 42 against 41, and
 "lean bake, 16-bit box test" to play.
+
+**SUITE 42 on the Saturn:** the walk 55.6 over the six views (41's
+57.1: 101 126 24 109 114 81 a view against 101 129 25 113 118 83), the
+held CPU 2516 (2510), the fight's 53.1 (53.1): a wash. The walk's time
+is its misses (the leaves' and nodes' records, the faces' bits, the
+stack), not the box test's multiplies, and what it does save the slave
+was drawing through. Kept, being pixel-identical and no slower.
+
+So the CPU work is at its floor for views 1 and 5: 41.4 and 41.2 ms,
+1.2-1.4 over two fields, with every remaining idea worth a tenth or
+two. What's left that could matter is structural: less drawn (the
+walls' LOD, the models'), or high work RAM freed for the walls' records
+by moving the lists' 90 KB staging to CMD_RING's window (a millisecond
+dearer on its own, SUITE 23) with the room given to the lights.

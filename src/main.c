@@ -585,6 +585,16 @@ static const s32    bench_demo2[][5] = {
     { 618, -757, -146, 0x1670, 0 },
     { 503, -1816, 46, 0x90E5, 0 },
 };
+/* demo3's yard (MAP=demo3): the open ground outside Comm Center, where play drops to ~8 fps on a
+   Saturn; the eye 44 units over its floor at -496 */
+static const s32    bench_demo3[][5] = {
+    { 1600, -100, -440, 0x0000, 0 },        /* the middle of the yard, east */
+    { 1600, -100, -440, 0x8000, 0 },        /* ...west */
+    { 1600, -100, -440, 0x4000, 0 },        /* ...north */
+    { 1600, -100, -440, 0xC000, 0 },        /* ...south */
+    { 1250, -120, -440, 0x0000, 0 },        /* from its west end, across it */
+    { 1824, -224, -280, 0x6000, 0 },        /* the ledge over it (the deathmatch start), looking in */
+};
 #define NBENCH          (6)                 /* views in each */
 static const s32    (*bench_views)[5];
 #ifdef DMA_WAIT_PROF
@@ -1335,7 +1345,7 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
             message(file, "WON'T LOAD");
     memcpy(cur_map, file, sizeof(cur_map));
     s_level(file);                          /* (its sounds: its monsters') */
-    bench_views = cur_map[4] == '2' ? bench_demo2 : bench_demo1;
+    bench_views = cur_map[4] == '2' ? bench_demo2 : cur_map[4] == '3' ? bench_demo3 : bench_demo1;
     models_load_all();
     g_overlays_load();                      /* (the code of the monsters it has: after their models) */
     vdp_tex_release(vram_base);
@@ -1646,7 +1656,7 @@ void                main(void)
     ht_run();                                   /* (OPT=-DHW_TEST: the timing suite, before a level's in memory) */
 #endif
     message("QUAKE II", "LOADING DEMO1 ONTO THE RAM CART");
-    bench_views = MAP_FILE[4] == '2' ? bench_demo2 : bench_demo1;      /* "DEMO2.MAP" */
+    bench_views = MAP_FILE[4] == '2' ? bench_demo2 : MAP_FILE[4] == '3' ? bench_demo3 : bench_demo1;  /* "DEMO2.MAP" */
 #ifdef SKY_VIEWS
     bench_views = bench_sky;
 #endif

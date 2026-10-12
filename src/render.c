@@ -5836,7 +5836,12 @@ typedef struct
     u8              *list_model;
     int             *nlist;
     volatile int    *published;
-    struct { u8 far[3], near[3], pad[2]; s32 n[3], d; } fr[4];     /* the box's corners: offsets from its mins */
+    struct { u8 far[3], near[3]; s16 pad; s32 n[3], d_far, d_near; } fr[4];    /* the box's corners: offsets from its
+                                           mins; the normal in 1.14 (a 16-bit multiply on a Saturn is 3 cycles quicker than
+                                           a 32-bit one, 24 a node), d in that scale, with the quantising's worst error
+                                           taken off for the far corner's test and added for the near's: never a box
+                                           culled or a plane dropped that the exact test wouldn't (the same faces listed,
+                                           and a few more at the edges, clipped later) */
     const s16       *leaf_ent, *leaf_spr, *leaf_model;
     void            (*extra)(int, int);
 }                   walk_ctx;
@@ -5869,17 +5874,28 @@ static void         walk_setup(void)
     wctx.list_model = vis_model;
     wctx.nlist = &nvis;
     wctx.published = &SHARE->published;
-    for (i = 0; i < 4; ++i)
     {
-        for (k = 0; k < 3; ++k)
-        {
-            u8 neg = fr_n[i][k] < 0;
+        /* (the worst a rounded normal can be off by over the level's extent: half a unit of 1.14 a
+           coordinate, the root node's box the extent) */
+        const q_node *root = &lv.nodes[0];
+        s32         ext = 0, bias;
 
-            wctx.fr[i].far[k] = (u8)(2 * k + (neg ? 0 : 6));    /* mins, or maxs 6 bytes on */
-            wctx.fr[i].near[k] = (u8)(2 * k + (neg ? 6 : 0));
-            wctx.fr[i].n[k] = fr_n[i][k];
+        for (k = 0; k < 3; ++k)
+            ext += imax(iabs(root->mins[k]), iabs(root->maxs[k]));
+        bias = (ext + 1) / 2 + 2;
+        for (i = 0; i < 4; ++i)
+        {
+            for (k = 0; k < 3; ++k)
+            {
+                u8 neg = fr_n[i][k] < 0;
+
+                wctx.fr[i].far[k] = (u8)(2 * k + (neg ? 0 : 6));    /* mins, or maxs 6 bytes on */
+                wctx.fr[i].near[k] = (u8)(2 * k + (neg ? 6 : 0));
+                wctx.fr[i].n[k] = (fr_n[i][k] + 2) >> 2;           /* 16.16 to 1.14 (|n| <= 1) */
+            }
+            wctx.fr[i].d_far = (fr_d[i] >> 2) - bias;
+            wctx.fr[i].d_near = (fr_d[i] >> 2) + bias;
         }
-        wctx.fr[i].d = fr_d[i];
     }
     wctx.leaf_ent = leaf_ent;
     wctx.leaf_spr = leaf_spr;

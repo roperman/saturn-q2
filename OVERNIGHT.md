@@ -4185,3 +4185,24 @@ frames 298.0 (302.7); the fight's CPU 53.1 (53.8), 59.8 a frame still
 faces, which isn't counted as idle). Views 1 and 5 at 41.3 and 41.2:
 1.2-1.3 ms of CPU over two fields. LV 3 in this run: the late swap
 interrupt keeps coming and is caught each time.
+
+## 85. The walk's box test in 16-bit multiplies
+
+The Saturn's hot spots in the walk (82) are spread over its box test:
+each node still across any of the view's four side planes has a corner
+or two dotted with each (walk.s PLANE: up to 24 MUL.L a node), and on a
+Saturn a MUL.L's result read at once is 7 cycles, a MULS.W's 4 (68).
+The side planes' normals are unit vectors, so they go to the walk in
+1.14 in a word each (render.c walk_setup), the box's corners being s16
+already, and the test multiplies with MULS.W. Rounding a normal to 1.14
+could put a box the other side of a plane by at most half a unit of
+1.14 a coordinate over the level's extent (the root node's box), so
+that much is taken off d for the far corner's test (a box is culled
+only when the exact test would) and added for the near's (a plane
+comes off the mask only when the exact test would): never a face lost,
+at worst a few more listed at the view's edges and clipped later. The
+C walk and WALK_CHECK keep the exact test (that check now reports the
+extra faces as differences).
+Mednafen's six held views pixel-identical with it (BENCH_HOLD, the
+walk before against after). On the card as SUITE 42 against 41, and
+"lean bake, 16-bit box test" to play.

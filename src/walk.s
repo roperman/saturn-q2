@@ -38,8 +38,9 @@ W_LIST   = 48                           ! vis_faces (u16s)
 W_LMODEL = 52                           ! vis_model (u8s)
 W_NLIST  = 56                           ! &nvis
 W_PUB    = 60                           ! &published (uncached)
-W_FR     = 64                           ! 4 planes, 24 bytes: the far corner's offsets (x y z), the near's, 2 spare, n x y z, d
-W_LEXTRA = 160                          ! leaf_ent leaf_spr leaf_model, the C for a leaf with any, the list's size
+W_FR     = 64                           ! 4 planes, 28 bytes: the far corner's offsets (x y z), the near's, 2 spare, n x y z
+                                        ! (1.14, in a word each: MULS.W takes the low 16), d for the far test, d for the near's
+W_LEXTRA = 176                          ! leaf_ent leaf_spr leaf_model, the C for a leaf with any, the list's size
 
 ! is the node or leaf in \reg in the PVS? T. Uses r0 r1
 .macro  INPVS reg
@@ -69,19 +70,19 @@ W_LEXTRA = 160                          ! leaf_ent leaf_spr leaf_model, the C fo
         mov.b   @(0,r7),r0
         mov.w   @(r0,r1),r0
         mov.l   @(8,r7),r2
-        mul.l   r0,r2
+        muls.w  r0,r2                   ! (a Saturn: 4 cycles to the result where MUL.L's 7)
         mov.b   @(1,r7),r0
         sts     macl,r3
         mov.w   @(r0,r1),r0
         mov.l   @(12,r7),r2
-        mul.l   r0,r2
+        muls.w  r0,r2
         mov.b   @(2,r7),r0
         sts     macl,r2
         add     r2,r3
         mov.w   @(r0,r1),r0
         mov.l   @(16,r7),r2
-        mul.l   r0,r2
-        mov.l   @(20,r7),r0
+        muls.w  r0,r2
+        mov.l   @(20,r7),r0             ! d less the rounding's worst
         sts     macl,r2
         add     r2,r3
         cmp/ge  r0,r3
@@ -93,19 +94,19 @@ W_LEXTRA = 160                          ! leaf_ent leaf_spr leaf_model, the C fo
         mov.b   @(3,r7),r0
         mov.w   @(r0,r1),r0
         mov.l   @(8,r7),r2
-        mul.l   r0,r2
+        muls.w  r0,r2
         mov.b   @(4,r7),r0
         sts     macl,r3
         mov.w   @(r0,r1),r0
         mov.l   @(12,r7),r2
-        mul.l   r0,r2
+        muls.w  r0,r2
         mov.b   @(5,r7),r0
         sts     macl,r2
         add     r2,r3
         mov.w   @(r0,r1),r0
         mov.l   @(16,r7),r2
-        mul.l   r0,r2
-        mov.l   @(20,r7),r0
+        muls.w  r0,r2
+        mov.l   @(24,r7),r0             ! d plus the rounding's worst
         sts     macl,r2
         add     r2,r3
         cmp/ge  r0,r3
@@ -113,7 +114,7 @@ W_LEXTRA = 160                          ! leaf_ent leaf_spr leaf_model, the C fo
         mov     r5,r0
         and     #(15 - \bit),r0
         mov     r0,r5
-89:     add     #24,r7
+89:     add     #28,r7
 .endm
 
 _walk_asm:

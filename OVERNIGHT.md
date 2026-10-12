@@ -4220,3 +4220,31 @@ two. What's left that could matter is structural: less drawn (the
 walls' LOD, the models'), or high work RAM freed for the walls' records
 by moving the lists' 90 KB staging to CMD_RING's window (a millisecond
 dearer on its own, SUITE 23) with the room given to the lights.
+
+## 86. Comm Center's yard on a Saturn
+
+Roper: "we already get stutter on comm centre when you go outside
+(about 8fps)", asked while sizing the retail game (its city and space
+levels are mostly open). The benchmark had no view of the yard: six
+added (main.c bench_demo3, MAP=demo3), at eye level 44 units over its
+floor at -496, found from the map's sky faces and the entities placed
+there: the middle of the yard looking east, west, north and south, its
+west end looking across, the ledge over it looking in.
+
+**SUITE 43 on the Saturn** (the lean bake), each view's CPU / frame /
+walk / the slave's idle, ms: 17.8/39.8/4.0/23.5, 52.7/54.2/10.7/4.7,
+35.7/40.1/7.1/7.4, 24.7/38.4/4.5/15.4, 44.1/49.9/6.9/9.9,
+59.1/60.1/11.1/4.6; VDP1 where it was seen: 36.6 (2), 30.6 (3), 35.1
+(5). Turned: CPU 36, frames 45, 21-23 uploads a frame. The fight from
+the level's start: 75.2 ms a frame, CPU 71.5, **the game 43.7**.
+
+So the yard held is two or three fields: views 1, 3 and 4 at two
+(VDP1-bound there), 2, 5 and 6 at three, and CPU-bound by a margin
+(52.7, 44.1, 59.1 against VDP1's ~36): the yard's whole visible set
+(~2,000 faces from its clusters by the PVS) listed and set up, the
+walk alone 7-11 ms. Turned, three fields everywhere: the textures'
+uploads. And the stutter in play is likelier the game's step than the
+drawing: the fight's 43.7 ms a frame of monsters' ticks (Outer Base's
+fight is 11): the fight stands where Outer Base's does (600, -428) and
+wakes every monster within 900 units, which on Comm Center is the
+rooms west of the yard, most of them with no way to you.

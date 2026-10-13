@@ -55,6 +55,7 @@ typedef struct
 #define AI_PURSUE_NEXT      (0x0020)
 #define AI_PURSUE_TEMP      (0x0040)
 #define AI_HOLD_FRAME       (0x0080)
+#define AI_LOST             (0x0100)            /* chasing with no way to its enemy: standing, a look a second (g_ai.c) */
 
 /* attack_state */
 #define AS_STRAIGHT     (1)
@@ -174,6 +175,9 @@ struct g_ent_s
     s32             blk_org[3], blk_time;   /* (and when they were first refused: a second, then tried again) */
     u16             blk_yaw[4];
     u8              blk_dist[4], blk_n;
+    u8              lost_n, lost_wait, lost_rounds;  /* ticks running unseen and no nearer; AI_LOST's countdown to its
+                                               next look, and looks taken (every tenth, it runs again) */
+    s32             lost_best;              /* the nearest it's been to its enemy unseen (0: not yet) */
 };
 #define G_SHORT         (__builtin_offsetof(g_ent, old_origin))
 _Static_assert(G_SHORT % 16 == 0, "g_ent: the short ones a whole number of lines");

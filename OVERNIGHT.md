@@ -4248,3 +4248,36 @@ drawing: the fight's 43.7 ms a frame of monsters' ticks (Outer Base's
 fight is 11): the fight stands where Outer Base's does (600, -428) and
 wakes every monster within 900 units, which on Comm Center is the
 rooms west of the yard, most of them with no way to you.
+
+Comm Center's fight on Mednafen (FIGHT_BENCH TICK_PROF; the fight is
+20 s of frames, 78 of them here): the running monsters' ticks 1,222 at
+1.95 ms and 216 at 2.3 ms against 1,077 standing at 40 us; CHASE 174
+144 374 35 617 65 284+ UP2 (searches found a step on the fifth try 617
+times, the seventh or later 284, and gave up twice); MEMO 3163/977.
+These are monsters with no way to you at all, and still they nearly
+always find a step: they wander their rooms, searching, for as long as
+the level lasts. (The page's US/F is the tick profiler's total since
+the level loaded over the fight's frames, and it keeps counting after
+the fight: a ratio, not a frame's milliseconds. The Saturn's HW_BENCH
+GAME figure is the measure.)
+
+**Lost monsters stand** (g_ai.c lost_stand, lost_note; game.h AI_LOST;
+Roper: "cheaper idle for monsters that cant get to you sounds a good
+idea"). First try: a running monster whose whole search had failed ten
+ticks running with its enemy out of sight stood. It never fired (run
+1181, stand 1044: the same), since the searches hardly ever fail whole.
+Second: a running monster three seconds (30 ticks) out of sight of its
+enemy and no nearer to it than its best so far (by 24 units, Manhattan)
+stands (its stand animation) and looks once a second: a line trace to
+the enemy, and seen, it runs again; every tenth look it runs anyway for
+two seconds (a door may have opened; no nearer by then, it stands
+again). Hurt, or woken by another monster's sight of you, it's on its
+feet at once (FoundTarget). One in sight but blocked (across a pit)
+keeps running: it can still shoot. On Mednafen, the snapshot 150 s
+after START (105 s longer than the first's): run ticks 1,205 (the
+first's 1,181: the fight's own, then next to none), the lost monsters'
+stands 1,199 at 55 us, the never-woken 6,766. This changes play a
+little: a monster hunting you round a long detour (moving away from
+you for three seconds) stops and waits for you. Roper's call;
+`OPT=-DNO_LOST_IDLE` is as before. SUITE 45 (lean, Comm Center) has it;
+its fight's GAME against SUITE 43's 43.7.

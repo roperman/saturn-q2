@@ -462,8 +462,87 @@ void                ai_move(g_ent *self, s32 dist)
 }
 
 /* standing around, looking for the player */
+/* A monster chasing an enemy it has no way to (a door shut, a ledge, the wrong floor) searched every
+   direction every tick, 2-3 ms each (OVERNIGHT.md 81, 86: Comm Center's fight 43 ms a frame of them),
+   and its search nearly always finds a step (CHASE 174 142 356 32 588 63 263+, 2 gave up): it wanders
+   its room for as long as the level lasts. Lost (AI_LOST): LOST_AFTER ticks running with the enemy out
+   of sight and no nearer to it than its best so far (by LOST_NEARER), it stands, and ai_stand looks once
+   a second (a line trace: the enemy seen, it runs again); every tenth look it runs anyway for LOST_RUN
+   ticks (a door may have opened; no nearer by then, it stands again). Hurt, or woken by another's sight
+   of you, it's on its feet at once (FoundTarget). One in sight but blocked (across a pit) keeps running:
+   it can still shoot. OPT=-DNO_LOST_IDLE: as before */
+#define LOST_AFTER      (30)
+#define LOST_NEARER     FIX(24)
+#define LOST_LOOK       (10)
+#define LOST_RETRY      (10)
+#define LOST_RUN        (20)
+#ifndef NO_LOST_IDLE
+static s32          lost_dist(const g_ent *self)
+{
+    return iabs(self->origin[0] - self->enemy->origin[0]) + iabs(self->origin[1] - self->enemy->origin[1])
+           + iabs(self->origin[2] - self->enemy->origin[2]);
+}
+
+static bool         lost_stand(g_ent *self)
+{
+    if (!(self->aiflags & AI_LOST))
+        return false;
+    if (!self->enemy || self->enemy->dead)
+    {
+        self->aiflags &= ~AI_LOST;
+        return false;
+    }
+    if (--self->lost_wait)
+        return true;
+    self->lost_wait = LOST_LOOK;
+    if (visible(self, self->enemy) || ++self->lost_rounds >= LOST_RETRY)
+    {
+        self->aiflags &= ~AI_LOST;
+        self->lost_n = (u8)(self->lost_rounds >= LOST_RETRY ? LOST_AFTER - LOST_RUN : 0);
+        self->lost_best = self->lost_rounds >= LOST_RETRY ? lost_dist(self) : 0;   /* (a retry: nearer than here, or back) */
+        self->lost_rounds = 0;
+        self->run(self);
+    }
+    return true;
+}
+
+/* (ai_run, after its move) nearer to the enemy this tick than ever, or not */
+static void         lost_note(g_ent *self, bool seen)
+{
+    s32             d;
+
+    if (seen || !self->enemy)
+    {
+        self->lost_n = 0;
+        self->lost_best = 0;
+        return;
+    }
+    d = lost_dist(self);
+    if (!self->lost_best || d < self->lost_best - LOST_NEARER)
+    {
+        self->lost_best = d;
+        self->lost_n = 0;
+        return;
+    }
+    if (self->lost_n < 255)
+        ++self->lost_n;
+    if (self->lost_n >= LOST_AFTER)
+    {
+        self->aiflags |= AI_LOST;
+        self->lost_wait = LOST_LOOK;
+        self->lost_rounds = 0;
+        self->stand(self);
+    }
+}
+#else
+#define lost_stand(self)    (false)
+#define lost_note(self, seen) ((void)0)
+#endif
+
 void                ai_stand(g_ent *self, s32 dist)
 {
+    if (lost_stand(self))
+        return;
     if (dist)
         M_walkmove(self, self->yaw, dist);
     if (self->aiflags & AI_STAND_GROUND)
@@ -599,6 +678,9 @@ void                FoundTarget(g_ent *self)
     self->show_hostile = level.time + FIX(1);
     for (k = 0; k < 3; ++k)
         self->last_sighting[k] = self->enemy->origin[k];
+    self->aiflags &= ~AI_LOST;              /* (hurt, or another's sight of you: on its feet again) */
+    self->lost_n = 0;
+    self->lost_best = 0;
     HuntTarget(self);
 }
 
@@ -824,12 +906,14 @@ void                ai_run(g_ent *self, s32 dist)
         self->aiflags &= ~AI_LOST_SIGHT;
         for (k = 0; k < 3; ++k)
             self->last_sighting[k] = self->enemy->origin[k];
+        lost_note(self, true);
         return;
     }
     if (self->search_time && level.time > self->search_time + FIX(20))
     {
         M_MoveToGoal(self, dist);
         self->search_time = 0;
+        lost_note(self, false);
         return;
     }
     /* lost sight: head for where it was last seen */
@@ -855,6 +939,7 @@ void                ai_run(g_ent *self, s32 dist)
     self->ideal_yaw = vectoyaw(v);
     M_MoveToGoal(self, dist);
     self->goalentity = save;
+    lost_note(self, false);
 }
 
 /* ---- g_monster.c ---- */

@@ -595,6 +595,17 @@ static const s32    bench_demo3[][5] = {
     { 1250, -120, -440, 0x0000, 0 },        /* from its west end, across it */
     { 1824, -224, -280, 0x6000, 0 },        /* the ledge over it (the deathmatch start), looking in */
 };
+/* Installation's outside (MAP=demo2 OPT=-DBENCH_OUTSIDE, in place of its usual six): the open ground
+   under its sky, x 0..800, y 400..1000 (its soldiers at (88..432, 536..592, 24), its infantry at (512, 800)
+   and (304, 976), flyers over (600..776, 500..630)), the eye 52 */
+static const s32    bench_demo2_out[][5] = {
+    { 300, 550, 52, 0x0000, 0 },            /* the middle, east */
+    { 512, 800, 52, 0xC000, 0 },            /* its north end (the infantry's spot), looking south across it */
+    { 300, 550, 52, 0x8000, 0 },            /* ...west */
+    { 300, 550, 52, 0xC000, 0 },            /* ...south */
+    { 192, 536, 52, 0x0000, 0 },            /* its west side (a soldier's spot, facing as it does), looking east */
+    { 600, 300, 60, 0x8000, 0 },            /* its south side, looking west along it */
+};
 #define NBENCH          (6)                 /* views in each */
 static const s32    (*bench_views)[5];
 #ifdef DMA_WAIT_PROF
@@ -1345,7 +1356,11 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
             message(file, "WON'T LOAD");
     memcpy(cur_map, file, sizeof(cur_map));
     s_level(file);                          /* (its sounds: its monsters') */
+#ifdef BENCH_OUTSIDE
+    bench_views = cur_map[4] == '2' ? bench_demo2_out : cur_map[4] == '3' ? bench_demo3 : bench_demo1;
+#else
     bench_views = cur_map[4] == '2' ? bench_demo2 : cur_map[4] == '3' ? bench_demo3 : bench_demo1;
+#endif
     models_load_all();
     g_overlays_load();                      /* (the code of the monsters it has: after their models) */
     vdp_tex_release(vram_base);
@@ -1656,7 +1671,11 @@ void                main(void)
     ht_run();                                   /* (OPT=-DHW_TEST: the timing suite, before a level's in memory) */
 #endif
     message("QUAKE II", "LOADING DEMO1 ONTO THE RAM CART");
+#ifdef BENCH_OUTSIDE
+    bench_views = MAP_FILE[4] == '2' ? bench_demo2_out : MAP_FILE[4] == '3' ? bench_demo3 : bench_demo1;
+#else
     bench_views = MAP_FILE[4] == '2' ? bench_demo2 : MAP_FILE[4] == '3' ? bench_demo3 : bench_demo1;  /* "DEMO2.MAP" */
+#endif
 #ifdef SKY_VIEWS
     bench_views = bench_sky;
 #endif

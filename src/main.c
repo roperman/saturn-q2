@@ -2012,7 +2012,12 @@ void                main(void)
             if (pressed(PAD_R) && (pad_now & PAD_START))
 #endif
             {
-                static const s32 at[3] = { FIX(600), FIX(-428), FIX(-96) };
+                /* where it stands: a spot in each level's open with monsters about (the first level's
+                   was every level's till OVERNIGHT.md 89, and lies in solid rock on the other two) */
+                static const s32 at_demo1[3] = { FIX(600), FIX(-428), FIX(-96) };
+                static const s32 at_demo2[3] = { FIX(512), FIX(800), FIX(24) };      /* Installation's yard, its north end */
+                static const s32 at_demo3[3] = { FIX(1550), FIX(-180), FIX(-480) };  /* Comm Center's yard */
+                const s32   *at = MAP_FILE[4] == '2' ? at_demo2 : MAP_FILE[4] == '3' ? at_demo3 : at_demo1;
                 int         i;
 
 #ifdef HW_BENCH

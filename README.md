@@ -253,7 +253,7 @@ Build switches (`OPT=-D... ./build.sh`) and scripts in `tools/`:
 | | |
 |---|---|
 | `tools/bench.sh` | the static benchmark: six views, both CPUs' time (START + R in the game) |
-| `OPT=-DFIGHT_BENCH`, `tools/fight.sh` | the fight benchmark |
+| `OPT=-DFIGHT_BENCH`, `tools/fight.sh` | the fight benchmark: the player put at a fixed spot in the level's open (one for each of the three) and every monster within 900 units woken, 20 s of frames timed |
 | `OPT=-DHW_BENCH` | for a real Saturn: START + R runs the benchmark's views held, then turned, then the fight; the results on one screen to photograph (A: each view's, with the slave's idle a frame, IDL: less the frame's excess over the CPU's time, the master's time working alone). Its V1 lines are VDP1's own drawing time a frame (a swap's vblank to the drawing end), 0.1 ms, each view and the fight, over the frames whose end the master saw while waiting for the swap (V1N: how many; 0 when VDP1 finished before the CPUs every frame) |
 | `OPT="-DHW_BENCH -DSLAVE_PROF -DHW_TEST"` | ...and each CPU's profile of the fight by function (`cd/SYMS.BIN`, `tools/mksyms.py`), and a timing suite run at boot (`src/hwtest.c`): every memory's access, the multiplier and divider, the SCU's and the DSP's DMA, and the CPUs' misses under the others' traffic |
 | `OPT="-DHW_BENCH -DSLAVE_PROF -DPROF_HELD"` | ...the profile and hot spots of the six held views (16 frames each) instead of the fight's: where a standing view's CPU time goes on a Saturn |

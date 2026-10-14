@@ -4380,3 +4380,64 @@ don't see the lost idle, as they shouldn't); turned (CPU / frame /
 uploads / idle) 364/455/226/128, 365/456/236/130, 365/456/227/131,
 362/458/215/135, 363/434/208/121, 281/441/145/195, ms 58 60 60 60 60
 67.
+
+## 89. The fight stood in solid rock on two levels
+
+Roper: "the comm centres 'fight' seems to be a view of the map out of
+bounds, is that right?" It was. The fight benchmark (FIGHT_BENCH, and
+HW_BENCH's fight stage) spawned the player at (600, -428, -96) on every
+level: Outer Base's spot by its first soldier. In Comm Center's BSP
+that point is in leaf 3383, contents SOLID, cluster -1; in
+Installation's, solid too. So every Comm Center fight figure so far
+(SUITE 43-47: 75.2 ms, then 48.4 with the lost idle) was a frame drawn
+from inside the rock, with whatever the walk lists from there, while
+the monsters within 900 units ran their ticks. The game-step figures
+stand (the monsters' ticks don't care where the camera is, and 86's
+lost idle is measured by them: 43.7 to 18.0 ms); the frame's other
+27 ms says nothing about the yard. SUITE 46 and 47 were taken off the
+card unrun.
+
+Now (main.c, the fight's `at`): a point for each level, chosen from
+its BSP as open space with monsters about. Outer Base's as before;
+Comm Center's (1550, -180, -480), on its yard's floor between its two
+SS soldiers, two berserkers and an infantry, with its flyers and
+light soldiers on the galleries above (leaf cluster 605); Installation's
+(512, 800, 24), its yard's north end at its infantry's spot (cluster
+315), the three light soldiers and the flyers within 900. Builds:
+SUITE 48 (lean, Comm Center, `-DHW_BENCH`: the fight's frame, CPU,
+GAME), SUITE 49 (`-DHW_BENCH -DSLAVE_PROF`: that fight sampled, pages
+3-6), SUITE 50 (`-DFIGHT_BENCH`: its page with the pre-walk's W N D V
+and the R line's model wait).
+
+**SUITE 46 (the void's fight sampled: `-DHW_BENCH -DSLAVE_PROF`), run
+before it came off the card.** Page 1: held CPU 2381, frames 2822, walk
+437; turned 2108 / 2697, uploads 1234; late 375 2646; the fight 68.8,
+CPU 65.0, GAME 18.4 (291 frames); LW 119776. So both sampler builds'
+fights (44's 67.2, this 68.8) are 20 ms over the plain build's 48.4
+(SUITE 45) with the same game step: the sampler's interrupt and its
+104 KB of low work RAM cost that in a fight, and 87's "sampler free"
+(SUITE 39 against 38, Outer Base) doesn't hold on Comm Center. Its
+pages 3-6 are a frame drawn from inside the rock, kept only for the
+shape: the master (186,858 samples, 364 elsewhere) face_asm 17%,
+face_cells 15%, grid_face_asm 10%, cells_asm 10%, walk_asm 8%, cell_c
+5%, fb_add 4%, pre_wait 3%, cell_emit 2%, tex_load 2%, fb_flush 2%,
+__sdivsi3 1% (the game step's 18 ms is spread over functions under 1%
+each); the slave idle 42% + slave_main's spin 11% (51,338 samples, at
++160 and +158), face_asm 8%, cells_asm 7%, face_cells 7%,
+grid_face_asm 4%, render_ent 2%, mpolys_asm 2%, fb_add 2%,
+draw_model 1%. The slave idles half the fight because the void's list
+is short: the game step runs on the master after the walk while the
+slave draws from the front (render.c, "faster fights"), and with
+little to draw the slave is done long before the master is back. The
+yard's fight (SUITE 48-50) will show the real balance. Hot spots:
+master face_asm 33561 at 601921C: 2C:1884 3C:1729 14:1144 234:857;
+face_cells 28453 at 600C438: B0:1492 28:912 58:787 48:748;
+grid_face_asm 20554 at 60187DA: 16:978 36:689 6:646 3E:612; cells_asm
+19472 at 6018CB8: 80:2386 0:980 90:811 88:730; walk_asm 16509 at
+6019A34: 2A4:1079 1D4:708 2CC:640 1E4:623; cell_c 9812 at 600C084:
+C:841 14:650 -4:631 5C:597. Slave: slave_main 51338 at 6006628:
+160:35911 158:15321 70:78 118:3; face_asm 13862: 3C:755 2C:732 14:474
+244:377; cells_asm 10433: 80:1001 120:457 0:419 90:380; face_cells
+8900: B0:576 210:304 40:292 A38:283; grid_face_asm 8757: 16:459 36:251
+3E:249 86:228; render_ent 5702 at 6013564: 144:1645 13C:1603 134:669
+124:656.

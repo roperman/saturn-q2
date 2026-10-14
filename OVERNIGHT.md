@@ -4281,3 +4281,76 @@ little: a monster hunting you round a long detour (moving away from
 you for three seconds) stops and waits for you. Roper's call;
 `OPT=-DNO_LOST_IDLE` is as before. SUITE 45 (lean, Comm Center) has it;
 its fight's GAME against SUITE 43's 43.7.
+
+## 87. SUITE 44 on the Saturn: Comm Center's yard profiled, and the lost idle's fight
+
+SUITE 44 (lean, MAP=demo3, `-DHW_BENCH -DSLAVE_PROF -DPROF_HELD`) was
+rebuilt on the 14th from 7dcfbaa, so it has the lost idle (86) as well
+as the sampler on the six held views. **Its page 1:** held CPU 2409,
+frames 2840, walk 442; turned 2127 / 2699, uploads 1237; late 369 2666,
+made 0 0, bad 0; **the fight 67.2, CPU 63.4, GAME 17.9** (SUITE 43's
+75.2 / 71.5 / 43.7: the lost idle takes 25.8 ms a frame off Comm
+Center's fight's game step and 8 ms off its frame; 298 frames in its
+20 s, all four fields or more); DROP 0 596, CW 9; HW 128, LW 119776,
+CA 755712, SL 906; V1 held 0 366 306 0 351 0, turned 308 301 320 320
+320 387, F 0. The frame's other 45.5 ms (CPU less GAME) is 17.7 more
+than SUITE 43's 27.8: with the game step short, the master waits on the
+slave's models instead (the fight stands in sight of the yard's
+monsters), so the fight is the slave's to speed up now, draw_model
+first (below).
+
+**Page 2** (each view's CPU / frame / walk / idle, 0.1 ms; the sampler
+on): held 182/381/40/225, 544/558/104/43, 368/396/71/59,
+252/384/45/150, 451/498/68/88, 612/623/111/47 (SUITE 43's CPU 178, 527,
+357, 247, 441, 591: the sampler 1-2 ms a view); turned (CPU / frame /
+uploads / idle) 369/455/224/123, 371/456/233/124, 368/453/219/123,
+367/458/212/129, 367/434/205/118, 285/443/144/192, their ms 58 61 60
+60 60 65. The master alone (idle less frame-less-CPU): 2.6 2.9 3.1 1.8
+4.1 3.6 ms. Views 1 and 4 are VDP1-bound by 20 and 13 ms (the sky's
+fill); 2, 5 and 6 are CPU-bound at 54, 45 and 61 ms, three fields.
+
+**Pages 3-4** (ms a frame averaged over the six). The master (7807
+samples, 21 elsewhere): face_asm 7.7 (15%), vdp_submit 5.5 (11%: 487 of
+its 874 samples at +344, the wait for VDP1 on views 1 and 4), cells_asm
+5.5, walk_asm 4.9, grid_face_asm 4.4, face_cells 3.7, render_world 1.9,
+fb_add 1.9, g_render_ents 1.0, mpolys_asm 0.9, mcmds_asm 0.8,
+wait_vblank_out 0.7. The slave (7812, 0 elsewhere): slave_main 10.9
+(21%, its idle spin at +70), **draw_model 6.8 (13%)**, face_asm 5.1,
+mpolys_asm 3.8, mverts_asm 3.0, mcmds_asm 3.0, face_cells 2.9,
+cells_asm 2.9, grid_face_asm 2.8, render_slave 1.7, fb_add 1.1,
+tex_load 0.8. The yard's monsters cost the slave 16.6 ms a frame of
+models (Outer Base's six views: 9.1), and draw_model's 6.8 has 422 of
+its 1074 samples at one address (+284).
+
+**Page 5-6, the hot spots** (offset: samples). Master: face_asm 1224 at
+601921C: 3C:81 2C:71 14:44 244:34 (the face's first reads, as in 39);
+vdp_submit 874 at 600564C: 344:487 3CC:175 34C:70 254:42; cells_asm 873
+at 6018CB8: 80:87 120:46 90:42 E8:23; walk_asm 771 at 6019A34: 2A4:44
+2CC:44 23C:23 234:22; grid_face_asm 698 at 60187DA: 16:30 36:24 6E:24
+76:20; face_cells 594 at 600C438: B0:40 58:21 970:18 10:15. Slave:
+slave_main 1717 at 6006628: 70:1713; draw_model 1074 at 6008BB4:
+284:422 324:67 7CC:47 8EC:41; face_asm 804 at 601921C: 3C:52 2C:50
+14:34 244:26; mpolys_asm 605 at 6019EE8: 30:132 38:87 68:34 40:28;
+mverts_asm 481 at 6019D8C: 8C:35 EC:34 F4:32 4C:29; mcmds_asm 481 at
+601A032: 36:33 F6:30 116:26 4E:24.
+
+**What the two big single spots are** (the toolchain has no objdump:
+the same flags with `-Wa,-adhln` give a listing whose object matches
+the build's). vdp_submit +344 is the wait on VDP2's TVSTAT for the
+frame's end (views 1 and 4, VDP1-bound by the sky's fill: 3.1 ms a
+frame averaged over six). draw_model +284 is the slave's spin for the
+DSP's transformed vertices of the model it's about to draw
+(`while (dspm_count <= ent_dsp[ei])`, render.c, timed into
+st.t_mwait, the FIGHT_BENCH page's R line): 422 of draw_model's 1074
+samples, **2.7 ms of the slave's frame**, since with the early signal
+(84) the slave's job starts before models_to_dsp has written the
+jobs, and the yard's nearest items are its monsters: the slave meets a
+model first thing and spins through the master's setup and the DSP's
+first job. In the held views the slave idles 4-22 ms anyway, so the
+spin's cost there is only the share of the faces it leaves to the
+master (half of it, about 1.3 ms, on views 2, 5 and 6); in the fight,
+where the master now waits for the slave (its CPU 63.4 of 67.2 with
+the game step 17.9), it may be the frame's. SUITE 46 (lean, Comm
+Center, `-DHW_BENCH -DSLAVE_PROF`: the fight sampled, pages 3-6) and
+SUITE 47 (`-DFIGHT_BENCH`: its pre-walk's W N D V and the R line's
+model wait) are on the card to say.

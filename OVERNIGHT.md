@@ -4354,3 +4354,29 @@ the game step 17.9), it may be the frame's. SUITE 46 (lean, Comm
 Center, `-DHW_BENCH -DSLAVE_PROF`: the fight sampled, pages 3-6) and
 SUITE 47 (`-DFIGHT_BENCH`: its pre-walk's W N D V and the R line's
 model wait) are on the card to say.
+
+## 88. SUITE 45 on the Saturn: the lost idle's fight, clean
+
+SUITE 45 (lean, MAP=demo3, `-DHW_BENCH`: SUITE 43's build with the
+lost idle, 86, and no sampler). **Page 1:** held CPU 2356, frames 2828,
+walk 441 (SUITE 43: 2340, 2825, 443); turned 2100 / 2700, uploads 1257;
+late 376 2767, made 0 0, bad 0; **the fight 48.4, CPU 44.7, GAME 18.0**
+(SUITE 43's 75.2 / 71.5 / 43.7: 26.8 ms a frame off the fight, 25.7
+of it the game step; 413 frames in its 20 s, all four fields or more);
+DROP 0 826, CW 14; HW 16, LW 223440, CA 755712, SL 906; V1 held 0 366
+303 0 351 0, turned 312 313 325 321 327 390, F 0. The frame's other
+26.7 ms (CPU less GAME) is SUITE 43's 27.8: so SUITE 44's fight (87:
+67.2 / 63.4 / 17.9, 45.5 of it not the game) was the odd one, its
+sampler build's doing (its buffers take 104 KB of low work RAM; the
+sampler itself is off in the fight) or the fight's chance, not the
+master waiting on the slave: that reading in 87 is withdrawn. Comm
+Center's fight is now 20.7 fps where it was 13.3, Outer Base's 59.8
+(SUITE 38) untouched by the change.
+
+**Page 2** (CPU / frame / walk / idle, 0.1 ms): held 177/396/40/230,
+532/547/106/44, 358/395/70/66, 249/384/45/152, 442/499/69/98,
+598/607/110/46 (SUITE 43's CPU 178 527 357 247 441 591: the held views
+don't see the lost idle, as they shouldn't); turned (CPU / frame /
+uploads / idle) 364/455/226/128, 365/456/236/130, 365/456/227/131,
+362/458/215/135, 363/434/208/121, 281/441/145/195, ms 58 60 60 60 60
+67.

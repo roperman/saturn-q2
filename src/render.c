@@ -6491,12 +6491,21 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             gt = ent_lit[gl];               /* (lit a frame behind, as the frame started: model.c) */
         i = gl == -2 ? 0 : nml;             /* (lit by the slave, or by none: none again here) */
     }
-    for (; i < nml; ++i)
 #else
-    for (i = 0; i < nml; ++i)
+    i = 0;
 #endif
+#if MODEL_LIGHTS > 0
+    {
+    int             sel[MODEL_LIGHTS], ns = i < nml ? lights_pick(msrc, nml, e->origin, sel) : 0;
+
+    for (i = 0; i < ns; ++i)
+    {
+        const q_dlight  *l = &msrc[sel[i]];
+#else
+    for (; i < nml; ++i)
     {
         const q_dlight  *l = &msrc[i];
+#endif
         s32             dx = (l->pos[0] - e->origin[0]) >> 16, dy = (l->pos[1] - e->origin[1]) >> 16;
         s32             dz = (l->pos[2] - e->origin[2]) >> 16, r = l->radius >> 16, d2 = dx * dx + dy * dy + dz * dz;
         s32             f, len, mx, my, mz;
@@ -6570,6 +6579,9 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             x->gtab[n] = (u16)(0x8000 | imin(bb, 31) << 10 | imin(gg, 31) << 5 | imin(rr, 31));
         }
     }
+#if MODEL_LIGHTS > 0
+    }
+#endif
     /* the vertices: on the DSP (both frames, 16 at a time, straight into view space), the CPU just
        blends and projects; or all on the CPU */
     x->st.t_mlight += (frt_read() - t0) & 0xFFFF;

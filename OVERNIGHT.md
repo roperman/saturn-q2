@@ -4492,3 +4492,13 @@ C0:128 108:104 130:97; face_asm 3294: 2C:202 3C:181 14:104 44:81;
 cells_asm 3158: 80:295 120:138 88:106 0:105; grid_face_asm 2373:
 16:89 3E:74 76:64 36:61; walk_asm 1943: 2A4:116 2CC:112 1E4:89
 23C:79; draw_model 1732 at 6008BB4: 6D4:86 324:82 6CC:78 6C4:76.
+
+**The packs that swallowed each other.** build.sh makes game.iso from
+all of cd/, and on the 14th I'd put the packed card builds (and my
+scripts) under cd/sd, being git-ignored: so each ISO from SUITE 46 on
+carried every pack before it (SUITE 48's .bin 253 MB, 49's 543, 50's
+1.17 GB, 51's 1.69 GB, where a lean pack is 12.3 MB; mkbin.py fell
+over past 99 minutes). The Saturn ignores the extra files, so SUITE
+48-50's figures stand, but that's what filled the card and ran its
+allocator into the phantom clusters. Now local/ (ignored) holds them,
+and SUITE 51, 52 are packed from a clean cd/.

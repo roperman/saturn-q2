@@ -455,6 +455,7 @@ void                ht_page(int page, int y)
 #define PROF_TOP        (12)
 #define HOT_FUNCS       (6)
 #define HOT_SPOTS       (4)
+#define HOT_MANY        (16)                /* (ht_hot_top: the busiest function's) */
 #define SYM_ADDR(i)     (*(const u32 *)(syms + 4 + (i) * 24))
 static u8           *syms;
 static int          nsyms;
@@ -538,7 +539,8 @@ void                ht_prof_page(int cpu, u32 frames, int y)
     }
 }
 
-void                ht_hot_page(int cpu, int y)
+/* (the nfuncs busiest functions, each with its nspots busiest 8 bytes, nspots to a line of four) */
+static void         hot_page(int cpu, int y, int nfuncs, int nspots)
 {
     const volatile u16 *h = (const volatile u16 *)(cpu ? 0x202F0000 : 0x202F8000);
     u32             total = 0;
@@ -546,20 +548,20 @@ void                ht_hot_page(int cpu, int y)
     int             top[HOT_FUNCS], k;
     char            name[16];
 
-    prof_rank(h, &total, top, HOT_FUNCS);
+    prof_rank(h, &total, top, nfuncs);
     vdp_printf(8, y, hd, "%s HOT SPOTS: OFFSET (HEX) SAMPLES", cpu ? "MASTER" : "SLAVE");
     y += 12;
-    for (k = 0; k < HOT_FUNCS && top[k] >= 0; ++k)
+    for (k = 0; k < nfuncs && top[k] >= 0; ++k)
     {
         u32 lo = SYM_ADDR(top[k]), hi = top[k] + 1 < nsyms ? SYM_ADDR(top[k] + 1) : 0x06024000;
         u32 b0 = (lo - 0x06004000) >> 3, b1 = (hi - 0x06004000) >> 3, b;
-        int best[HOT_SPOTS], j, i;
+        int best[HOT_MANY], j, i;
         char line[48], *o = line;
 
         sym_name(top[k], name);
         vdp_printf(8, y, g, "%s %d AT %X", name, fsum[top[k]], lo);
         y += 9;
-        for (j = 0; j < HOT_SPOTS; ++j)
+        for (j = 0; j < nspots; ++j)
         {
             best[j] = -1;
             for (b = b0; b < b1 && b < 16384; ++b)
@@ -571,10 +573,26 @@ void                ht_hot_page(int cpu, int y)
             }
             if (best[j] >= 0)
                 o += fmt(o, "%X:%d ", (u32)best[j] * 8 + 0x06004000 - lo, h[best[j]]);
+            if ((j & 3) == 3 || j == nspots - 1)
+            {
+                *o = 0;
+                vdp_text(8, y, w, line);
+                y += 9;
+                o = line;
+            }
         }
-        *o = 0;
-        vdp_text(8, y, w, line);
-        y += 11;
+        y += 2;
     }
+}
+
+void                ht_hot_page(int cpu, int y)
+{
+    hot_page(cpu, y, HOT_FUNCS, HOT_SPOTS);
+}
+
+/* (the next two pages: the busiest function alone, its HOT_MANY busiest spots) */
+void                ht_hot_top(int cpu, int y)
+{
+    hot_page(cpu, y, 1, HOT_MANY);
 }
 #endif

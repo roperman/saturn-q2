@@ -7,3 +7,4 @@ cd/
 *.map
 __pycache__/
 vendor/
+local/

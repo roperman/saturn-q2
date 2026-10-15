@@ -302,9 +302,18 @@ void                ents_light_dyn(bool pvs)
         }
         c = fcos(e->yaw);
         sn = fsin(e->yaw);
+#if MODEL_LIGHTS > 0
+        {
+        int             sel[MODEL_LIGHTS], ns = lights_pick(lag, nlag, e->origin, sel);
+
+        for (k = 0; k < ns; ++k)
+        {
+            const q_dlight  *l = &lag[sel[k]];
+#else
         for (k = 0; k < nlag; ++k)
         {
             const q_dlight  *l = &lag[k];
+#endif
             s32             dx = (l->pos[0] - e->origin[0]) >> 16, dy = (l->pos[1] - e->origin[1]) >> 16;
             s32             dz = (l->pos[2] - e->origin[2]) >> 16, r = l->radius >> 16, d2 = dx * dx + dy * dy + dz * dz;
             s32             f, len, mx, my, mz;
@@ -340,6 +349,9 @@ void                ents_light_dyn(bool pvs)
                 gt[nn] = (u16)(0x8000 | imin(bb, 31) << 10 | imin(gg, 31) << 5 | imin(rr, 31));
             }
         }
+#if MODEL_LIGHTS > 0
+        }
+#endif
     }
 }
 #endif

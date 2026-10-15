@@ -204,6 +204,7 @@ void                ht_slave_run(void);
 void                ht_page(int page, int y);
 void                ht_prof_page(int cpu, u32 frames, int y);
 void                ht_hot_page(int cpu, int y);
+void                ht_hot_top(int cpu, int y);
 extern u32          ht_slave_req;
 int                 level_sector_check(const char *name, u32 k, u32 *head);
 
@@ -292,6 +293,43 @@ typedef struct { s32 pos[3], end[3]; s32 size; u16 color, halo; } q_beam;   /* a
 extern q_dlight     r_dlights[MAX_DLIGHTS];
 extern int          r_ndlights;
 #define LIT_POOL        (6)                     /* models lit a frame behind at once (model.c ents_light_dyn) */
+/* OPT=-DMODEL_LIGHTS=n: a model lit by at most the n strongest dynamic lights at its origin (each is
+   162 normals' weights, 5-8 multiplies apiece: Comm Center's yard fight had some forty model-light
+   pairs a frame, 9 ms of the slave's; OVERNIGHT.md 89); 0, the default: all of them */
+#ifndef MODEL_LIGHTS
+#define MODEL_LIGHTS    (0)
+#endif
+#if MODEL_LIGHTS > 0
+static inline int   lights_pick(const q_dlight *src, int n, const s32 *org, int *sel)
+{
+    s32             best[MODEL_LIGHTS];
+    int             i, ns = 0;
+
+    for (i = 0; i < n; ++i)
+    {
+        const q_dlight  *l = &src[i];
+        s32             dx = (l->pos[0] - org[0]) >> 16, dy = (l->pos[1] - org[1]) >> 16;
+        s32             dz = (l->pos[2] - org[2]) >> 16, r = l->radius >> 16, d2 = dx * dx + dy * dy + dz * dz;
+        s32             f;
+        int             k;
+
+        if (d2 >= r * r)
+            continue;
+        f = ((r * r - d2) * ((1 << 24) / (r * r > 0 ? r * r : 1))) >> 8;     /* (as the lighting's) */
+        f = (f * (l->r + l->g + l->b)) >> 5;                                  /* ...by its colour's strength */
+        if (ns == MODEL_LIGHTS && f <= best[ns - 1])
+            continue;
+        for (k = ns < MODEL_LIGHTS ? ns++ : MODEL_LIGHTS - 1; k > 0 && best[k - 1] < f; --k)
+        {
+            best[k] = best[k - 1];
+            sel[k] = sel[k - 1];
+        }
+        best[k] = f;
+        sel[k] = i;
+    }
+    return ns;
+}
+#endif
 extern u16          ent_lit[LIT_POOL][162];
 void                lights_lag(void);           /* (main.c, as a frame starts: last frame's lights kept) */
 void                ents_light_dyn(bool pvs);   /* (after ents_light_pvs: the slave's, once the master's gone on) */

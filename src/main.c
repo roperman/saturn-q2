@@ -651,7 +651,7 @@ __attribute__((section(".lwdata"))) static u32 hb_late[2] = { 0 }, hb_made[2][3]
 # if defined(HW_TEST)
 #  define HB_PAGES      (11)                /* (the summary, the views, 2 profiles, 2 hot spots, 4 timings) */
 # elif defined(SLAVE_PROF)
-#  define HB_PAGES      (6)
+#  define HB_PAGES      (8)                 /* (...and the busiest function's 16 spots, each CPU) */
 # else
 #  ifdef OVERDRAW_PROF
 #  define HB_PAGES      (3)                 /* (...and the largest commands of held view 4) */
@@ -1506,6 +1506,11 @@ static __attribute__((cold)) void hb_screen(int page)
     if (page == 4 || page == 5)
     {
         ht_hot_page(page == 4, y);              /* (...their hot spots) */
+        return;
+    }
+    if (page == 6 || page == 7)
+    {
+        ht_hot_top(page == 6, y);               /* (...the busiest function's, 16 of them) */
         return;
     }
 #endif

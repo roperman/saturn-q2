@@ -4441,3 +4441,18 @@ C:841 14:650 -4:631 5C:597. Slave: slave_main 51338 at 6006628:
 8900: B0:576 210:304 40:292 A38:283; grid_face_asm 8757: 16:459 36:251
 3E:249 86:228; render_ent 5702 at 6013564: 144:1645 13C:1603 134:669
 124:656.
+
+**SUITE 48 on the Saturn** (lean, Comm Center, `-DHW_BENCH`, the fight
+in its yard). Page 1: held CPU 2359, frames 2815, walk 442; turned 2099
+/ 2696, uploads 1243; late 376 2784, made 0 0, bad 0; **the fight 95.0,
+CPU 92.8, GAME 14.5** (211 frames in its 20 s: 185 of four fields or
+more, 25 of three, one of two); DROP 0 260, CW 20; HW 16, LW 223440,
+CA 755712, SL 906; V1 held 0 366 303 0 351 0, turned 307 313 316 321
+327 390, F 0. The photo: two berserkers in the player's face (god
+mode; a gib flying), the yard's east wall behind. So the real Comm
+Center fight is 10.5 fps and CPU-bound: 78 ms a frame of rendering on
+the master's clock against the void's 27 and the yard's worst held
+view's 61 (view 6, CPU 60.4 of its 61.5), with the game step 14.5
+(the lost idle's; the void's 18 had more monsters awake, being 900
+units from a different spot). What the 78 is: SUITE 49 (sampled) and
+SUITE 50 (the pre-walk's parts, the models' and the DSP waits) to say.

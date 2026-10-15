@@ -4502,3 +4502,31 @@ over past 99 minutes). The Saturn ignores the extra files, so SUITE
 48-50's figures stand, but that's what filled the card and ran its
 allocator into the phantom clusters. Now local/ (ignored) holds them,
 and SUITE 51, 52 are packed from a clean cd/.
+
+**SUITE 51 on the Saturn** (SUITE 49's build with pages 7-8: the
+busiest function's 16 spots). Page 1: the fight 97.1, CPU 94.9, GAME
+14.9 (as 49's); held CPU 2388, frames 2822, walk 437; HW 128, LW
+119728. **Page 8, the slave's draw_model, 11069 samples at 6008BB4**:
+7CC:792 834:628 8EC:343 6D4:329 6CC:324 6C4:280 8C4:264 284:246
+73C:201 6F4:189 88C:183 89C:169 71C:166 704:163 804:161 864:161 (the
+sixteen 42% of it). By the listing: **the CPU's vertex path** (render.c
+6705-6718, the two frames' matrices on the bytes, the blend, the near
+test, and project's divide at 1405) 2701 samples, 24% of draw_model,
+some 8 ms of the slave's frame: the models past the DSP's 64 blocks
+(1024 vertices: two berserkers and two soldiers fill it); **the dynamic
+lights' weights** (6564-6568) 1652, 15%, 5 ms, on top of
+ents_light_dyn's 9.4; the DSP wait (+284) 246, 2%. The other 58% is
+spread under 160 samples an 8-byte bucket. **Page 7, the master's
+face_cells, 3649 at 600C438**: B0:144 C0:130 118:111 108:101 130:100
+128:77 120:63 48:61 58:55 40:53 A28:53 150:51 8:50 640:50 880:49
+898:48: flat, its first 0x150 bytes (the cell's setup) most.
+
+So of the yard fight's models (75 ms of the pair's time): the light
+weights 14 ms (SUITE 52's cap of two lights a model: the test), the
+CPU's vertex path 9-10 ms (the DSP's room, which can't grow: SCU DMA
+can't reach low work RAM, ST-210's No. 04, and high is full: two
+batches a frame through the same 64 blocks, the slave starting the
+second once the first's models are drawn, would), the polygons' asm
+(mpolys 8.4 + mcmds 7.4 + mverts 3.4 + model_shade 3.2 = 22 ms) by the
+polygon count, and draw_model's own other 19 ms yet to be placed (32
+spots next time).

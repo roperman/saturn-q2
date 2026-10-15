@@ -4530,3 +4530,20 @@ second once the first's models are drawn, would), the polygons' asm
 (mpolys 8.4 + mcmds 7.4 + mverts 3.4 + model_shade 3.2 = 22 ms) by the
 polygon count, and draw_model's own other 19 ms yet to be placed (32
 spots next time).
+
+**SUITE 52 on the Saturn** (SUITE 51 with `-DMODEL_LIGHTS=2`). Page
+1: **the fight 94.1, CPU 92.0, GAME 15.0** (51's 97.1 / 94.9 / 14.9: 3
+ms a frame); held CPU 2420, frames 2858, walk 442 (the sampler's
+noise); HW 96, LW 119728. Page 4, the slave: draw_model 31.4 (51's
+32.9), mpolys_asm 8.7, mcmds_asm 7.7, **ents_light_dyn 7.4 (9.4)**,
+face_asm 5.1, mverts_asm 3.5, model_shade 3.2, tex_load 2.6,
+face_cells 2.5, cells_asm 2.0, grid_face_asm 1.9, slave_main 1.8. So
+two lights a model instead of all of them is 3 ms of the frame, not
+the 8 hoped: with the pairs capped at some sixteen a frame the
+weights still take 7.4 ms, 2.8 us a normal, 80 cycles: the C loop
+(a 2.14 dot of three products, the weight's two multiplies, the
+colour's three, three clamps and a pack) is the cost, not the count.
+In SH-2 asm (MAC.W for the dot, MULS.W for the rest, no clamps where
+the base can't overflow) it should be a third of that, on all the
+pairs, with no change to the look: the next step, ahead of the cap
+(Roper's call, 3 ms for monsters lit by two flashes at once).

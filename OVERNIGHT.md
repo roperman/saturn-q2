@@ -4456,3 +4456,39 @@ view's 61 (view 6, CPU 60.4 of its 61.5), with the game step 14.5
 (the lost idle's; the void's 18 had more monsters awake, being 900
 units from a different spot). What the 78 is: SUITE 49 (sampled) and
 SUITE 50 (the pre-walk's parts, the models' and the DSP waits) to say.
+
+**SUITE 49 on the Saturn** (the yard fight sampled: `-DHW_BENCH
+-DSLAVE_PROF`). Page 1: held CPU 2380, frames 2822, walk 437; turned
+2107 / 2696, uploads 1238; late 376 2705; **the fight 97.1, CPU 94.9,
+GAME 14.9** (206 frames: 181 of four fields or more, 25 of three; the
+sampler 2 ms on this fight, not the void's 20); DROP 0 256, CW 33; HW
+160, LW 119776; V1 held 0 366 303 0 351 407, turned 304 319 330 319 321
+400, F 402. Page 2 as SUITE 48's within 0.3 ms (held CPU 179 536 364
+250 447 604).
+
+**Pages 3-4, the fight's frame (ms a frame; the page's percentages
+are of the frame).** The master (33,499 samples, 107 elsewhere):
+face_cells 11.3, face_asm 9.7, cells_asm 9.3, grid_face_asm 7.0,
+walk_asm 5.7, draw_model 5.1, render_world 3.1, mpolys_asm 3.1,
+lit_wait 3.0, g_trace 2.7, mcmds_asm 2.5, fb_add 2.3: the walls 48 ms,
+the models 11, the game's traces under 3, the rest (the game step's
+14.9 among it) in functions under 2%. **The slave (33,488 samples, 5
+elsewhere): draw_model 32.9 (33%), ents_light_dyn 9.4, mpolys_asm 8.4,
+mcmds_asm 7.4, face_asm 5.0, mverts_asm 3.4, model_shade 3.2,
+tex_load 2.3, face_cells 2.3, __ashiftrt_r4_1 2.1, cells_asm 1.9,
+grid_face_asm 1.7**: no idle in its top twelve at all; the models are
+65 ms of its frame and the walls 11. So the yard fight is the models:
+two berserkers at arm's length and the rest of the yard's monsters,
+75 ms a frame of the pair's time, against the held views' 17.
+
+**Pages 5-6, hot spots.** Slave: draw_model 11112 at 6008BB4:
+7CC:719 834:684 8EC:565 6D4:349 (not the DSP wait at +284 of 87: the
+drawing itself); ents_light_dyn 3192 at 6012F18: 280:423 278:315
+288:260 2E8:165; mpolys_asm 2849 at 6019EE8: 30:461 38:365 40:163
+90:131; mcmds_asm 2504 at 601A032: F6:235 36:166 86:124 4E:114;
+face_asm 1709: 2C:158 3C:143 14:99 4:41; mverts_asm 1160 at 6019D8C:
+4C:90 EC:88 7C:80 8C:72. Master: face_cells 3841 at 600C438: B0:146
+C0:128 108:104 130:97; face_asm 3294: 2C:202 3C:181 14:104 44:81;
+cells_asm 3158: 80:295 120:138 88:106 0:105; grid_face_asm 2373:
+16:89 3E:74 76:64 36:61; walk_asm 1943: 2A4:116 2CC:112 1E4:89
+23C:79; draw_model 1732 at 6008BB4: 6D4:86 324:82 6CC:78 6C4:76.

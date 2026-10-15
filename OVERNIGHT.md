@@ -4547,3 +4547,69 @@ In SH-2 asm (MAC.W for the dot, MULS.W for the rest, no clamps where
 the base can't overflow) it should be a third of that, on all the
 pairs, with no change to the look: the next step, ahead of the cap
 (Roper's call, 3 ms for monsters lit by two flashes at once).
+
+## 90. Comm Center's blue key, the soldier's last shot, the lights' weights in asm, a full bake
+
+**The blue key** (Roper: "On comm centre, the blue key card is in the
+floor and I can't pick it up"). The map puts key_blue_key at (-416,
+-312, -320) in a slot in the floor 48 wide, its bottom at -353, with
+two func_doors: a lid at floor level (*20, t133, angle 90: slides
+away) and a 56-high pedestal under the key (*19, t134, angle -1: up,
+lip 8). "Computer updated" fires t108 -> t133 -> t134 three seconds
+apart: the lid opens, the pedestal rises 48 and brings the key to the
+floor. Our movers carried the player only (movers.c: "the player's on
+it: carry them"), so the pedestal rose through the key, which stayed
+at -321 inside it, in the floor to look at and 21 units below the
+player's feet to touch. Now g_items_carry (g_main.c, from
+movers_update): an item whose box bottom rests on a mover's top and
+lies within its footprint moves with it, its spot (g_item_spots: the
+pickup test's position and leaf) and its render entity too. Tested
+with `OPT="-DKEY_TEST -DNEW_GAME_DEMO=3"` (START + DOWN: a new game
+on Comm Center, the player on the ledge east of the slot in god mode,
+both doors used; the key's spawn, rise and pickup checks on the HUD):
+the key spawned at -320, dropped to -321 onto the pedestal, rose to
+-273 with it, and "You got the Blue Key" on walking onto it. Monsters
+on lifts aren't carried yet (Quake 2 pushes them too): none of the
+three levels needs it that I know of.
+
+What the testing cost, for next time (local/: myemu.sh, keytest*.sh,
+check_run.sh): `xdotool search --pid` finds no Mednafen window (SDL
+sets no _NET_WM_PID), and with `--class mednafen` as well it matches
+any Mednafen, so my key presses went into Roper's own running game;
+tools/emu.sh start and stop `pkill` every Mednafen, Roper's included.
+Mine now runs on its own X display (Xvfb :99, `-video.driver
+softfb`), where xdotool and import see only it. A new game from the
+title starts on Outer Base whatever MAP= was (MAP= is the title's
+backdrop and the benchmarks' level): a test on another level wants
+`-DNEW_GAME_DEMO=n`. START + R is the built-in benchmark's in every
+build; START + Y is noclip; a test's own combination must be free.
+The slave's move in hand undoes a pmove_spawn: a new_game() first, as
+the fight does. Mednafen's boot on this laptop is 40 s with nothing
+else running and 100 s or more beside a build, so a scripted START
+wants the title seen first (a snapshot's "SATURN PORT" line).
+
+**The soldier's last shot** (Roper: "the basic soldiers are supposed
+to fire their blaster in their death animation, but they don't"):
+Quake 2's death1 fires once on its 23rd frame (soldier_fire6); our
+baked table had the slot empty. Put back (m_soldier.c).
+
+**A dynamic light's weights on a model's 162 normals in SH-2 asm**
+(src/mlight.s, from SUITE 52's lesson in 89 that the loop, not the
+pair count, was the cost: 80 cycles a normal). MAC.W for the 2.14 dot
+(the direction kept as three words), MULS.W for the weight's and the
+colours' products (all operands under 16 bits: the colour times the
+light's strength is taken >> 12 once a light, so each normal is one
+multiply a colour), a 64-entry table in low work RAM for the clamp to
+31 (an 8-bit immediate is signed: 162 is two instructions). It rounds
+a unit from the C at most (the C truncates f*w first, this c*f
+first); `-DMLIGHT_CHECK` runs both and counts colours further apart:
+Comm Center's fight on Mednafen, 0 of 2,106. `-DNO_MLIGHT_ASM` is the
+C. Both callers (model.c ents_light_dyn, render.c draw_model) go
+through model.c mlight(). Not yet measured on the Saturn: SUITE 53/54.
+
+**The full bake tours** (Roper asked for a full build beside the
+lean): all three levels load with 64, 90 and 144 bytes of high work
+RAM spare; Installation's short entities and Comm Center's full ones
+land in low work RAM (the tour's E2, E1; the lean bake's E0), so
+their game steps run a little slower. On the card as "full bake, lost
+monsters stand", with "lean bake, lights in asm" beside it.

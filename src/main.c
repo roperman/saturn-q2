@@ -2004,6 +2004,21 @@ void                main(void)
                 warp_ent(true);
             if (pressed(PAD_X) && (pad_now & PAD_START))
                 god = !god;
+#ifdef KEY_TEST
+            if (pressed(PAD_DOWN) && (pad_now & PAD_START))    /* (START + R is the benchmark's) */
+            {
+                static const s32 kt_at[3] = { FIX(-360), FIX(-312), FIX(-274) };   /* (the ledge east of Comm Center's blue key, facing it; the game must start there: -DNEW_GAME_DEMO=3) */
+
+                menu_cur = MENU_NONE;
+                new_game();                     /* (as the fight does: the slave's move in hand would undo the spawn) */
+                god = true;                     /* (the room's monsters) */
+                pmove_spawn(kt_at);
+                cam.yaw = 0x8000;
+                movers_test_key();
+                start_used = true;
+                start_used = true;
+            }
+#endif
             if (pressed(PAD_UP) && (pad_now & PAD_START))
             {
                 game_during_draw = !game_during_draw;
@@ -2798,6 +2813,9 @@ void                main(void)
             }
 #endif
             vdp_printf(8, 96, RGB(255, 220, 120), "FIGHT: %d FRAMES", fight_n);
+#ifdef MLIGHT_CHECK
+            vdp_printf(160, 96, RGB(255, 220, 120), "MLIGHT %d/%d", mlight_diffs, mlight_checks);
+#endif
 #ifdef MF_PROF
             {
                 const u32 *mf_t = fight_mf, *mf_v = fight_mf + 4, *mf_m = fight_mf + 8;
@@ -3000,6 +3018,17 @@ void                main(void)
             if (g_player->dead)
                 vdp_text(160 - 11 * 8, 100, RGB(255, 80, 60), "YOU DIED - PRESS START");
         }
+#ifdef KEY_TEST
+        {
+            extern s32 kt_z[3], kt_d[3];
+            extern int kt_spawned, kt_ss, kt_leaf, kt_fail, kt_kind, kt_seen, kt_calls;
+
+            vdp_printf(8, 20, RGB(255, 255, 120), "KEY SP%d Z %d END %d NOW %d SS%d LEAF %d K%d", kt_spawned, kt_z[0],
+                       kt_z[1], kt_z[2], kt_ss, kt_leaf, kt_kind);
+            vdp_printf(8, 30, RGB(255, 255, 120), "D %d %d %d FAIL %d N%d C%d PL %d %d %d", kt_d[0], kt_d[1], kt_d[2], kt_fail,
+                       kt_seen, kt_calls, g_player->origin[0] >> 16, g_player->origin[1] >> 16, g_player->origin[2] >> 16);
+        }
+#endif
         if (opt_stats == 1)
         {
             /* (the options' STATISTICS FPS) the frame rate alone, over the last few frames */

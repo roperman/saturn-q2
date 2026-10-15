@@ -213,6 +213,13 @@ __attribute__((cold)) bool g_item_spawns(int cls)
     return it && models[it->model].loaded;
 }
 
+#ifdef KEY_TEST
+/* (OPT=-DKEY_TEST: Comm Center's blue key, said to lie in the floor unpickable: its spawn and the
+   pickup test's parts, shown by main.c) */
+s32                 kt_z[3], kt_d[3];
+int                 kt_spawned, kt_ss, kt_leaf = -9, kt_fail = -1, kt_kind = -1, kt_seen, kt_calls;
+#endif
+
 __attribute__((cold)) bool g_spawn_item(g_ent *e, const q_erec *r)
 {
     const g_item    *it = item_of(r->cls);
@@ -220,6 +227,13 @@ __attribute__((cold)) bool g_spawn_item(g_ent *e, const q_erec *r)
     q_trace         t;
     int             k;
 
+#ifdef KEY_TEST
+    if (r->cls == C_KEY_BLUE_KEY)
+    {
+        kt_spawned = it && models[it->model].loaded ? 1 : -1;
+        kt_z[0] = e->origin[2] >> 16;
+    }
+#endif
     if (!it || !models[it->model].loaded)
         return false;
     e->kind = EK_ITEM;
@@ -239,6 +253,14 @@ __attribute__((cold)) bool g_spawn_item(g_ent *e, const q_erec *r)
     if (!t.startsolid)
         for (k = 0; k < 3; ++k)
             e->origin[k] = t.endpos[k];
+#ifdef KEY_TEST
+    if (r->cls == C_KEY_BLUE_KEY)
+    {
+        kt_ss = t.startsolid;
+        kt_z[1] = t.endpos[2] >> 16;
+        kt_z[2] = e->origin[2] >> 16;
+    }
+#endif
     return true;
 }
 
@@ -248,6 +270,9 @@ void                g_touch_items(void)
     int             i, k;
     s32             plo[3], phi[3];
 
+#ifdef KEY_TEST
+    ++kt_calls;
+#endif
     if (g_player->dead || pl.noclip)
         return;
     for (k = 0; k < 3; ++k)
@@ -260,6 +285,20 @@ void                g_touch_items(void)
         const g_spot *sp = &g_item_spots[i];
         g_ent   *e;
 
+#ifdef KEY_TEST
+        if (G_SHORT_ENT(i)->cls == C_KEY_BLUE_KEY)
+        {
+            e = G_SHORT_ENT(i);
+            ++kt_seen;
+            kt_z[2] = e->origin[2] >> 16;   /* (live: carried up by its pedestal?) */
+            kt_leaf = sp->leaf;
+            kt_kind = e->kind;
+            for (k = 0; k < 3; ++k)
+                kt_d[k] = (g_player->origin[k] - e->origin[k]) >> 16;
+            kt_fail = sp->leaf < 0 ? 1 : sp->pos[0] < plo[0] || sp->pos[0] > phi[0] || sp->pos[1] < plo[1]
+                      || sp->pos[1] > phi[1] || sp->pos[2] < plo[2] || sp->pos[2] > phi[2] ? 2 : e->kind != EK_ITEM ? 3 : 0;
+        }
+#endif
         if (sp->leaf < 0 || sp->pos[0] < plo[0] || sp->pos[0] > phi[0] || sp->pos[1] < plo[1] || sp->pos[1] > phi[1]
             || sp->pos[2] < plo[2] || sp->pos[2] > phi[2])
             continue;
@@ -270,6 +309,10 @@ void                g_touch_items(void)
             if (g_player->origin[k] + g_player->maxs[k] < e->origin[k] - ITEM_HALF
                 || g_player->origin[k] + g_player->mins[k] > e->origin[k] + ITEM_HALF)
                 break;
+#ifdef KEY_TEST
+        if (e->cls == C_KEY_BLUE_KEY)
+            kt_fail = k == 3 ? 9 : 4 + k;
+#endif
         if (k == 3)
             touch_item(e, g_player);
     }

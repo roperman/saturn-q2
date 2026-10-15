@@ -6568,16 +6568,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
             memcpy(x->gtab, e->gbase, sizeof(x->gtab));
             gt = x->gtab;
         }
-        for (n = 0; n < 162; ++n, nrm += 3)
-        {
-            s32 dot = (nrm[0] * mx + nrm[1] * my + nrm[2] * mz) >> 14;      /* 2.14 */
-            s32 w = (f * (5734 + (dot > 0 ? (dot * 10650) >> 14 : 0))) >> 14;   /* 0.35 + 0.65 dot */
-            u16 g0 = x->gtab[n];
-            int rr = (g0 & 31) + ((l->r * w) >> 16), gg = ((g0 >> 5) & 31) + ((l->g * w) >> 16);
-            int bb = ((g0 >> 10) & 31) + ((l->b * w) >> 16);
-
-            x->gtab[n] = (u16)(0x8000 | imin(bb, 31) << 10 | imin(gg, 31) << 5 | imin(rr, 31));
-        }
+        mlight(x->gtab, nrm, mx, my, mz, f, l);     /* (model.c: src/mlight.s) */
     }
 #if MODEL_LIGHTS > 0
     }

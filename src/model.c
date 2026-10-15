@@ -272,9 +272,54 @@ void                ent_lit_forget(void)
 }
 
 #ifndef NO_LIGHT_AHEAD
+/* a light's weights on the 162 normals: src/mlight.s (OPT=-DNO_MLIGHT_ASM: the C, which it rounds
+   a unit from at most; -DMLIGHT_CHECK: both, compared) */
+void                mlight(u16 *gt, const s16 *nrm, s32 mx, s32 my, s32 mz, s32 f, const q_dlight *l)
+{
+#if !defined(NO_MLIGHT_ASM) || defined(MLIGHT_CHECK)
+    s16             k[6];
+
+    k[0] = (s16)mx; k[1] = (s16)my; k[2] = (s16)mz;
+    k[3] = (s16)((l->r * f) >> 12); k[4] = (s16)((l->g * f) >> 12); k[5] = (s16)((l->b * f) >> 12);
+#endif
+#if defined(NO_MLIGHT_ASM) || defined(MLIGHT_CHECK)
+    {
+#ifdef MLIGHT_CHECK
+        u16 ref[162];
+        int nn;
+
+        memcpy(ref, gt, sizeof(ref));
+        mlight_asm(ref, nrm, k);
+#else
+        int nn;
+#endif
+        for (nn = 0; nn < 162; ++nn, nrm += 3)
+        {
+            s32 dot = (nrm[0] * mx + nrm[1] * my + nrm[2] * mz) >> 14;      /* 2.14 */
+            s32 w = (f * (5734 + (dot > 0 ? (dot * 10650) >> 14 : 0))) >> 14;   /* 0.35 + 0.65 dot */
+            u16 g0 = gt[nn];
+            int rr = (g0 & 31) + ((l->r * w) >> 16), gg = ((g0 >> 5) & 31) + ((l->g * w) >> 16);
+            int bb = ((g0 >> 10) & 31) + ((l->b * w) >> 16);
+
+            gt[nn] = (u16)(0x8000 | imin(bb, 31) << 10 | imin(gg, 31) << 5 | imin(rr, 31));
+#ifdef MLIGHT_CHECK
+            ++mlight_checks;
+            mlight_diffs += iabs((ref[nn] & 31) - (gt[nn] & 31)) > 1 || iabs(((ref[nn] >> 5) & 31) - ((gt[nn] >> 5) & 31)) > 1
+                            || iabs(((ref[nn] >> 10) & 31) - ((gt[nn] >> 10) & 31)) > 1;
+#endif
+        }
+    }
+#else
+    mlight_asm(gt, nrm, k);
+#endif
+}
+#ifdef MLIGHT_CHECK
+u32                 mlight_checks, mlight_diffs;
+#endif
+
 void                ents_light_dyn(bool pvs)
 {
-    int             i, k, n = 0, nn;
+    int             i, k, n = 0;
 
     for (i = 0; i < GAME_ENTS; ++i)
     {
@@ -338,16 +383,7 @@ void                ents_light_dyn(bool pvs)
             mx = ((dx * c + dy * sn) >> 2) / len;
             my = ((dy * c - dx * sn) >> 2) / len;
             mz = (dz << 14) / len;
-            for (nn = 0; nn < 162; ++nn, nrm += 3)
-            {
-                s32 dot = (nrm[0] * mx + nrm[1] * my + nrm[2] * mz) >> 14;      /* 2.14 */
-                s32 w = (f * (5734 + (dot > 0 ? (dot * 10650) >> 14 : 0))) >> 14;   /* 0.35 + 0.65 dot */
-                u16 g0 = gt[nn];
-                int rr = (g0 & 31) + ((l->r * w) >> 16), gg = ((g0 >> 5) & 31) + ((l->g * w) >> 16);
-                int bb = ((g0 >> 10) & 31) + ((l->b * w) >> 16);
-
-                gt[nn] = (u16)(0x8000 | imin(bb, 31) << 10 | imin(gg, 31) << 5 | imin(rr, 31));
-            }
+            mlight(gt, nrm, mx, my, mz, f, l);
         }
 #if MODEL_LIGHTS > 0
         }

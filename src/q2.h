@@ -270,6 +270,10 @@ void                movers_use(int name);                  /* set going everythi
 void                mover_hide(int model);                 /* gone (a func_explosive, blown up) */
 bool                mover_live(int model);                 /* drawn and solid */
 void                g_mover_fired(int target);             /* (the game) a button's targets */
+void                g_items_carry(int m, const s32 *before, const s32 *delta);   /* (the game) the items on mover m go with it */
+#ifdef KEY_TEST
+void                movers_test_key(void);                  /* (OPT=-DKEY_TEST) the doors under Comm Center's blue key, used */
+#endif
 
 /* the camera */
 typedef struct
@@ -424,6 +428,12 @@ extern int          nents;                  /* (fx_render's, the master's: the g
 bool                model_load(q_mdl *m, const char *file);
 int                 model_anim(const q_mdl *m, const char *name);
 void                model_shade(u16 *out, const u8 *sh, const u16 *ll);    /* 162 normals' Gouraud: a light, a yaw's shading */
+void                mlight(u16 *gt, const s16 *nrm, s32 mx, s32 my, s32 mz, s32 f, const q_dlight *l);   /* (model.c) */
+void                mlight_asm(u16 *gt, const s16 *nrm, const s16 *k);  /* a dynamic light on 162 normals (src/mlight.s): k = its
+                                                               direction in the model's space (2.14) and colours x strength >> 12 */
+#ifdef MLIGHT_CHECK
+extern u32          mlight_checks, mlight_diffs;        /* (OPT=-DMLIGHT_CHECK: the C again, colours over a unit apart counted) */
+#endif
 /* view.c: the gun in your hands */
 extern bool         view_on;                /* drawn at all (not at the title, nor in the benchmark's views) */
 extern s32          view_bob[3];            /* its bob: pitch (down), yaw (left), roll (right side down), radians 16.16 */

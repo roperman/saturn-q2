@@ -1368,6 +1368,40 @@ void                g_render_ents(void)
     }
 }
 
+/* A mover (movers.c) is moving by delta from its offset before: the items resting on its top go with it
+   (Comm Center's blue key lies on a pedestal that rises once the computer's updated; it stayed in the
+   floor: OVERNIGHT.md 90). Their spots and render entities move too. */
+void                g_items_carry(int m, const s32 *before, const s32 *delta)
+{
+    const q_model   *bm = &lv.models[m];
+    s32             top = bm->maxs[2] + before[2];
+    int             i, k;
+
+    for (i = 0; i < g_nitems; ++i)
+    {
+        g_spot      *sp = &g_item_spots[i];
+        g_ent       *e = G_SHORT_ENT(i);
+        int         s;
+
+        if (sp->leaf < 0 || e->kind != EK_ITEM || iabs(e->origin[2] - ITEM_HALF - top) > FIX(2))
+            continue;
+        if (e->origin[0] + ITEM_HALF < bm->mins[0] + before[0] || e->origin[0] - ITEM_HALF > bm->maxs[0] + before[0]
+            || e->origin[1] + ITEM_HALF < bm->mins[1] + before[1] || e->origin[1] - ITEM_HALF > bm->maxs[1] + before[1])
+            continue;
+        for (k = 0; k < 3; ++k)
+        {
+            e->origin[k] += delta[k];
+            e->old_origin[k] = e->origin[k];
+            sp->pos[k] = (s16)(e->origin[k] >> 16);
+        }
+        sp->leaf = (s16)level_leaf(e->origin);
+        s = g_slot_of[g_nfull + i] - 1;
+        if (s >= 0)
+            for (k = 0; k < 3; ++k)
+                ents[s].origin[k] = e->origin[k];
+    }
+}
+
 /* (once the camera's moved) pvs: the PVS marked is the camera's; if not, every one kept */
 void                g_render_late(bool pvs)
 {

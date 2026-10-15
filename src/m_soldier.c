@@ -50,10 +50,11 @@ static const mframe_t soldier_frames_attack1[] = {
 static mmove_t      soldier_move_attack1 = { "attack", 0, 11, soldier_frames_attack1, soldier_run, 0, 0 };
 
 #define DEATH0          { ai_move, 0, NULL }
+/* (Quake 2's death1: the dying soldier gets one last shot off on its 23rd frame, soldier_fire6) */
 static const mframe_t soldier_frames_death1[] = {
     { ai_move, 0, NULL }, { ai_move, -10, NULL }, { ai_move, -10, NULL }, { ai_move, -10, NULL }, { ai_move, -5, NULL },
     DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0,
-    DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0,
+    DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, { ai_move, 0, soldier_fire1 }, DEATH0, DEATH0,
     DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0,
 };
 static mmove_t      soldier_move_death1 = { "death", 0, 35, soldier_frames_death1, soldier_dead, 0, 0 };

@@ -131,6 +131,22 @@ void                movers_use(int name)
             activate(m);
 }
 
+#ifdef KEY_TEST
+void                movers_test_key(void)
+{
+    int             m;
+
+    for (m = 1; m < lv.nmodels; ++m)
+    {
+        const q_model *bm = &lv.models[m];
+
+        if (bm->mins[0] <= FIX(-416) && FIX(-416) <= bm->maxs[0] && bm->mins[1] <= FIX(-312) && FIX(-312) <= bm->maxs[1]
+            && lv.movers[m].kind >= MV_DOOR && !mover_gone[m])
+            activate(m);
+    }
+}
+#endif
+
 /* a button's pressed: the game uses its targets (doors, relays, spawners...) */
 static void         fire_targets(int target)
 {
@@ -214,6 +230,7 @@ void                movers_update(s32 dt)
             before[k] = mover_ofs[m][k];
             delta[k] = fmul(mv->move[k], nf) - before[k];
         }
+        g_items_carry(m, before, delta);    /* (the items on it) */
         /* the player's on it: carry them; in its way: a door goes back */
         if (pl.ground_ent == m && !pl.noclip)
         {

@@ -271,6 +271,7 @@ void                mover_hide(int model);                 /* gone (a func_explo
 bool                mover_live(int model);                 /* drawn and solid */
 void                g_mover_fired(int target);             /* (the game) a button's targets */
 void                g_items_carry(int m, const s32 *before, const s32 *delta);   /* (the game) the items on mover m go with it */
+void                g_monsters_carry(int m, const s32 *before, const s32 *delta);   /* ...and the monsters, barrels */
 #ifdef KEY_TEST
 void                movers_test_key(void);                  /* (OPT=-DKEY_TEST) the doors under Comm Center's blue key, used */
 #endif

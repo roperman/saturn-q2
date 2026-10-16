@@ -4779,3 +4779,17 @@ commander_body); classes that matter: target_laser (150), target_spawner
 target_blaster, target_earthquake, target_lightramp, target_character
 (the Big Gun's count-down), misc_insane (60), the keys and power cubes,
 the turrets, and the railgun, hyperblaster and BFG.
+
+## 93. Monsters ride the movers
+
+After the items (90), the monsters, corpses and barrels: g_main.c
+g_monsters_carry, from movers_update beside g_items_carry. A full
+entity whose box bottom rests within two units of the mover's top and
+whose footprint overlaps the mover's moves by the mover's step, its
+leaf and solid box with it; its own tick then steps from where it was
+carried to (old_origin is taken at the tick's start, so the lift's
+motion isn't blended for it, as for the items). Quake 2's pushers do
+this; the retail maps have lifts with monsters on them, the demo's
+three none that I know of. `OPT=-DNO_MONSTER_CARRY` leaves it out.
+Tested only as far as the lean tour (all three levels load and run)
+and a build: no monster on a lift was watched.

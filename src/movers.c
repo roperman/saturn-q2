@@ -231,6 +231,9 @@ void                movers_update(s32 dt)
             delta[k] = fmul(mv->move[k], nf) - before[k];
         }
         g_items_carry(m, before, delta);    /* (the items on it) */
+#ifndef NO_MONSTER_CARRY
+        g_monsters_carry(m, before, delta); /* (the monsters on it; OPT=-DNO_MONSTER_CARRY: not) */
+#endif
         /* the player's on it: carry them; in its way: a door goes back */
         if (pl.ground_ent == m && !pl.noclip)
         {

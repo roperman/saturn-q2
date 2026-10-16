@@ -1402,6 +1402,32 @@ __attribute__((cold)) void g_items_carry(int m, const s32 *before, const s32 *de
     }
 }
 
+/* mover m moved by delta: the monsters (corpses and barrels too) whose box bottom rests on its top
+   and lies within its footprint go with it, their leaf and solid box too (Quake 2's pushers carry
+   what stands on them; a monster's own tick then steps from where it's carried to) */
+__attribute__((cold)) void g_monsters_carry(int m, const s32 *before, const s32 *delta)
+{
+    const q_model   *bm = &lv.models[m];
+    s32             top = bm->maxs[2] + before[2];
+    int             i, k;
+
+    for (i = 1; i < g_nfull; ++i)
+    {
+        g_ent       *e = &g_edicts[i];
+
+        if ((e->kind != EK_MONSTER && e->kind != EK_OBJECT) || iabs(e->origin[2] + e->mins[2] - top) > FIX(2))
+            continue;
+        if (e->origin[0] + e->maxs[0] < bm->mins[0] + before[0] || e->origin[0] + e->mins[0] > bm->maxs[0] + before[0]
+            || e->origin[1] + e->maxs[1] < bm->mins[1] + before[1] || e->origin[1] + e->mins[1] > bm->maxs[1] + before[1])
+            continue;
+        for (k = 0; k < 3; ++k)
+            e->origin[k] += delta[k];
+        e->leaf = (s16)level_leaf(e->origin);
+        if (g_solid_slot[i] != 0xFF)
+            solid_box(&g_solids[g_solid_slot[i]], e);
+    }
+}
+
 /* (once the camera's moved) pvs: the PVS marked is the camera's; if not, every one kept */
 void                g_render_late(bool pvs)
 {

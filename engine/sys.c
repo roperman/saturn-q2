@@ -43,7 +43,7 @@ int                 memcmp(const void *a, const void *b, u32 n)
     return 0;
 }
 
-int                 vfmt(char *out, const char *f, va_list ap)
+__attribute__((cold)) int vfmt(char *out, const char *f, va_list ap)     /* (low work RAM: the benchmarks' and messages' text) */
 {
     char            *o = out, tmp[12];
     int             width, prec, zero, left, i, n;

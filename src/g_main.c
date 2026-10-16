@@ -1371,7 +1371,7 @@ void                g_render_ents(void)
 /* A mover (movers.c) is moving by delta from its offset before: the items resting on its top go with it
    (Comm Center's blue key lies on a pedestal that rises once the computer's updated; it stayed in the
    floor: OVERNIGHT.md 90). Their spots and render entities move too. */
-void                g_items_carry(int m, const s32 *before, const s32 *delta)
+__attribute__((cold)) void g_items_carry(int m, const s32 *before, const s32 *delta)    /* (low work RAM: a mover moving) */
 {
     const q_model   *bm = &lv.models[m];
     s32             top = bm->maxs[2] + before[2];

@@ -459,6 +459,24 @@ static s32          rcp_n, wscale;          /* 1/N (16.16); 65536 / N^2 (interpo
 static u32          dspm_stream[DSPM_MODELS * DSPM_HEAD] __attribute__((aligned(16)));
 static s32          dspm_out[DSPM_BLOCKS * 48] __attribute__((aligned(16)));
 static s32          *dspm_more;             /* (blocks DSPM_BLOCKS on) */
+#ifndef NO_DSPM_BATCH2
+/* A second batch through the same blocks (OVERNIGHT.md 91): the models dspm_place had no room for
+   (Comm Center's yard fight: half of them, 9 ms a frame on the CPU's vertex path) get their headers
+   made at models_to_dsp, all but where their blocks go, in low work RAM; whichever CPU first wants
+   one starts the batch, once every first-batch model's blocks have been read (dspm_read, each by
+   its drawer) and so may be written over: the headers into the stream, blocks from 0 again, the
+   count from 0. Waiting too long (a first-batch model listed but not drawn yet by the other CPU,
+   which waits in turn): that model goes the CPU's way, as before. OPT=-DNO_DSPM_BATCH2: as before */
+#define DSPM_B2_WAIT    (4000)              /* us before giving up on the start */
+static u32          dspm_s2[DSPM_MODELS * DSPM_HEAD] __attribute__((section(".lwdata"), aligned(16)));
+static s16          dspm_s2_ent[DSPM_MODELS] __attribute__((section(".lwdata")));
+static u8           dspm_s2_blocks[DSPM_MODELS] __attribute__((section(".lwdata")));
+static u8           dspm_read[DSPM_MODELS + 4] __attribute__((section(".lwdata"), aligned(4)));    /* (+ the gun's, past them) */
+static u8           dspm_lock __attribute__((section(".lwdata"), aligned(4)));
+static u8           dspm_started __attribute__((section(".lwdata"), aligned(4)));
+static int          dspm_n1, dspm_n2;       /* this frame's batches */
+u32                 dspm_b2_frames, dspm_b2_models, dspm_b2_late;   /* (stats: frames with one, its models, given up) */
+#endif
 static int          dspm_nmore;
 static u32          dspm_count __attribute__((aligned(16)));
 #ifdef DSP_LIGHT
@@ -5268,6 +5286,9 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         ma.zmin = 0x7FFFFFFF;
         ma.zmax = -0x7FFFFFFF;
         mverts_asm(&ma);
+#ifndef NO_DSPM_BATCH2
+        ((volatile u8 *)UNCACHED(dspm_read))[vd.dsp] = 1;   /* (the gun's blocks read) */
+#endif
         zmin = ma.zmin;
         zmax = ma.zmax;
         for (i = 0; i < nv; ++i)
@@ -6171,10 +6192,103 @@ static inline bool  model_far(const q_entity *e)
    all off the screen, weighted for their blends; started at once */
 static int          rs_mdsp;                /* (stats: models the DSP was given this frame) */
 
+/* a model's header for the DSP: its two frames' matrices folded with the blend (21 words), the frames,
+   its blocks; the 25th word, where its blocks go, is the caller's */
+static void         model_header(u32 *st, const q_entity *e, const q_mdl *m, const model_xform *xf, s32 w0, s32 w1,
+                                 int blocks)
+{
+    int             k;
+
+    if (!w1)
+        for (k = 0; k < 3; ++k, st += 7)
+        {
+            /* (not blended: the first frame's as they are, the second's nothing; about half of them) */
+            st[0] = (u32)xf->C0[k];
+            st[1] = (u32)xf->A0[k][0]; st[2] = (u32)xf->A0[k][1]; st[3] = (u32)xf->A0[k][2];
+            st[4] = st[5] = st[6] = 0;
+        }
+    else
+        for (k = 0; k < 3; ++k, st += 7)
+        {
+            st[0] = (u32)(fmul(xf->C0[k], w0) + fmul(xf->C1[k], w1));
+            st[1] = (u32)fmul(xf->A0[k][0], w0); st[2] = (u32)fmul(xf->A0[k][1], w0); st[3] = (u32)fmul(xf->A0[k][2], w0);
+            st[4] = (u32)fmul(xf->A1[k][0], w1); st[5] = (u32)fmul(xf->A1[k][1], w1); st[6] = (u32)fmul(xf->A1[k][2], w1);
+        }
+    st[0] = ((u32)(m->frames + (u32)e->oldframe * m->frame_bytes + 24) & 0x07FFFFFF) >> 2;
+    st[1] = ((u32)(m->frames + (u32)e->frame * m->frame_bytes + 24) & 0x07FFFFFF) >> 2;
+    st[2] = (u32)blocks;
+}
+
+#ifndef NO_DSPM_BATCH2
+static inline bool  lock_take(u8 *l)
+{
+    int             got;
+
+    __asm__ volatile ("tas.b @%1\n\tmovt %0" : "=r" (got) : "r" ((u8 *)UNCACHED(l)) : "t", "memory");
+    return got != 0;
+}
+
+/* the second batch started (by this CPU or the other), or not within DSPM_B2_WAIT */
+static bool         dspm_batch2(bool slave)
+{
+    volatile u8     *started = (volatile u8 *)UNCACHED(&dspm_started);
+    /* (the master's lists, read past the cache: the slave's may hold last frame's, and a smaller
+       count than the master's would leave the master waiting on a model the DSP never did) */
+    int             n1 = *(volatile int *)UNCACHED(&dspm_n1), n2 = *(volatile int *)UNCACHED(&dspm_n2);
+    u32             t0 = frt_read();
+
+    BT(slave, 29);
+    while (!*started)
+    {
+        if (lock_take(&dspm_lock))
+        {
+            int     k;
+
+            for (k = 0; k < n1 && ((volatile u8 *)UNCACHED(dspm_read))[k]; ++k)
+                ;
+            if (k == n1)
+            {
+                u32         *st = dspm_stream;
+                const u32   *s2 = (const u32 *)UNCACHED(dspm_s2);
+                const s16   *s2_ent = (const s16 *)UNCACHED(dspm_s2_ent);
+                const u8    *s2_blocks = (const u8 *)UNCACHED(dspm_s2_blocks);
+                int         nb = 0, j;
+
+                BT(slave, 12);
+                dsp_wait();                 /* (the first batch's job: done, all of it read) */
+                for (j = 0; j < n2; ++j, st += DSPM_HEAD, s2 += DSPM_HEAD)
+                {
+                    for (k = 0; k < DSPM_HEAD - 1; ++k)
+                        st[k] = s2[k];
+                    st[DSPM_HEAD - 1] = ((u32)dspm_blk(nb) & 0x07FFFFFF) >> 2;
+                    *(volatile s16 *)UNCACHED(&ent_blk[s2_ent[j]]) = (s16)nb;
+                    nb += s2_blocks[j];
+                }
+                *(volatile u32 *)UNCACHED(&dspm_count) = 0;
+                dsp_models(dspm_stream, dspm_out, n2, &dspm_count);
+                *started = 1;
+                BT(slave, 44);
+                return true;
+            }
+            *(volatile u8 *)UNCACHED(&dspm_lock) = 0;
+        }
+        if (frt_to_us((frt_read() - t0) & 0xFFFF) > DSPM_B2_WAIT)
+        {
+            ++dspm_b2_late;
+            return false;
+        }
+    }
+    return true;
+}
+#endif
+
 static void         models_to_dsp(void)
 {
     u32             *st = dspm_stream;
     int             i, k, nm = 0, nb = 0, nc = 0;
+#if !defined(NO_DSPM_BATCH2) && !defined(DSP_LIGHT)
+    int             n2 = 0, nb2 = 0;
+#endif
 #ifdef DSP_WALLS
     bool            walls;
 #endif
@@ -6278,35 +6392,34 @@ static void         models_to_dsp(void)
         if (nm == DSPM_MODELS)
             break;
         if ((b = dspm_place(blocks, &nb, &nc)) < 0)
-            continue;                       /* (no room: the CPU's; a smaller one may fit) */
+        {
+#if !defined(NO_DSPM_BATCH2) && !defined(DSP_LIGHT)
+            /* no room: the second batch's, if that has room (else the CPU's; a smaller one may fit) */
+            if (n2 < DSPM_MODELS && nb2 + blocks <= DSPM_BLOCKS && model_xf(e, &xf))
+            {
+                model_header(dspm_s2 + n2 * DSPM_HEAD, e, m, &xf, w0, w1, blocks);
+                dspm_s2_ent[n2] = (s16)i;
+                dspm_s2_blocks[n2] = (u8)blocks;
+                ent_dsp[i] = (s16)(DSPM_MODELS + n2++);
+                ent_blk[i] = -1;
+                nb2 += blocks;
+                ++rs_mdsp;
+            }
+#endif
+            continue;
+        }
         if (!model_xf(e, &xf))
         {
             nb = nb0;                       /* (all off the screen: its room back) */
             nc = nc0;
             continue;
         }
-        if (!w1)
-            for (k = 0; k < 3; ++k, st += 7)
-            {
-                /* (not blended: the first frame's as they are, the second's nothing; about half of them) */
-                st[0] = (u32)xf.C0[k];
-                st[1] = (u32)xf.A0[k][0]; st[2] = (u32)xf.A0[k][1]; st[3] = (u32)xf.A0[k][2];
-                st[4] = st[5] = st[6] = 0;
-            }
-        else
-            for (k = 0; k < 3; ++k, st += 7)
-            {
-                st[0] = (u32)(fmul(xf.C0[k], w0) + fmul(xf.C1[k], w1));
-                st[1] = (u32)fmul(xf.A0[k][0], w0); st[2] = (u32)fmul(xf.A0[k][1], w0); st[3] = (u32)fmul(xf.A0[k][2], w0);
-                st[4] = (u32)fmul(xf.A1[k][0], w1); st[5] = (u32)fmul(xf.A1[k][1], w1); st[6] = (u32)fmul(xf.A1[k][2], w1);
-            }
-        st[0] = ((u32)(m->frames + (u32)e->oldframe * m->frame_bytes + 24) & 0x07FFFFFF) >> 2;
-        st[1] = ((u32)(m->frames + (u32)e->frame * m->frame_bytes + 24) & 0x07FFFFFF) >> 2;
-        st[2] = (u32)blocks;
+        model_header(st, e, m, &xf, w0, w1, blocks);
+        st += 24;
 #ifndef DSP_LIGHT
-        st[3] = ((u32)dspm_blk(b) & 0x07FFFFFF) >> 2;
+        st[0] = ((u32)dspm_blk(b) & 0x07FFFFFF) >> 2;
 #endif
-        st += DSPM_HEAD - 21;
+        st += DSPM_HEAD - 24;
         ent_dsp[i] = (s16)nm++;
         ++rs_mdsp;
         ent_blk[i] = (s16)b;
@@ -6366,6 +6479,23 @@ static void         models_to_dsp(void)
         ++nm;
         nb += k;
     }
+#ifndef NO_DSPM_BATCH2
+    dspm_n1 = nm;
+#ifndef DSP_LIGHT
+    dspm_n2 = n2;
+    if (n2)
+    {
+        ++dspm_b2_frames;
+        dspm_b2_models += (u32)n2;
+    }
+#else
+    dspm_n2 = 0;
+#endif
+    for (k = 0; k < nm; ++k)
+        ((volatile u8 *)UNCACHED(dspm_read))[k] = 0;
+    *(volatile u8 *)UNCACHED(&dspm_lock) = 0;
+    *(volatile u8 *)UNCACHED(&dspm_started) = 0;
+#endif
     if (nm)
     {
         *(volatile u32 *)UNCACHED(&dspm_count) = 0;
@@ -6407,6 +6537,7 @@ bool                r_model_ref;            /* (tools/compare.sh with COMPARE=mo
 
 static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
 {
+    int             di;
     const q_entity  *e = &ents[ei];
     const q_mdl     *m = e->mdl;
     s32             c = fcos(e->yaw), sn = fsin(e->yaw), zmin = 0x7FFFFFFF, zmax = -0x7FFFFFFF;
@@ -6466,8 +6597,14 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         ent_dsp[ei] = *(volatile s16 *)UNCACHED(&ent_dsp[ei]);
         ent_blk[ei] = *(volatile s16 *)UNCACHED(&ent_blk[ei]);
     }
+#ifndef NO_DSPM_BATCH2
+    /* (the second batch's may go the CPU's way yet, dspm_batch2: its matrices wanted as the CPU's) */
+    if ((ent_dsp[ei] < 0 || ent_dsp[ei] >= DSPM_MODELS) && !model_xf(e, &xf))
+        return;
+#else
     if (ent_dsp[ei] < 0 && !model_xf(e, &xf))
         return;
+#endif
     ++x->st.models;
     x->st.mcpu += ent_dsp[ei] < 0;
     if (model_far(e))
@@ -6510,7 +6647,6 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         s32             dz = (l->pos[2] - e->origin[2]) >> 16, r = l->radius >> 16, d2 = dx * dx + dy * dy + dz * dz;
         s32             f, len, mx, my, mz;
         const s16       *nrm = m->normals;
-        int             n;
 
         if (d2 >= r * r)
             continue;
@@ -6579,18 +6715,23 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
 #ifdef MF_PROF
     u32 mf0 = frt_read();
 #endif
-    if (ent_dsp[ei] >= 0)
+    di = ent_dsp[ei];
+#ifndef NO_DSPM_BATCH2
+    if (di >= DSPM_MODELS)
+        di = dspm_batch2(x == &ctx[1]) ? di - DSPM_MODELS : -1;     /* (the second batch: started, or the CPU's) */
+#endif
+    if (di >= 0)
     {
         /* on the DSP (models_to_dsp): wait if it's not there yet, have the cache
            forget what it had where the DSP wrote, and read them, blended already */
-        const s32   *out = dspm_blk(ent_blk[ei]);
+        const s32   *out = dspm_blk(*(volatile s16 *)UNCACHED(&ent_blk[ei]));
         u32         a, end = (u32)(out + ((nv + 15) >> 4) * 48);
 
         u32         tw = frt_read();
 
-        if (*(volatile u32 *)UNCACHED(&dspm_count) <= (u32)ent_dsp[ei])
+        if (*(volatile u32 *)UNCACHED(&dspm_count) <= (u32)di)
             BT(x == &ctx[1], x == &ctx[1] ? 57 : 24);
-        while (*(volatile u32 *)UNCACHED(&dspm_count) <= (u32)ent_dsp[ei])
+        while (*(volatile u32 *)UNCACHED(&dspm_count) <= (u32)di)
             ;
         x->st.t_mwait += (frt_read() - tw) & 0xFFFF;
         for (a = (u32)out; a < end; a += 16)
@@ -6736,6 +6877,10 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         }
         x->moc[i] = oc;
     }
+#ifndef NO_DSPM_BATCH2
+    if (di >= 0 && ent_dsp[ei] < DSPM_MODELS)
+        ((volatile u8 *)UNCACHED(dspm_read))[di] = 1;   /* (its blocks read: the second batch may have them) */
+#endif
     x->st.t_mverts += (frt_read() - t0) & 0xFFFF;
 #ifdef MF_PROF
     {

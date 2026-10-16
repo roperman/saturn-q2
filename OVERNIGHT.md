@@ -4613,3 +4613,72 @@ RAM spare; Installation's short entities and Comm Center's full ones
 land in low work RAM (the tour's E2, E1; the lean bake's E0), so
 their game steps run a little slower. On the card as "full bake, lost
 monsters stand", with "lean bake, lights in asm" beside it.
+
+## 91. The models the DSP had no room for, in a second batch
+
+Comm Center's yard fight (89) had some 60 model draws a frame and the
+DSP room for about half: 64 blocks of 16 vertices, 32 headers, filled
+in the entities' order by models_to_dsp, the rest on the CPU's vertex
+path (8 ms of the slave's 33 in draw_model, 24% of its spots in SUITE
+51). The room can't grow: high work RAM's full on the lean bake (the
+tours' HW0 to HW144), and the SCU's DMA can't write low work RAM
+(ST-210 No. 04), so the DSP's blocks must stay high. So the same
+blocks twice (render.c dspm_batch2, OPT=-DNO_DSPM_BATCH2 is as
+before): models_to_dsp makes the headers of the models it had no room
+for (all but where their blocks go) in low work RAM (dspm_s2, 3.2 KB
+of .lwdata), and marks their entities DSPM_MODELS + n. Each CPU marks
+a first-batch model's blocks read once it has fetched them
+(dspm_read, the gun's in draw_viewmodel); the first CPU to draw a
+second-batch model takes a lock (tas.b on an uncached byte), and if
+every first-batch model's blocks have been read, waits for the DSP,
+copies the headers into the stream with blocks from 0 again, zeroes
+the count and starts the job; the other CPU sees it started and reads
+as it would. A CPU that waits past 4 ms (a first-batch model listed
+but not drawn yet by the other CPU, which may be waiting in turn, or
+its own still to come) gives up: that model goes the CPU's way as
+before, and the stats count it late. The FIGHT page's "B2 F M LATE":
+frames with a second batch, their models, the late ones.
+
+Finding the bug cost the afternoon. The first fight run on Mednafen
+froze (the same picture at 60, 120 and 150 s with the emulator at
+full CPU), as did a second after I made the slave read the master's
+lists past its cache (dspm_n1, dspm_n2, dspm_s2: its cache could hold
+last frame's, and a smaller count than the master's would have left
+the master waiting on a model the DSP never did; kept, as a
+precaution). The DSP wasn't it: the texture maker that would hold it
+for the rest of the frame is off by default (q2.h), as are the walls'
+lights, so the DSP is idle after the first batch. A trace build
+(OPT=-DBOOT_TRACE) crashed at boot instead, in G INIT with the PC in
+a monster's overlay on the cart (CPU address error, PC 027098B4,
+twice the same): FIGHT_BENCH and BOOT_TRACE together, not looked into
+further. What split it was a control build with the batch off
+(-DNO_DSPM_BATCH2) and everything else the same: its fight finished
+(231 frames, MODEL_CHECK's VERTS, CMDS and BUCKETS all DIFF 0), so
+the batch was the cause, and reading draw_model again found it: a
+model's two matrices (model_xf) were computed only for a model the
+DSP never listed, and a second-batch model that gave up and fell to
+the CPU's path drew from matrices never set, garbage vertices into
+the buckets, and the pair hung in the mess. With the matrices made
+for second-batch models too the fight finishes: 213 frames, VERTS
+406330 DIFF 0, CMDS DIFF 0, BUCKETS DIFF 0, B2 F391 M1566 LATE15
+(frames since boot with a second batch, their models, those given
+up). Mednafen's frame: 94.3 ms with the batch against 87.0 without,
+which says nothing about the Saturn (it charges the CPU's vertex path
+little and the DSP's wait nothing): SUITE 55 (the yard fight) and 56
+(sampled) are packed for the card, with the "lean bake, two batches"
+and "full bake, two batches" playables.
+
+Beside it: vfmt, g_items_carry and movers_test_key marked cold (low
+work RAM: the lean bake of Outer Base had 0 bytes of high work RAM to
+spare); dspm_read sized for the gun's slot past the models; the
+LEVEL_TEST title gets a fourth line, "CART a b c", the cart's spare
+bytes after each level's load. The MODELS line of the FIGHT page
+still prints a number a hundred times too big (rs.models summed
+somewhere twice): not found yet.
+
+Testing on this machine now runs two emulators of mine at once: the
+retail survey's level tests on display :90 in the main tree, the
+fight runs on :91 in a copy of the tree (local/work2: the main tree's
+cd/ and game.iso belong to whichever tour is using them), the second
+Mednafen with its own settings directory (MEDNAFEN_HOME: it refuses
+to start on a base directory another instance has locked).

@@ -115,7 +115,7 @@ __attribute__((section(".lwdata"))) static char bt_names[BT_N][24] = {   /* (not
     [13] = "DSP STARTED", [14] = "WALK", [15] = "GAME STEP", [16] = "DRAW MASTER",
     [17] = "WAIT SLAVE'S DRAWING", [18] = "TEXTURE MAKER END", [19] = "STATUS BAR", [20] = "SUBMIT",
     [21] = "SUBMITTED", [22] = "WAIT MAKER STATE", [23] = "UPLOADS", [24] = "WAIT DSP MODEL",
-    [25] = "WAIT DSP GUN", [26] = "WALK DONE", [27] = "MENU INPUT", [28] = "GAME STEP DONE",
+    [25] = "WAIT DSP GUN", [26] = "WALK DONE", [27] = "MENU INPUT", [28] = "GAME STEP DONE", [29] = "BATCH2 SPIN", [44] = "BATCH2 STARTED",
     [30] = "SOUNDS", [31] = "HUD INIT", [32] = "RENDER INIT", [33] = "TRACE INIT", [34] = "MOVERS INIT",
     [35] = "G INIT", [36] = "SKY INIT", [37] = "MODELS HOT", [38] = "TRACE HOT", [39] = "PORTALS",
     [40] = "WALL LEVEL", [41] = "VIEW LEVEL", [42] = "DSPM LEVEL", [43] = "LOADED",
@@ -2813,6 +2813,13 @@ void                main(void)
             }
 #endif
             vdp_printf(8, 96, RGB(255, 220, 120), "FIGHT: %d FRAMES", fight_n);
+#ifndef NO_DSPM_BATCH2
+            {
+                extern u32 dspm_b2_frames, dspm_b2_models, dspm_b2_late;
+
+                vdp_printf(160, 87, RGB(160, 255, 160), "B2 F%d M%d LATE%d", dspm_b2_frames, dspm_b2_models, dspm_b2_late);
+            }
+#endif
 #ifdef MLIGHT_CHECK
             vdp_printf(160, 96, RGB(255, 220, 120), "MLIGHT %d/%d", mlight_diffs, mlight_checks);
 #endif
@@ -2992,6 +2999,7 @@ void                main(void)
                            lt_fl[k] >> 1 & 1, lt_fl[k] >> 2 & 3, lt_fl[k] >> 4 & 1, lt_fl[k] >> 7 & 1, lt_fl[k] >> 8 & 15,
                            lt_fl[k] >> 12 & 1,
                            (lt_fl[k] >> 5 & 1) | (lt_fl[k] >> 6 & 1) << 1, lt_hw[k][0], lt_hw[k][1], lt_hw[k][4]);
+            vdp_printf(8, 57, RGB(255, 255, 120), "CART %d %d %d", lt_hw[0][2], lt_hw[1][2], lt_hw[2][2]);   /* (the cart's spare, each level) */
         }
 #endif
 #if defined(LEVEL_TEST) && defined(FACE_CHECK)

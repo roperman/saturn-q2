@@ -132,7 +132,7 @@ void                movers_use(int name)
 }
 
 #ifdef KEY_TEST
-void                movers_test_key(void)
+__attribute__((cold)) void movers_test_key(void)
 {
     int             m;
 

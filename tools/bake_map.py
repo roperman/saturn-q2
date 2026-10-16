@@ -19,6 +19,7 @@ Everything is big-endian for the SH-2. The layout matches src/level.h.
 """
 import math
 import os
+import re
 import struct
 import sys
 from collections import defaultdict
@@ -74,6 +75,23 @@ SPAWN_KINDS = {"monster_soldier_light": 1, "monster_soldier": 2, "monster_soldie
 def fx(v):
     """16.16 fixed"""
     return int(round(v * 65536.0))
+
+
+def qfloat(s):
+    """a number as Quake 2's atof reads it: the longest number the text starts with, else 0
+    (city1 has a "delay" ".1.25")"""
+    m = re.match(r"\s*[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?", s)
+    return float(m.group(0)) if m else 0.0
+
+
+def clampf(v):
+    """within 16.16's range (fact3 has a brush out at 99999)"""
+    return max(-32767.0, min(32767.0, v))
+
+
+def s16(v):
+    """clamped to a signed halfword (jail1 has a "health" 80000)"""
+    return max(-32768, min(32767, v))
 
 
 def clip(poly, a, axis, keep_ge):
@@ -442,7 +460,7 @@ class Baker:
         def lump(name, data):
             datas[name] = data
 
-        lump("planes", b"".join(struct.pack(">4iBBH", fx(n[0]), fx(n[1]), fx(n[2]), fx(d), t,
+        lump("planes", b"".join(struct.pack(">4iBBH", fx(n[0]), fx(n[1]), fx(n[2]), fx(clampf(d)), t,
                                             (n[0] < 0) | (n[1] < 0) << 1 | (n[2] < 0) << 2, 0)
                                 for n, d, t in b.planes))
         lump("nodes", b"".join(struct.pack(">H2h2H6hH", n[0], n[1][0], n[1][1], n[4], n[5], *n[2], *n[3], 0)
@@ -572,7 +590,7 @@ class Baker:
             lump("vis", hdr + body)
         else:
             lump("vis", struct.pack(">I", 0))
-        lump("models", b"".join(struct.pack(">9i3i", *[fx(x) for x in m["mins"]], *[fx(x) for x in m["maxs"]],
+        lump("models", b"".join(struct.pack(">9i3i", *[fx(clampf(x)) for x in m["mins"]], *[fx(clampf(x)) for x in m["maxs"]],
                                             *[fx(x) for x in m["origin"]], m["headnode"], m["firstface"],
                                             m["numfaces"]) for m in b.models))
         # the player start
@@ -694,10 +712,10 @@ class Baker:
                 continue
 
             def num(k):
-                return fx(float(e[k])) if k in e else UNSET
+                return fx(qfloat(e[k])) if k in e else UNSET
 
             def ival(k, d=0):
-                return int(float(e[k])) if k in e else d
+                return int(qfloat(e[k])) if k in e else d
             msg = 0
             if "message" in e or "map" in e:
                 msg = len(strings)
@@ -710,7 +728,7 @@ class Baker:
                                     self.name_id(e.get("target")), self.name_id(e.get("killtarget")), msg,
                                     *[fx(x) for x in o], ang, ival("spawnflags") & 0xFFFF,
                                     num("delay"), num("wait"), num("random"), num("speed"),
-                                    ival("dmg"), ival("health"), ival("count"), ival("style"),
+                                    s16(ival("dmg")), s16(ival("health")), s16(ival("count")), s16(ival("style")),
                                     self.name_id(e.get("pathtarget")), self.name_id(e.get("team")),
                                     CLASS_IDS.get(e.get("item"), 0), 0))
         return recs, bytes(strings)
@@ -966,8 +984,8 @@ class Baker:
                 tmin = [tmin[k] - 1 for k in range(3)]
                 tmax = [tmax[k] + 1 for k in range(3)]
             recs.append(struct.pack(">BBhHH3i3i3iii", kind, flags, team_next[mi], tn, tg,
-                                    *[fx(x) for x in move], *[fx(x) for x in tmin], *[fx(x) for x in tmax],
-                                    fx(speed), fx(wait)))
+                                    *[fx(clampf(x)) for x in move], *[fx(clampf(x)) for x in tmin],
+                                    *[fx(clampf(x)) for x in tmax], fx(clampf(speed)), fx(clampf(wait))))
         return recs
 
     def preview(self, d):

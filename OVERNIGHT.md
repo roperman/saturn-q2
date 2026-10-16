@@ -4682,3 +4682,100 @@ fight runs on :91 in a copy of the tree (local/work2: the main tree's
 cd/ and game.iso belong to whichever tour is using them), the second
 Mednafen with its own settings directory (MEDNAFEN_HOME: it refuses
 to start on a base directory another instance has locked).
+
+
+## 92. The retail maps surveyed for a full-game port
+
+Roper's full Quake 2 (the retail pak0, read from their own folder,
+never copied here) has 39 single-player maps. Each was baked with the
+lean settings (CELL=64, lodmin 24, facevis 64c, no portals: build.sh's
+for Comm Center) into local/survey, 4 to 11 minutes a map niced in the
+background (4.7 hours for the lot), and each bake run through the level
+test on Mednafen as DEMO1.MAP, a boot of its own, for the loader's own
+verdict: the title's figures (high work RAM, low work RAM and the
+cart's spare after the load; LA the low allocations) or the OUT OF
+HIGH WORK RAM screen. The yardstick, the demo's three lean bakes on the
+same build: Outer Base HW32 LW349264 cart 1787904, Installation HW80
+LW249232 cart 878592, Comm Center HW128 LW219184 cart 755712.
+
+The baker needed four tolerances for retail data (tools/bake_map.py):
+jail1 has a "health" 80000 (a signed halfword in the entity record:
+clamped), fact3 a brush out at 99999 units (planes, models and movers
+clamped to 16.16's range), city1 a "delay" of ".1.25" (read as Quake
+2's atof would: 0.1). strike has more than 16,384 textures (the cell
+word's 14-bit index: CELL_EXACT) and didn't bake; it needs a wider
+index or fewer tiles.
+
+| map | faces | textures | file K | loads? | HW spare | LW spare | cart spare | monsters the port lacks | classes that matter |
+|---|---|---|---|---|---|---|---|---|---|
+| base1 | 7905 | 7609 | 1711 | yes | 128 | 357232 | 1814528 | - | misc_strogg_ship misc_banner weapon_bfg weapon_hyperblaster |
+| base2 | 9323 | 5679 | 1593 | yes | 5248 | 247712 | 1452032 | - | weapon_railgun target_crosslevel_target |
+| base3 | 9409 | 8182 | 1863 | yes | 128 | 210416 | 976896 | - | target_laser weapon_bfg weapon_hyperblaster target_crosslevel_trigger misc_banner misc_satellite_dish |
+| bunk1 | 11518 | 5774 | 1896 | yes | 176 | 40816 | 1564672 | flipper floater | target_laser key_power_cube weapon_railgun target_crosslevel_target |
+| ware1 | 10716 | 5803 | 1639 | yes | 144 | 132208 | 1437696 | - | target_laser key_power_cube weapon_bfg target_lightramp weapon_railgun target_crosslevel_trigger |
+| ware2 | 8055 | 3714 | 1330 | yes | 70016 | 337248 | 864256 | - | target_lightramp key_power_cube weapon_bfg weapon_hyperblaster weapon_railgun |
+| jail1 | 9759 | 9559 | 2182 | no: 592 B short of high work RAM |  |  |  | gladiator | target_laser weapon_hyperblaster weapon_railgun trigger_push turret_breach turret_base |
+| jail2 | 8831 | 7747 | 1739 | yes | 16 | 252512 | 692224 | gladiator medic | misc_insane target_laser target_crosslevel_target weapon_hyperblaster weapon_railgun trigger_monsterjump |
+| jail3 | 9317 | 10413 | 2228 | no: 3632 B short of high work RAM |  |  |  | gladiator hover medic | target_crosslevel_target target_laser weapon_hyperblaster misc_insane target_crosslevel_trigger weapon_railgun |
+| jail4 | 10838 | 8341 | 2218 | no: 3648 B short of high work RAM |  |  |  | - | misc_insane weapon_hyperblaster weapon_bfg weapon_railgun trigger_hurt |
+| jail5 | 9751 | 9351 | 2223 | no: 13456 B short of high work RAM |  |  |  | mutant | trigger_hurt trigger_push misc_insane weapon_hyperblaster weapon_bfg |
+| security | 6323 | 4653 | 1437 | yes | 171904 | 453680 | 1810432 | supertank | target_laser trigger_hurt target_earthquake |
+| mintro | 8727 | 13213 | 2258 | no: 5744 B short of high work RAM |  |  |  | hover mutant | weapon_railgun weapon_bfg trigger_push weapon_hyperblaster |
+| mine1 | 11077 | 13812 | 2476 | no: 25248 B short of high work RAM |  |  |  | gladiator hover mutant | weapon_railgun weapon_hyperblaster weapon_bfg trigger_push trigger_hurt target_lightramp |
+| mine2 | 11889 | 13960 | 2420 | no: 1136 B short of high work RAM |  |  |  | gladiator mutant | target_spawner weapon_hyperblaster weapon_bfg target_lightramp trigger_elevator |
+| mine3 | 9391 | 11764 | 2135 | no: 4320 B short of high work RAM |  |  |  | gladiator mutant | target_laser weapon_hyperblaster weapon_bfg weapon_railgun |
+| mine4 | 9556 | 15722 | 2331 | no: 19776 B short of high work RAM |  |  |  | floater | trigger_push target_earthquake target_laser func_object |
+| fact1 | 10159 | 6701 | 1733 | yes | 160 | 133440 | 1030144 | brain flipper gladiator hover | target_laser weapon_railgun trigger_hurt weapon_hyperblaster weapon_bfg target_crosslevel_target |
+| fact2 | 11511 | 7093 | 1874 | yes | 112 | 48576 | 559104 | gladiator | target_spawner trigger_hurt target_earthquake target_laser weapon_hyperblaster weapon_railgun |
+| fact3 | 3547 | 1791 | 554 | yes | 396800 | 720096 | 3407872 | - | target_character weapon_bfg weapon_railgun weapon_hyperblaster func_clock target_string |
+| power1 | 7342 | 7235 | 1726 | yes | 71552 | 379584 | 1933312 | chick gladiator hover supertank | weapon_bfg weapon_railgun trigger_push key_red_key |
+| power2 | 11480 | 10939 | 2479 | no: 10144 B short of high work RAM |  |  |  | chick gladiator | target_laser trigger_hurt weapon_railgun trigger_push weapon_bfg weapon_hyperblaster |
+| cool1 | 11312 | 12550 | 2260 | no: 4960 B short of high work RAM |  |  |  | chick floater gladiator hover | target_crosslevel_target weapon_bfg weapon_railgun weapon_hyperblaster target_crosslevel_trigger |
+| waste1 | 11293 | 11744 | 2424 | no: 2608 B short of high work RAM |  |  |  | chick gladiator hover | weapon_bfg weapon_hyperblaster weapon_railgun target_crosslevel_target |
+| waste2 | 7732 | 9716 | 1669 | yes | 176 | 293344 | 1388544 | floater gladiator | weapon_bfg weapon_railgun trigger_push target_crosslevel_trigger |
+| waste3 | 9542 | 11084 | 2000 | yes | 48 | 130016 | 774144 | floater gladiator | weapon_bfg weapon_railgun trigger_push target_crosslevel_target target_crosslevel_trigger |
+| biggun | 6574 | 4179 | 1003 | yes | 188192 | 497776 | 2527232 | boss2 | target_character target_laser func_object trigger_push func_killbox weapon_bfg |
+| hangar1 | 8376 | 9117 | 2024 | yes | 0 | 302864 | 876544 | flipper hover medic | target_laser trigger_push trigger_hurt target_crosslevel_target weapon_hyperblaster |
+| hangar2 | 12075 | 9476 | 2493 | no: 5712 B short of high work RAM |  |  |  | boss2 brain hover | weapon_railgun weapon_bfg trigger_push |
+| lab | 13410 | 8918 | 2467 | no: 2784 B short of high work RAM |  |  |  | brain chick commander_body medic | misc_insane target_spawner target_laser trigger_elevator weapon_railgun weapon_bfg |
+| command | 10758 | 8361 | 2365 | no: 14448 B short of high work RAM |  |  |  | chick floater gladiator | weapon_hyperblaster target_lightramp func_object misc_blackhole misc_viper |
+| strike | 6894 | 0 | 0 | not baked: over 16,384 textures |  |  |  | flipper | misc_viper target_earthquake misc_viper_bomb weapon_bfg weapon_hyperblaster |
+| space | 10597 | 5932 | 2098 | yes | 16 | 33760 | 2111488 | boss2 floater hover | trigger_hurt trigger_push weapon_railgun weapon_hyperblaster target_crosslevel_trigger |
+| city1 | 9513 | 14446 | 2220 | no: 15424 B short of high work RAM |  |  |  | gladiator hover medic tank_commander | trigger_push weapon_hyperblaster weapon_railgun target_spawner key_red_key |
+| city2 | 10084 | 8929 | 1937 | no: 20384 B short of high work RAM |  |  |  | brain floater tank_commander | target_blaster target_crosslevel_target target_laser target_crosslevel_trigger weapon_hyperblaster |
+| city3 | 12440 | 14657 | 2402 | no: 22496 B short of high work RAM |  |  |  | chick floater tank_commander | target_laser target_blaster target_spawner weapon_railgun weapon_hyperblaster |
+| train | 8998 | 10028 | 1713 | no: 1152 B short of high work RAM |  |  |  | flipper | target_blaster target_spawner weapon_railgun weapon_hyperblaster |
+| boss1 | 7546 | 8561 | 1632 | yes | 5248 | 385248 | 2385920 | boss3_stand chick | target_laser misc_viper trigger_hurt trigger_push |
+| boss2 | 7595 | 6295 | 1774 | yes | 89232 | 351696 | 2461696 | jorg | target_spawner misc_insane target_earthquake misc_easterchick2 |
+
+What it says. 19 of the 38 bakes load and run (their monsters of the
+kinds the port has; a kind it lacks is left out of the spawn), 19 fail,
+every one of them on high work RAM and by 592 bytes (jail1) to 25 KB
+(mine1), with low work RAM and the cart far from full on the same maps
+(the loaders show 34 to 720 KB of low RAM and 0.5 to 3.4 MB of cart to
+spare). The loader copies the hot lumps (nodes, planes, leafs, marks,
+axes) into high work RAM first and takes whatever's left for the
+renderer's per-face, per-leaf and per-texture tables (render.c
+r_level: face_back, leaf_vis, tex_slot and the rest, 50 to 130 KB on
+these maps; tex_slot alone is 4 bytes a texture, 63 KB on mine4's
+15,722): those tables are what runs out. Reserving their bytes before
+the hot copies, so the last hot lump stays on the cart when it must,
+would load all 38 (at a speed cost on those maps: the cart's reads are
+slower); none needs splitting. The cart's spare is with the missing
+monster kinds' models absent: at the known kinds' ratio (a baked model
+is about 0.65 of its md2 and skins) the lacking kinds would take 170 KB
+(gladiator) to 1.3 MB (jorg), which makes power1 (chick, gladiator,
+hover, supertank: 1.6 MB against 1.9 spare), fact1, hangar1 and jail2
+tight and the rest comfortable; a full-resolution bake (CELL=32) is out
+of the question for most: Comm Center's is 2378K against the lean
+1842K, and that's the smallest of the three.
+
+What the port lacks for them, from the entities (local/survey/
+entities.txt): monster kinds hover (88 placed), gladiator (60), floater
+(59), chick (56), flipper (34), brain (20), medic (15), mutant (15),
+tank_commander (15), and the bosses (boss2, supertank, jorg, makron,
+commander_body); classes that matter: target_laser (150), target_spawner
+(53), trigger_hurt (47), trigger_push (38), the crosslevel pair (43),
+target_blaster, target_earthquake, target_lightramp, target_character
+(the Big Gun's count-down), misc_insane (60), the keys and power cubes,
+the turrets, and the railgun, hyperblaster and BFG.

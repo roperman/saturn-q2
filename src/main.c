@@ -1578,7 +1578,16 @@ static __attribute__((cold)) void hb_screen(int page)
     y += 14;
     vdp_printf(8, y, g, "HW %d LW %d CA %d SL %d", hw, lw, ca, r_tex_slots());
     y += 10;
+#ifndef NO_DSPM_BATCH2
+    {
+        extern u32  dspm_b2_frames, dspm_b2_models, dspm_b2_late;   /* (frames with a second batch, its models, those that fell to the CPU) */
+
+        vdp_printf(8, y, g, "DSP %s%s GUN %d B2 F%d M%d LATE%d", r_dsp_ok ? "OK" : "BAD", r_use_dsp ? " ON" : " OFF", gun_dma_bad,
+                   dspm_b2_frames, dspm_b2_models, dspm_b2_late);
+    }
+#else
     vdp_printf(8, y, g, "DSP %s%s GUN %d", r_dsp_ok ? "OK" : "BAD", r_use_dsp ? " ON" : " OFF", gun_dma_bad);
+#endif
 #ifdef OVERDRAW_PROF
     y += 10;
     vdp_printf(8, y, g, "OD HELD %d %d %d %d %d %d", hb_v[0][0][5], hb_v[0][1][5], hb_v[0][2][5], hb_v[0][3][5],

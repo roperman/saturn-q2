@@ -467,7 +467,11 @@ static s32          *dspm_more;             /* (blocks DSPM_BLOCKS on) */
    its drawer) and so may be written over: the headers into the stream, blocks from 0 again, the
    count from 0. Waiting too long (a first-batch model listed but not drawn yet by the other CPU,
    which waits in turn): that model goes the CPU's way, as before. OPT=-DNO_DSPM_BATCH2: as before */
-#define DSPM_B2_WAIT    (4000)              /* us before giving up on the start */
+#ifndef DSPM_B2_WAIT
+#define DSPM_B2_WAIT    (0)                 /* us a CPU may spin for the start (SUITE 56: spinning cost more than the
+                                               batch saved, 12 ms of the slave's frame at 4000; 0: one look, then the
+                                               CPU's way); OPT=-DDSPM_B2_WAIT=n */
+#endif
 static u32          dspm_s2[DSPM_MODELS * DSPM_HEAD] __attribute__((section(".lwdata"), aligned(16)));
 static s16          dspm_s2_ent[DSPM_MODELS] __attribute__((section(".lwdata")));
 static u8           dspm_s2_blocks[DSPM_MODELS] __attribute__((section(".lwdata")));
@@ -6228,7 +6232,7 @@ static inline bool  lock_take(u8 *l)
     return got != 0;
 }
 
-/* the second batch started (by this CPU or the other), or not within DSPM_B2_WAIT */
+/* the second batch started (by this CPU or the other), or not (within DSPM_B2_WAIT, if any) */
 static bool         dspm_batch2(bool slave)
 {
     volatile u8     *started = (volatile u8 *)UNCACHED(&dspm_started);
@@ -6238,8 +6242,10 @@ static bool         dspm_batch2(bool slave)
     u32             t0 = frt_read();
 
     BT(slave, 29);
-    while (!*started)
+    for (;;)
     {
+        if (*started)
+            return true;
         if (lock_take(&dspm_lock))
         {
             int     k;
@@ -6272,13 +6278,12 @@ static bool         dspm_batch2(bool slave)
             }
             *(volatile u8 *)UNCACHED(&dspm_lock) = 0;
         }
-        if (frt_to_us((frt_read() - t0) & 0xFFFF) > DSPM_B2_WAIT)
+        if (!DSPM_B2_WAIT || frt_to_us((frt_read() - t0) & 0xFFFF) > DSPM_B2_WAIT)
         {
             ++dspm_b2_late;
             return false;
         }
     }
-    return true;
 }
 #endif
 

@@ -4793,3 +4793,52 @@ this; the retail maps have lifts with monsters on them, the demo's
 three none that I know of. `OPT=-DNO_MONSTER_CARRY` leaves it out.
 Tested only as far as the lean tour (all three levels load and run)
 and a build: no monster on a lift was watched.
+
+## 94. SUITE 53 to 56 on the Saturn: the lights' asm pays, the second batch's wait doesn't
+
+Comm Center's yard fight (HW_BENCH page 1), the three builds:
+
+| | SUITE 48 (C lights) | SUITE 53 (lights in asm) | SUITE 55 (asm, second batch) |
+|---|---|---|---|
+| fight frame ms | 95.0 | 91.2 | 96.1 |
+| fight CPU ms | 92.8 | 88.7 | 93.6 |
+| game ms | 14.5 | 14.7 | 15.4 |
+| held CPU us | | 2358 | 2515 |
+| turned CPU us | | 2098 | 2266 |
+
+**The lights in asm** (90, src/mlight.s): 3.8 ms off the frame, more
+than the two-light cap of SUITE 52 (94.1) and with every light kept.
+SUITE 54 (the slave sampled, page 4) shows where it went and where it
+didn't: draw_model 32.9 ms to 23.1 and ents_light_dyn's 9.4 gone, but
+mlight_asm, the weights for both callers, 15.0 ms of its own: 42.3 ms
+to 38.1, the 4 ms the page 1 saw. Some 6,500 normals a frame in 15 ms
+is 66 cycles a normal, two to three times the loop's count: the asm is
+waiting on memory, not multiplying. Where the weights are written and
+the normals read is the next thing to look at, not the loop.
+
+**The second batch** (91): 4.9 ms worse, and the held and turned
+views 7% slower too, which the batch doesn't touch. SUITE 56's
+page 4 says why: draw_model back up to 32.3 ms, with frt_read 2.9 ms
+and frt_to_us 1.6 ms listed as functions, which only the starter's
+timeout loop calls that often, and page 8's hot spots in draw_model at
+offsets 9C8 to 9F0, a quarter of its samples, where dspm_batch2 is
+inlined: the spin. A CPU that reached a second-batch model early
+waited up to 4 ms for every first-batch model to be read, the ones
+later in its own list included (which never happens while it waits),
+so each CPU burned its timeout most frames: some 12 ms of the slave's
+frame, more than the batch saved. So the wait goes: a CPU looks once,
+starts the batch if every first-batch model's blocks have been read,
+else takes the CPU's path at once (DSPM_B2_WAIT 0; OPT=-DDSPM_B2_WAIT=n
+spins as before). The B2 counts now print on the hardware page's DSP
+line (they were on the emulator's FIGHT page only). SUITE 57 (plain)
+and 58 (sampled) are the result, for the card; how often the batch
+starts at all without a wait is the question, the emulator's late
+count first.
+
+The emulator's answer on the start rate: with no wait at all the fight
+ran 230 frames at 87.2 ms (the control without the batch 87.0, the
+spinning version 94.3), B2 F815 M3262 LATE32: 815 frames since boot
+had a second batch, 3,262 models went through it and 32 fell to the
+CPU, one in a hundred. MODEL_CHECK's VERTS 781971, CMDS 14781 and
+BUCKETS 475104 all DIFF 0. SUITE 57 and 58 on the card are the
+Saturn's say.

@@ -4861,3 +4861,18 @@ stays for the one idea untried: drawing each CPU's second-batch
 models in a pass of their own after its other models, which the
 depth buckets allow, so the start finds that CPU's first-batch
 blocks read and only the other's to wait for.
+
+## 96. The normals in low work RAM
+
+SUITE 54's 15 ms of mlight_asm at 66 cycles a normal (94) was the
+cart: every model carries the same 162-normal table (Quake 2's anorms,
+2.14, 972 bytes), tools/bake_md2.py writes it into each, and a light's
+weights read all of it a model-light pair from wherever the model is,
+the cart, at some 149 cycles a line; the loop's own 25 cycles were the
+smaller part. models_hot now copies the first loaded model's table
+into low work RAM (model.c norms_hot, .lwdata) and points every
+model's normals at it: read through the cache, from a 16-bit bus
+instead of the cart's wait states, and one table for all the models
+instead of seven cold ones. OPT=-DNO_NORMS_HOT is the cart's. Mednafen,
+MLIGHT_CHECK: 0 of 1,817,802 normals differ from the C. SUITE 59 (the
+yard fight) and 60 (sampled) are packed for the Saturn's number.

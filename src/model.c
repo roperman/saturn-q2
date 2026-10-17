@@ -157,9 +157,20 @@ static const void   *hot(const void *p, u32 bytes)
     return q;
 }
 
+#ifndef NO_NORMS_HOT
+/* the 162 normals (Quake 2's anorms, 2.14): every model carries the same table, and a light's
+   weights (src/mlight.s) read all 972 bytes of it a model-light pair, from the cart at some 149
+   cycles a line (SUITE 54: 15 ms a frame in the yard fight, 66 cycles a normal for a loop of
+   25): one copy here, read through the cache from low work RAM. OPT=-DNO_NORMS_HOT: the cart's */
+static s16          norms_hot[162 * 3] __attribute__((section(".lwdata"), aligned(16)));
+#endif
+
 __attribute__((cold)) void                models_hot(void)
 {
     int             i;
+#ifndef NO_NORMS_HOT
+    bool            norms_set = false;
+#endif
 
 #ifdef LEVEL_TEST
     models_cold = 0;
@@ -168,7 +179,17 @@ __attribute__((cold)) void                models_hot(void)
     {
         q_mdl       *m = &models[i];
 
-        if (!m->loaded || m->nframes < 2)
+        if (!m->loaded)
+            continue;
+#ifndef NO_NORMS_HOT
+        if (!norms_set)
+        {
+            memcpy(norms_hot, m->normals, sizeof(norms_hot));
+            norms_set = true;
+        }
+        m->normals = norms_hot;
+#endif
+        if (m->nframes < 2)
             continue;
         m->polys = hot(m->polys, (u32)m->npolys * sizeof(q_mpoly));
         m->tex = hot(m->tex, (u32)m->ntex * sizeof(q_mtex));

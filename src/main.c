@@ -1578,7 +1578,7 @@ static __attribute__((cold)) void hb_screen(int page)
     y += 14;
     vdp_printf(8, y, g, "HW %d LW %d CA %d SL %d", hw, lw, ca, r_tex_slots());
     y += 10;
-#ifndef NO_DSPM_BATCH2
+#ifdef DSPM_BATCH2
     {
         extern u32  dspm_b2_frames, dspm_b2_models, dspm_b2_late;   /* (frames with a second batch, its models, those that fell to the CPU) */
 
@@ -2822,7 +2822,7 @@ void                main(void)
             }
 #endif
             vdp_printf(8, 96, RGB(255, 220, 120), "FIGHT: %d FRAMES", fight_n);
-#ifndef NO_DSPM_BATCH2
+#ifdef DSPM_BATCH2
             {
                 extern u32 dspm_b2_frames, dspm_b2_models, dspm_b2_late;
 

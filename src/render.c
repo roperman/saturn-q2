@@ -459,14 +459,15 @@ static s32          rcp_n, wscale;          /* 1/N (16.16); 65536 / N^2 (interpo
 static u32          dspm_stream[DSPM_MODELS * DSPM_HEAD] __attribute__((aligned(16)));
 static s32          dspm_out[DSPM_BLOCKS * 48] __attribute__((aligned(16)));
 static s32          *dspm_more;             /* (blocks DSPM_BLOCKS on) */
-#ifndef NO_DSPM_BATCH2
+#ifdef DSPM_BATCH2
 /* A second batch through the same blocks (OVERNIGHT.md 91): the models dspm_place had no room for
    (Comm Center's yard fight: half of them, 9 ms a frame on the CPU's vertex path) get their headers
    made at models_to_dsp, all but where their blocks go, in low work RAM; whichever CPU first wants
    one starts the batch, once every first-batch model's blocks have been read (dspm_read, each by
    its drawer) and so may be written over: the headers into the stream, blocks from 0 again, the
    count from 0. Waiting too long (a first-batch model listed but not drawn yet by the other CPU,
-   which waits in turn): that model goes the CPU's way, as before. OPT=-DNO_DSPM_BATCH2: as before */
+   which waits in turn): that model goes the CPU's way, as before. Off unless OPT=-DDSPM_BATCH2: on a
+   Saturn the batch hardly ever got to start (SUITE 57: 96% of its models fell to the CPU; OVERNIGHT.md 95) */
 #ifndef DSPM_B2_WAIT
 #define DSPM_B2_WAIT    (0)                 /* us a CPU may spin for the start (SUITE 56: spinning cost more than the
                                                batch saved, 12 ms of the slave's frame at 4000; 0: one look, then the
@@ -5290,7 +5291,7 @@ static __attribute__((noinline)) void draw_viewmodel(r_ctx *x, int leaf)
         ma.zmin = 0x7FFFFFFF;
         ma.zmax = -0x7FFFFFFF;
         mverts_asm(&ma);
-#ifndef NO_DSPM_BATCH2
+#ifdef DSPM_BATCH2
         ((volatile u8 *)UNCACHED(dspm_read))[vd.dsp] = 1;   /* (the gun's blocks read) */
 #endif
         zmin = ma.zmin;
@@ -6223,7 +6224,7 @@ static void         model_header(u32 *st, const q_entity *e, const q_mdl *m, con
     st[2] = (u32)blocks;
 }
 
-#ifndef NO_DSPM_BATCH2
+#ifdef DSPM_BATCH2
 static inline bool  lock_take(u8 *l)
 {
     int             got;
@@ -6291,7 +6292,7 @@ static void         models_to_dsp(void)
 {
     u32             *st = dspm_stream;
     int             i, k, nm = 0, nb = 0, nc = 0;
-#if !defined(NO_DSPM_BATCH2) && !defined(DSP_LIGHT)
+#if defined(DSPM_BATCH2) && !defined(DSP_LIGHT)
     int             n2 = 0, nb2 = 0;
 #endif
 #ifdef DSP_WALLS
@@ -6398,7 +6399,7 @@ static void         models_to_dsp(void)
             break;
         if ((b = dspm_place(blocks, &nb, &nc)) < 0)
         {
-#if !defined(NO_DSPM_BATCH2) && !defined(DSP_LIGHT)
+#if defined(DSPM_BATCH2) && !defined(DSP_LIGHT)
             /* no room: the second batch's, if that has room (else the CPU's; a smaller one may fit) */
             if (n2 < DSPM_MODELS && nb2 + blocks <= DSPM_BLOCKS && model_xf(e, &xf))
             {
@@ -6484,7 +6485,7 @@ static void         models_to_dsp(void)
         ++nm;
         nb += k;
     }
-#ifndef NO_DSPM_BATCH2
+#ifdef DSPM_BATCH2
     dspm_n1 = nm;
 #ifndef DSP_LIGHT
     dspm_n2 = n2;
@@ -6602,7 +6603,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         ent_dsp[ei] = *(volatile s16 *)UNCACHED(&ent_dsp[ei]);
         ent_blk[ei] = *(volatile s16 *)UNCACHED(&ent_blk[ei]);
     }
-#ifndef NO_DSPM_BATCH2
+#ifdef DSPM_BATCH2
     /* (the second batch's may go the CPU's way yet, dspm_batch2: its matrices wanted as the CPU's) */
     if ((ent_dsp[ei] < 0 || ent_dsp[ei] >= DSPM_MODELS) && !model_xf(e, &xf))
         return;
@@ -6721,7 +6722,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
     u32 mf0 = frt_read();
 #endif
     di = ent_dsp[ei];
-#ifndef NO_DSPM_BATCH2
+#ifdef DSPM_BATCH2
     if (di >= DSPM_MODELS)
         di = dspm_batch2(x == &ctx[1]) ? di - DSPM_MODELS : -1;     /* (the second batch: started, or the CPU's) */
 #endif
@@ -6882,7 +6883,7 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         }
         x->moc[i] = oc;
     }
-#ifndef NO_DSPM_BATCH2
+#ifdef DSPM_BATCH2
     if (di >= 0 && ent_dsp[ei] < DSPM_MODELS)
         ((volatile u8 *)UNCACHED(dspm_read))[di] = 1;   /* (its blocks read: the second batch may have them) */
 #endif

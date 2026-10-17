@@ -4842,3 +4842,22 @@ had a second batch, 3,262 models went through it and 32 fell to the
 CPU, one in a hundred. MODEL_CHECK's VERTS 781971, CMDS 14781 and
 BUCKETS 475104 all DIFF 0. SUITE 57 and 58 on the card are the
 Saturn's say.
+
+## 95. SUITE 57: the second batch hardly ever starts on a Saturn
+
+The yard fight with the batch looked for once and no wait: 91.7 ms
+against SUITE 53's 91.2 without the batch, held and turned views back
+to 2368 and 2106 us (so SUITE 55's 7% there was the spin's), and the
+DSP line's count: B2 F851 M3163 LATE3032. On the Saturn 96 of 100
+second-batch models fell to the CPU; on Mednafen it was 1 of 100 (94).
+The emulator runs the two SH-2s in slices long enough for one to draw
+its whole list before the other arrives, and the real pair interleave
+finely, so when either reaches a second-batch model most first-batch
+blocks are still unread: with no wait there's nothing to start, with a
+wait (SUITE 55) the waiting costs more than the batch saves. A lesson
+for next time: a two-CPU hand-off can't be judged on the emulator at
+all. The batch is now off unless OPT=-DDSPM_BATCH2, and the code
+stays for the one idea untried: drawing each CPU's second-batch
+models in a pass of their own after its other models, which the
+depth buckets allow, so the start finds that CPU's first-batch
+blocks read and only the other's to wait for.

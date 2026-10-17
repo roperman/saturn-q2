@@ -49,13 +49,19 @@ static void         place(int m)
     ++movers_version;
 }
 
+/* (level.c: the room movers_init takes in high work RAM) */
+u32                 movers_hw_bytes(void)
+{
+    return (((u32)lv.nmodels * 12 + 15) & ~15u) + (((u32)lv.nmodels + 15) & ~15u) + (((u32)lv.nmodels * sizeof(m_state) + 15) & ~15u);
+}
+
 __attribute__((cold)) void                movers_init(void)
 {
     int             m;
 
     if (!mover_gone)
     {
-        /* once a level (load_level clears mover_gone): a new game or a restart
+        /* once a level (load_level clears mover_gone; movers_hw_bytes: level.c keeps the room): a new game or a restart
            on the same level uses them again, rather than more of the heap */
         mover_ofs = level_alloc((u32)lv.nmodels * 12);
         mover_gone = level_alloc((u32)lv.nmodels);

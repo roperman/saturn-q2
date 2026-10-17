@@ -213,7 +213,11 @@ bool                level_load(const char *name);          /* onto the RAM cart 
 int                 level_leaf(const s32 *p);               /* the leaf a point is in */
 const u8            *level_pvs(int cluster);                /* decompressed PVS row (static buffer) */
 void                level_facevis(int cluster, u8 *bits);   /* the faces a cluster can see */
+#define A16(x)      (((x) + 15) & ~15u)                 /* (bytes as level_alloc rounds them) */
 void                *level_alloc(u32 bytes);                /* high work RAM, for the level's life */
+void                *level_alloc_spare(u32 bytes, u32 counted);  /* ...over what level_load kept (NULL: not that much) */
+u32                 level_hw_spare(void);                   /* ...how much that is */
+void                level_hot_late(void);                   /* the lumps the keep left on the cart, once it's taken */
 const u8            *cart_load(const char *name);           /* another file onto the cart, after the level */
 u8                  *cart_alloc(u32 bytes);                 /* room on the cart, after the level (whole sectors) */
 u32                 cart_free(void);
@@ -258,6 +262,7 @@ void                pmove_spawn(const s32 *origin);
 q_trace             pm_trace(const s32 *start, const s32 *end);    /* the player's box: world, movers, monsters */
 q_trace             trace_world(const s32 *start, const s32 *mins, const s32 *maxs, const s32 *end, int mask);  /* + movers */
 void                trace_world_init(void);
+u32                 trace_world_hw_bytes(void);              /* (level.c: the high work RAM it will take) */
 extern u8           *mover_gone;
 extern const s32    p_mins[3], p_maxs[3];
 
@@ -265,6 +270,7 @@ extern const s32    p_mins[3], p_maxs[3];
 extern s32          (*mover_ofs)[3];        /* each brush model's offset now */
 extern u32          movers_version;         /* one more each time one moves or goes */
 void                movers_init(void);
+u32                 movers_hw_bytes(void);                   /* (level.c: the high work RAM it will take) */
 void                movers_update(s32 dt);
 void                movers_use(int name);                  /* set going everything with this targetname */
 void                mover_hide(int model);                 /* gone (a func_explosive, blown up) */
@@ -423,6 +429,7 @@ bool                model_parse(q_mdl *m, const u8 *b);     /* a baked model in 
 extern int          nmodels_loaded;
 void                models_load_all(void);                  /* tools/models.txt's this level uses, onto the cart */
 void                g_models_needed(bool *need);            /* (g_items.c) which of them */
+u32                 r_level_hw_bytes(u32 naxes);           /* (level.c: the high work RAM r_level will take) */
 void                models_hot(void);                       /* the monsters' polygons into HWRAM (last at start-up) */
 extern q_entity     ents[MAX_ENTITIES];
 extern int          nents;                  /* (fx_render's, the master's: the game's and then the effects') */

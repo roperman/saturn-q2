@@ -503,7 +503,7 @@ static void         counts_at_end(void)
 }
 
 #ifdef LEVEL_TEST
-u32                 lt_hw[4][5], lt_nhw, lt_fl[4];
+u32                 lt_hw[4][10], lt_nhw, lt_fl[4];
 
 static u32          lt_count(int mdl)       /* (the level's entities with that model) */
 {
@@ -1397,6 +1397,7 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
         client.fire_time = client.quad_until = client.invul_until = client.pickup_flash = 0;
         g_player->health = health;
     }
+    level_hot_late();                       /* (the lumps the keep left on the cart, if there's room after all) */
     view_level_init();                      /* (the gun you hold: after the above) */
     r_dspm_level();
 #ifdef LEVEL_TEST
@@ -1413,6 +1414,16 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
         lt_fl[lt_nhw & 3] = (u32)(r_level_flags() | view_nslots() << 2 | models[MDL_GUNNER].loaded << 4
                                   | models[MDL_BERSERK].loaded << 7 | lt_count(MDL_BERSERK) << 8 | models[MDL_TANK].loaded << 12
                                   | ((u32)g_edicts >> 24 == 0x02) << 5 | ((u32)g_shorts >> 24 == 0x02) << 6);
+        {
+            extern u32 level_keep, level_skip, level_hw_taken, level_late, r_hw_opp(void);
+            extern int r_ntex_all(void);
+
+            lt_hw[lt_nhw & 3][9] = level_late;
+            lt_hw[lt_nhw & 3][5] = level_keep;
+            lt_hw[lt_nhw & 3][6] = level_hw_taken - r_hw_opp();
+            lt_hw[lt_nhw & 3][7] = level_skip;
+            lt_hw[lt_nhw & 3][8] = (u32)r_ntex_all();
+        }
         {
             extern u32 level_back;
 
@@ -1748,6 +1759,7 @@ void                main(void)
     BT(0, 40);
     r_wall_level();
     BT(0, 41);
+    level_hot_late();                       /* (the lumps the keep left on the cart, if there's room after all) */
     view_level_init();
     BT(0, 42);
     r_dspm_level();
@@ -1777,6 +1789,16 @@ void                main(void)
         lt_fl[0] = (u32)(r_level_flags() | view_nslots() << 2 | models[MDL_GUNNER].loaded << 4
                          | models[MDL_BERSERK].loaded << 7 | lt_count(MDL_BERSERK) << 8 | models[MDL_TANK].loaded << 12
                          | ((u32)g_edicts >> 24 == 0x02) << 5 | ((u32)g_shorts >> 24 == 0x02) << 6);
+        {
+            extern u32 level_keep, level_skip, level_hw_taken, level_late, r_hw_opp(void);
+            extern int r_ntex_all(void);
+
+            lt_hw[0][9] = level_late;
+            lt_hw[0][5] = level_keep;
+            lt_hw[0][6] = level_hw_taken - r_hw_opp();
+            lt_hw[0][7] = level_skip;
+            lt_hw[0][8] = (u32)r_ntex_all();
+        }
         {
             extern u32 level_back;
 
@@ -3009,6 +3031,9 @@ void                main(void)
                            lt_fl[k] >> 12 & 1,
                            (lt_fl[k] >> 5 & 1) | (lt_fl[k] >> 6 & 1) << 1, lt_hw[k][0], lt_hw[k][1], lt_hw[k][4]);
             vdp_printf(8, 57, RGB(255, 255, 120), "CART %d %d %d", lt_hw[0][2], lt_hw[1][2], lt_hw[2][2]);   /* (the cart's spare, each level) */
+            for (k = 0; k < 3; ++k)         /* (the keep against what level_alloc took, the lumps it kept on the cart) */
+                vdp_printf(8, 66 + k * 9, RGB(255, 255, 120), "%d KEPT %d TOOK %d T%d S%X L%X", k + 1, lt_hw[k][5], lt_hw[k][6],
+                           lt_hw[k][8], lt_hw[k][7], lt_hw[k][9]);
         }
 #endif
 #if defined(LEVEL_TEST) && defined(FACE_CHECK)

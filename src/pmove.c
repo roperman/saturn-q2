@@ -79,6 +79,18 @@ static int          nladders;               /* -1: more than MAX_LADDERS, always
 u32                 lc_frames, lc_near, lc_ladder, lc_bad;
 #endif
 
+/* (level.c: the room trace_world_init takes in high work RAM) */
+u32                 trace_world_hw_bytes(void)
+{
+    u32             n = 0;
+    int             m;
+
+    for (m = 1; m < lv.nmodels; ++m)
+        n += lv.movers[m].kind != MV_NONE;
+    n = n ? n : 1;
+    return ((n * sizeof(t_mover) + 15) & ~15u) + ((n * 24 + 15) & ~15u);
+}
+
 __attribute__((cold)) void                trace_world_init(void)
 {
     int             m, k;

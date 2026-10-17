@@ -951,7 +951,11 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
         x->slot0 = c ? i * SPLIT_M / 100 : 0;
         x->nslots = c ? i - i * SPLIT_M / 100 : i * SPLIT_M / 100;
         x->hand = 0;
-        x->tex_slot = level_alloc((u32)ntex_all * 2);
+        /* (level.c's keep counted the level's textures' slots, not the models' (r_level_hw_bytes): low
+           work RAM when high hasn't the rest over what's kept, 19 of the 38 retail maps; OVERNIGHT.md 97) */
+        x->tex_slot = level_alloc_spare((u32)ntex_all * 2, A16((u32)lv.ntextures * 2));
+        if (!x->tex_slot)
+            x->tex_slot = level_alloc_low((u32)ntex_all * 2);
         memset(x->tex_slot, 0xFF, (u32)ntex_all * 2);
     }
     for (c = 0; c < MAX_SLOTS; ++c)
@@ -4006,8 +4010,13 @@ static void         *portal_alloc(u32 bytes, bool high)
     u32             hw, lw, ca;
 
     level_free(&hw, &lw, &ca);
-    if (high && hw >= bytes + 16)
-        return level_alloc(bytes);
+    if (high)
+    {
+        void    *p = level_alloc_spare(bytes, 0);
+
+        if (p)
+            return p;
+    }
     if (lw >= bytes + 16)
         return level_alloc_low(bytes);
     return ca >= bytes + 2048 ? cart_alloc(bytes) : NULL;
@@ -4995,8 +5004,10 @@ __attribute__((cold)) void                r_view_level(void)
     }
     else
     {
-        view_keep_hot = hw >= VIEW_KEEP_BYTES;  /* (nothing takes HWRAM after this) */
-        view_keep = view_keep_hot ? level_alloc(VIEW_KEEP_BYTES) : cart_alloc(VIEW_KEEP_BYTES);
+        view_keep = level_alloc_spare(VIEW_KEEP_BYTES, 0);    /* (nothing takes HWRAM after this) */
+        view_keep_hot = view_keep != NULL;
+        if (!view_keep_hot)
+            view_keep = cart_alloc(VIEW_KEEP_BYTES);
     }
     view_key.m = NULL;
     vf.stage = 0;
@@ -5009,16 +5020,43 @@ __attribute__((cold)) void                r_view_level(void)
 #endif
 }
 
+/* the high work RAM r_level and the texture slots take after the level's copies (level.c keeps
+   them room: a map short of it leaves a hot lump on the cart rather than failing), as they're
+   taken above, each rounded as level_alloc rounds; naxes from the header, read before them */
+u32                 r_level_hw_bytes(u32 naxes)
+{
+    u32             n = A16(((u32)lv.nfaces + 7) >> 3) * 2 + A16(naxes * 32) + A16((u32)lv.nleafs * 2) * 4 + A16((u32)lv.nnodes * 2)
+                        + A16((u32)lv.nmodels * 2 + 2) * 2 + A16((u32)lv.nmodels * 12) + A16((u32)lv.ntextures * 2) * 2;
+
+    /* (the DSP jobs' blocks, the builds that have them: r_dsp_level) */
+#if defined(DSP_MAKER) || defined(DSP_WALLS)
+    if (r_use_dsp)
+        n += 256 * 4;
+#endif
+#ifdef DSP_WALLS
+    if (r_use_dsp)
+        n += A16(DW_HW_WORDS * 4);
+#endif
+#ifdef WASTE_TEST
+    if (r_use_dsp)
+        n += A16(WASTE_TEST);
+#endif
+#ifdef DSP_MAKER
+    if (r_use_dsp && lv.N * lv.N / 2 >= 128)
+        n += A16(MK_BLOCK_WORDS * 4);
+#endif
+    return n;
+}
+
 /* a new level, the gun's slots had (main.c, after view_level_init: nothing takes HWRAM after
    them): more of the models' DSP blocks in what it's left (Installation's: one monster near
    more; Comm Center's: many; demo3's: a far one) */
 __attribute__((cold)) void r_dspm_level(void)
 {
-    u32             hw, lw, ca;
-
-    level_free(&hw, &lw, &ca);
-    dspm_nmore = imin(DSPM_MORE, (int)(hw / 192));
-    dspm_more = dspm_nmore ? (s32 *)level_alloc((u32)dspm_nmore * 192) : NULL;
+    dspm_nmore = imin(DSPM_MORE, (int)(level_hw_spare() / 192));
+    dspm_more = dspm_nmore ? (s32 *)level_alloc_spare((u32)dspm_nmore * 192, 0) : NULL;
+    if (!dspm_more)
+        dspm_nmore = 0;
 }
 
 #ifdef LEVEL_TEST
@@ -8068,3 +8106,17 @@ void                render_sky(void)
     r[0] = cam.yaw;
     r[1] = CY - (s32)(((s64)FOCAL * fsin(cam.pitch)) / (c ? c : 1));
 }
+
+#ifdef LEVEL_TEST
+/* (the level test's title: high work RAM taken because it was there, the kept gun and the models' spare
+   blocks, and the texture slots counted, the level's and the models') */
+u32                 r_hw_opp(void)
+{
+    return (view_keep_hot ? ((u32)VIEW_KEEP_BYTES + 15) & ~15u : 0) + (u32)dspm_nmore * 192;
+}
+
+int                 r_ntex_all(void)
+{
+    return ntex_all;
+}
+#endif

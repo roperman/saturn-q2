@@ -4876,3 +4876,65 @@ instead of the cart's wait states, and one table for all the models
 instead of seven cold ones. OPT=-DNO_NORMS_HOT is the cart's. Mednafen,
 MLIGHT_CHECK: 0 of 1,817,802 normals differ from the C. SUITE 59 (the
 yard fight) and 60 (sampled) are packed for the Saturn's number.
+
+## 97. The loader keeps room for the renderer's tables
+
+The 19 retail maps that failed to load (92) all failed in level_alloc,
+after the level's hot lumps had filled high work RAM: the renderer's
+per-face, per-leaf and per-model tables, the traces' movers and the
+movers' state had no room left, by 0.6 to 25 KB, with low RAM and the
+cart to spare. level_load now works out what they'll take before it
+copies anything (render.c r_level_hw_bytes, pmove.c
+trace_world_hw_bytes, movers.c movers_hw_bytes: the same sizes the
+takers ask for, rounded as level_alloc rounds them) and every hot copy
+to high work RAM, the level's five lumps and the models' tables, keeps
+that much free (level.c hw_keep, hot_spare), so a lump that would eat
+into it stays on the cart instead. OPT=-DNO_HW_KEEP is as before.
+
+Two things the first version got wrong, found with the level test's
+new line (OUT OF HIGH WORK RAM: n asked from the caller's address,
+what was kept) and three maps still short:
+
+- The texture slot table is sized by the level's textures and the
+  loaded models', and the models aren't loaded when the keep is worked
+  out; it took its whole size from the kept room and the models'
+  12-byte table after it overflowed (city3 by 2.7 KB, train by 1.4 KB,
+  the 3552 and 1920 bytes asked being 296 and 160 models' worth). So
+  the keep is now a running count: level_alloc takes from it, and the
+  takers that help themselves to what's over (level_alloc_spare: the
+  texture slots beyond the level's own, the gun's kept drawing, the
+  models' spare DSP blocks, the portals' lists) get high work RAM only
+  over what's still kept, the slots falling to low work RAM otherwise.
+- A keep over the truth costs a lump: a 1 KB allowance for the DSP
+  programs' block, which only the maker and walls builds take, would
+  have pushed a demo lump to the cart where it fit before with less to
+  spare. The estimate is exact now, the DSP builds' blocks counted only
+  where they're built in; the lean tour's three show the high RAM
+  figures they showed before (96, 144 and 16 bytes left against 0, 48
+  and 96, the models' spare blocks taking the rest either way).
+
+waste1 failed differently on the way: its slot table went to low work
+RAM, which was 17 KB from full, and level_alloc_low's spill asked the
+cart for its usual 64 KB when the cart had 38 KB left ("OUT OF THE
+CART: 26624 BYTES MORE"). The spill takes what the cart has when that's
+enough for the ask.
+
+Mednafen, one map a boot with the lean bakes (local/retail_single.sh):
+the first version loaded 18 of the 19, the running keep the last three
+(waste1, city3, train) and three controls, and a pass over all 38
+bakeable maps loaded all 38 (local/survey/measured.txt). One more
+thing the pass showed: where the slot table goes to low work RAM the
+room kept for the level's own slots goes unused (mine1: 55 KB left,
+its leafs and axes on the cart), so level_hot_late, called once the
+keep's takers have taken (main.c, before the gun's kept drawing and
+the models' spare blocks take what's over), copies the lumps the keep
+left on the cart where there's room after all; nothing holds their
+addresses between (the traces and the walk take them from lv each
+call). mine1's axes came in that way, its leafs still too big; the
+level test's title says which lumps stayed (S) and which came late
+(L). The lean tour's three are as before: nothing kept off, the same
+high work RAM and cart figures.
+
+Speed on the hardware isn't measured: the lumps a retail map leaves on
+the cart are read at the cart's speed, and the texture slots in low
+work RAM at low's; the demo's three are untouched.

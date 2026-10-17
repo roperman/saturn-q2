@@ -64,7 +64,18 @@ u8                  *cart_alloc(u32 bytes)
 
     bytes = (bytes + 2047) & ~2047u;
     if (p + bytes > CART_BASE + CART_SIZE)
+    {
+#ifdef LEVEL_TEST
+        for (;;)                            /* (which taker: the caller's address, for the link map) */
+        {
+            vdp_begin();
+            vdp_printf(16, 100, RGB(255, 80, 60), "OUT OF THE CART: %d BYTES MORE", (int)(p + bytes - (CART_BASE + CART_SIZE)));
+            vdp_printf(16, 110, RGB(255, 80, 60), "%d ASKED FROM %X", (int)bytes, (u32)__builtin_return_address(0));
+            vdp_submit();
+        }
+#endif
         out_of_ram("THE CART", (u32)(p + bytes - (CART_BASE + CART_SIZE)));
+    }
     cart_next += bytes;
     return p;
 }
@@ -81,10 +92,16 @@ static const void   *hot(const void *src, u32 bytes, bool high)
     return hot_spare(src, bytes, high, 0);
 }
 
+/* high work RAM kept from every hot copy (the level's lumps, the models' tables) for what level_alloc
+   takes after them: level_load works it out from the counts (OVERNIGHT.md 97) */
+static u32          hw_keep;
+static u32          hw_keep_left;           /* ...of which level_alloc hasn't taken yet (level_alloc_spare: what's over it) */
+static u32          late_nmarks;            /* (level_hot_late: the marks' count) */
+
 static const void   *hot_spare(const void *src, u32 bytes, bool high, u32 spare)
 {
     u8              **next = high ? &hw_next : &lw_next;
-    u8              *end = (high ? HWRAM_END : LWRAM_END) - spare;
+    u8              *end = (high ? HWRAM_END : LWRAM_END) - (high && spare < hw_keep_left ? hw_keep_left : spare);
     u8              *dst = *next;
 
     if (dst + bytes > end)
@@ -98,6 +115,9 @@ static const void   *hot_spare(const void *src, u32 bytes, bool high, u32 spare)
 /* (OPT=-DLEVEL_TEST) the level file's lumps copied to work RAM whose cart copy nothing reads after
    (the DSP reads the planes', faces', lights' and axes' there): bytes */
 u32                 level_dead, level_back;    /* (...and what of them went back to the cart) */
+/* (the title's lines: the keep, which of the five high lumps stayed on the cart (bits: nodes planes leafs marks
+   axes), high work RAM free after the copies, and what level_alloc took after them) */
+u32                 level_keep, level_skip, level_hw_after, level_hw_taken, level_late;
 
 static const void   *hot_dead(const void *src, u32 bytes, bool high, u32 spare)
 {
@@ -257,8 +277,10 @@ void                *level_alloc_low(u32 bytes)
     {
         if (lw_spill + bytes > lw_spill_end)
         {
-            u32         take = bytes > 65536 ? bytes : 65536;
+            u32         take = bytes > 65536 ? bytes : 65536, ca = cart_free() & ~2047u;
 
+            if (take > ca && ca >= ((bytes + 2047) & ~2047u))
+                take = ca;                  /* (the last of the cart rather than none of it) */
             lw_spill = cart_alloc(take);
             lw_spill_end = lw_spill + ((take + 2047) & ~2047u);
         }
@@ -276,10 +298,83 @@ void                *level_alloc(u32 bytes)
     u8              *p = hw_next;
 
     bytes = (bytes + 15) & ~15u;
+#ifdef LEVEL_TEST
+    level_hw_taken += bytes;
+#endif
+    hw_keep_left -= bytes < hw_keep_left ? bytes : hw_keep_left;
     if (p + bytes > HWRAM_END)
+    {
+#ifdef LEVEL_TEST
+        /* (which taker: the caller's address, for the link map) */
+        for (;;)
+        {
+            vdp_begin();
+            vdp_printf(16, 100, RGB(255, 80, 60), "OUT OF HIGH WORK RAM: %d BYTES MORE", (int)(p + bytes - HWRAM_END));
+            vdp_printf(16, 110, RGB(255, 80, 60), "%d ASKED FROM %X, KEPT %d LEFT %d", (int)bytes, (u32)__builtin_return_address(0), (int)hw_keep,
+                       (int)hw_keep_left);
+            vdp_submit();
+        }
+#endif
         out_of_ram("HIGH WORK RAM", (u32)(p + bytes - HWRAM_END));
+    }
     hw_next += bytes;
     return p;
+}
+
+/* high work RAM for a taker the keep didn't count, or counted only in part (counted: that part):
+   NULL where taking it would leave less than the rest of the keep (the texture slots, the kept
+   gun, the models' spare DSP blocks, the portals' lists: render.c) */
+void                *level_alloc_spare(u32 bytes, u32 counted)
+{
+    u8              *p = hw_next;
+    u32             room = (u32)(HWRAM_END - p);
+
+    bytes = (bytes + 15) & ~15u;
+    if (room + counted < hw_keep_left + bytes)
+        return NULL;
+#ifdef LEVEL_TEST
+    level_hw_taken += bytes;
+#endif
+    hw_keep_left -= counted < hw_keep_left ? counted : hw_keep_left;
+    hw_next += bytes;
+    return p;
+}
+
+static bool         on_cart(const void *p)
+{
+    return (const u8 *)p >= CART_BASE && (const u8 *)p < CART_BASE + CART_SIZE;
+}
+
+/* once what level_load kept the room for is taken (main.c, before the gun's kept drawing and the
+   models' spare blocks take what's over): the hot lumps the keep left on the cart, copied after
+   all where there's room (a map whose texture slots went to low work RAM leaves the room it kept
+   for them: mine1's 55 KB, its leafs and axes on the cart otherwise). Nothing holds their
+   addresses between: the traces and the walk take them from lv each call */
+void                level_hot_late(void)
+{
+    hw_keep_left = 0;
+    if (on_cart(lv.nodes))
+        lv.nodes = HOT_D(lv.nodes, (u32)lv.nnodes * sizeof(q_node), true, 0);
+    if (on_cart(lv.planes))
+        lv.planes = hot(lv.planes, (u32)lv.nplanes * sizeof(q_plane), true);
+    if (on_cart(lv.leafs))
+        lv.leafs = HOT_D(lv.leafs, (u32)lv.nleafs * sizeof(q_leaf), true, 0);
+    if (on_cart(lv.marks))
+        lv.marks = HOT_D(lv.marks, late_nmarks * 2, true, 0);
+    if (on_cart(lv.axes))
+        lv.axes = hot(lv.axes, (u32)lv.naxes * 24, true);
+#ifdef LEVEL_TEST
+    level_late = level_skip & ~(on_cart(lv.nodes) | on_cart(lv.planes) << 1 | on_cart(lv.leafs) << 2 | on_cart(lv.marks) << 3
+                                | on_cart(lv.axes) << 4);
+#endif
+}
+
+/* high work RAM over the rest of the keep: what level_alloc_spare would give */
+u32                 level_hw_spare(void)
+{
+    u32             room = (u32)(HWRAM_END - hw_next);
+
+    return room > hw_keep_left ? room - hw_keep_left : 0;
 }
 
 /* (the load failed) the cart's RAM: patterns written and read back at a few places, through the
@@ -390,6 +485,7 @@ static int          cart_init(void)
 
 bool                level_load(const char *name)
 {
+    hw_keep = hw_keep_left = 0;
     const u8        *b = CART_BASE;
     const u32       *h;
     int             size;
@@ -477,14 +573,30 @@ bool                level_load(const char *name)
         view_keep_reserved = level_alloc(view_keep_bytes());
     }
 #endif
-    lv.nodes = HOT_D(lv.nodes, (u32)lv.nnodes * sizeof(q_node), true, 0);
+    /* the tables r_level, the traces and the movers take in high work RAM after these copies
+       (OVERNIGHT.md 97): room kept for them, so on a map short of it a hot lump stays on the cart
+       (19 of the 38 retail maps, by 0.6 to 25 KB) instead of the load failing; the demo's three
+       have the room either way. OPT=-DNO_HW_KEEP: as before */
+#ifndef NO_HW_KEEP
+    hw_keep = r_level_hw_bytes(h[47]) + trace_world_hw_bytes() + movers_hw_bytes();
+#endif
+    hw_keep_left = hw_keep;
+    lv.nodes = HOT_D(lv.nodes, (u32)lv.nnodes * sizeof(q_node), true, hw_keep);
     lv.planes_cart = lv.planes;
-    lv.planes = hot(lv.planes, (u32)lv.nplanes * sizeof(q_plane), true);
-    lv.leafs = HOT_D(lv.leafs, (u32)lv.nleafs * sizeof(q_leaf), true, 0);
-    lv.marks = HOT_D(lv.marks, h[7] * 2, true, 0);
+    lv.planes = hot_spare(lv.planes, (u32)lv.nplanes * sizeof(q_plane), true, hw_keep);
+    lv.leafs = HOT_D(lv.leafs, (u32)lv.nleafs * sizeof(q_leaf), true, hw_keep);
+    lv.marks = HOT_D(lv.marks, h[7] * 2, true, hw_keep);
+    late_nmarks = h[7];
     lv.axes_cart = lv.axes;
-    lv.axes = hot(lv.axes, h[47] * 24, true);
+    lv.axes = hot_spare(lv.axes, h[47] * 24, true, hw_keep);
     lv.naxes = (int)h[47];
+#ifdef LEVEL_TEST
+    level_keep = hw_keep;
+    level_hw_taken = 0;
+    level_hw_after = (u32)(HWRAM_END - hw_next);
+    level_skip = ((const u8 *)lv.nodes == b + h[2]) | ((const u8 *)lv.planes == b + h[0]) << 1 | ((const u8 *)lv.leafs == b + h[4]) << 2
+                 | ((const u8 *)lv.marks == b + h[6]) << 3 | ((const u8 *)lv.axes == b + h[46]) << 4;
+#endif
     lv.faces_cart = lv.faces;
     lv.faces = hot(lv.faces, (u32)lv.nfaces * sizeof(q_face), false);
     lv.cells = HOT_D(lv.cells, h[11] * sizeof(q_cell), false, 0);

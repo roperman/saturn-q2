@@ -246,6 +246,7 @@ void                g_fire_blaster(g_ent *self, const s32 *start, const s32 *dir
 void                g_fire_hitscan(g_ent *self, const s32 *start, const s32 *dir, int damage, int hspread, int vspread,
                                    int count);
 void                g_muzzle_flash(const s32 *p, u8 r, u8 g, u8 b);
+void                g_fire_rail(g_ent *self, const s32 *start, const s32 *dir, int damage);
 s32                 crandom(void);          /* -1..1 (16.16) */
 s32                 frandom(void);          /* 0..1 */
 int                 vectoyaw(const s32 *v);

@@ -208,6 +208,19 @@ void                hud_draw(void)
             vdp_printf(8, 20, RGB(255, 255, 120), "WARP %d OF %d%s %s", live, n, models[WARP_ONLY].loaded ? "" : " NOT LOADED",
                        warp_how == 1 ? "SPOT" : warp_how == 2 ? "OWN" : "-");
         }
+#ifdef WARP_ALSO
+        {   /* (OPT=-DWARP_ALSO=MDL_y: a second model's, the same: the Makron's riding Jorg) */
+            int     n2 = 0, live2 = 0, j;
+
+            for (j = 1; j < g_nfull; ++j)
+                if (g_edicts[j].mdl == &models[WARP_ALSO])
+                {
+                    ++n2;
+                    live2 += g_edicts[j].kind == EK_MONSTER;
+                }
+            vdp_printf(8, 32, RGB(255, 255, 120), "ALSO %d OF %d%s N%d", live2, n2, models[WARP_ALSO].loaded ? "" : " NOT LOADED", g_nfull);
+        }
+#endif
     }
 #endif
 #ifdef MEDIC_TEST

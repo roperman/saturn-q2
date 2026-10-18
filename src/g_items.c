@@ -86,6 +86,8 @@ __attribute__((cold)) void                g_models_needed(int *count)
                 count[MDL_GIB_CHEST] = 1;
             else if (m == MDL_TANK || m == MDL_CTANK)
                 count[MDL_GIB_CHEST] = count[MDL_GIB_METAL] = count[MDL_GIB_GEAR] = 1;
+            else if (m == MDL_JORG)
+                ++count[MDL_MAKRON];        /* (out of Jorg when it dies: m_jorg.c) */
         }
         else if (r->cls == C_MISC_EXPLOBOX)
             count[MDL_BARREL] = 1;

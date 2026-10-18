@@ -14,7 +14,7 @@
 #define MAX_SPARKS      (24)
 #define FX_ENT0         (GAME_ENTS)         /* the render entities after the game's */
 
-enum { P_BOLT, P_ROCKET, P_GRENADE, P_GIB };
+enum { P_BOLT, P_ROCKET, P_GRENADE, P_GIB, P_BFG };
 
 typedef struct
 {
@@ -173,6 +173,21 @@ void                fx_rocket(g_ent *owner, const s32 *start, const s32 *dir, in
     }
 }
 
+/* a BFG ball (Jorg's and the Makron's: Quake's fire_bfg at 300 a second): what it hits takes
+   damage, and everything within radius units of the burst its share of it (the lasers it plays
+   over what's near it as it flies are left out) */
+void                fx_bfg(g_ent *owner, const s32 *start, const s32 *dir, int damage, int radius)
+{
+    t_proj          *p = new_proj(owner, start, dir, FIX(300), P_BFG);
+
+    if (p)
+    {
+        p->life = FIX(10);
+        p->damage = damage;
+        p->radius_damage = radius;
+    }
+}
+
 void                fx_grenade(g_ent *owner, const s32 *start, const s32 *dir, int damage, s32 speed)
 {
     t_proj          *p = new_proj(owner, start, dir, speed, P_GRENADE);
@@ -191,6 +206,16 @@ void                fx_grenade(g_ent *owner, const s32 *start, const s32 *dir, i
 
 static void         explode(t_proj *p, g_ent *direct)
 {
+    if (p->kind == P_BFG)
+    {
+        s_play(SND_MK_BFGX, p->pos, ATTN_NORM);
+        if (direct)
+            g_damage(direct, p->owner, p->damage, p->pos);
+        g_explosion(p->pos, NULL, p->owner, p->damage, FIX(p->radius_damage), direct);
+        fx_flash(p->pos, FIX(400), FIX(0.6), 4, 14, 4);
+        p->live = false;
+        return;
+    }
     s_play(p->kind == P_ROCKET ? SND_EXPLOSION : SND_GRENADE_EXPLODE, p->pos, ATTN_NORM);
     if (p->kind == P_ROCKET)
     {
@@ -321,6 +346,7 @@ static void         move_proj(t_proj *p, s32 dt)
             break;
         }
         case P_ROCKET:
+        case P_BFG:
             for (k = 0; k < 3; ++k)
                 p->pos[k] -= fmul(p->vel[k], FIX(0.02));   /* back off the wall a bit */
             explode(p, hit && hit->takedamage ? hit : NULL);
@@ -410,20 +436,25 @@ void                fx_update(s32 dt)
             {
                 l->r = 9; l->g = 7; l->b = 1;
             }
+            else if (p->kind == P_BFG)
+            {
+                l->r = 3; l->g = 12; l->b = 3;
+                l->radius = FIX(300);
+            }
             else
             {
                 l->r = 11; l->g = 8; l->b = 2;
             }
         }
-        if (p->kind == P_BOLT && r_nsprites < MAX_SPRITES)
+        if ((p->kind == P_BOLT || p->kind == P_BFG) && r_nsprites < MAX_SPRITES)
         {
             q_sprite *s = &r_sprites[r_nsprites++];
 
             for (k = 0; k < 3; ++k)
                 s->pos[k] = p->pos[k];
-            s->size = FIX(3);
-            s->color = RGB(255, 255, 200);
-            s->halo = RGB(255, 200, 40);
+            s->size = p->kind == P_BFG ? FIX(10) : FIX(3);
+            s->color = p->kind == P_BFG ? RGB(140, 255, 140) : RGB(255, 255, 200);
+            s->halo = p->kind == P_BFG ? RGB(30, 170, 30) : RGB(255, 200, 40);
         }
     }
     for (i = 0; i < MAX_SPARKS; ++i)
@@ -493,8 +524,8 @@ void                fx_render(void)
         q_entity    *r;
         int         k;
 
-        if (!p->live || p->kind == P_BOLT)
-            continue;
+        if (!p->live || p->kind == P_BOLT || p->kind == P_BFG)
+            continue;                       /* (a sprite, not a model) */
         r = &ents[n];
         if (!r->live)
             r->g_leaf = -1;

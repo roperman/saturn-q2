@@ -478,6 +478,22 @@ void                g_fire_hitscan(g_ent *self, const s32 *start, const s32 *dir
     }
 }
 
+/* the Makron's railgun (m_makron.c): one shot straight along dir, and its trail from start to the
+   wall (the parasite's beam: fx_beam) */
+void                g_fire_rail(g_ent *self, const s32 *start, const s32 *dir, int damage)
+{
+    static const s32 zero[3] = { 0, 0, 0 };
+    s32             end[3];
+    q_trace         t;
+    int             k;
+
+    g_fire_hitscan(self, start, dir, damage, 0, 0, 1);
+    for (k = 0; k < 3; ++k)
+        end[k] = start[k] + dir[k] * 8192;
+    t = trace_world(start, zero, zero, end, MASK_SHOT & ~CONTENTS_MONSTER);
+    fx_beam(start, t.endpos);
+}
+
 void                g_muzzle_flash(const s32 *p, u8 r, u8 g, u8 b)
 {
     fx_flash(p, FIX(160), FIX(0.1), r, g, b);
@@ -594,7 +610,7 @@ int                 g_monster_model(int c)
     static const s8 mdl[] = {
         MDL_SOLDIER, MDL_SOLDIER, MDL_SOLDIER, MDL_INFANTRY, MDL_GUNNER, MDL_BERSERK, MDL_TANK, MDL_FLYER, MDL_PARASITE,
         MDL_GLADIATOR, MDL_CHICK, MDL_HOVER, MDL_FLOATER, MDL_BRAIN, MDL_MUTANT, MDL_CTANK, MDL_MEDIC,
-        -1, MDL_SUPERTANK, MDL_BOSS2, -1, -1, -1,   /* (the barracuda shark, the Jorg, the Makron: to come) */
+        -1, MDL_SUPERTANK, MDL_BOSS2, MDL_JORG, MDL_MAKRON, MDL_MAKRON,     /* (the barracuda shark: to come; boss3_stand the Makron's model and code) */
     };
     _Static_assert(sizeof(mdl) == C_MONSTER_LAST - C_MONSTER_FIRST + 1, "g_monster_model: a model a monster class");
     return c >= C_MONSTER_FIRST && c <= C_MONSTER_LAST ? mdl[c - C_MONSTER_FIRST] : -1;
@@ -619,7 +635,11 @@ static __attribute__((cold)) bool         g_monster_spawn(g_ent *e)
         ovl_spawn[m](e);                    /* (its code loaded with the level: g_overlays_load) */
     else
         return false;
-    e->takedamage = true;
+#ifdef MONSTER_HEALTH
+    if (e->health > 0)
+        e->health = e->max_health = MONSTER_HEALTH;     /* (OPT=-DMONSTER_HEALTH=n: every monster that weak, a test of deaths) */
+#endif
+    e->takedamage = e->health > 0;          /* (monster_boss3_stand has none: not to be shot) */
     return true;
 }
 
@@ -703,7 +723,13 @@ static __attribute__((cold)) void         g_count(int *n, int skill)
     memset(n, 0, G_POOLS * sizeof(int));
     for (i = 0; i < lv.nerecs; ++i, ++r)
         if (skill < 0 || !(r->spawnflags & (0x100 << skill)))
-            ++n[g_pool(r->cls)];
+        {
+            int p = g_pool(r->cls);
+
+            ++n[p];
+            if (p == G_FULL && r->cls == C_MONSTER_JORG && models[MDL_MAKRON].loaded)
+                ++n[G_FULL];                /* (a spare: the Makron riding it, and out of it when it dies: m_jorg.c) */
+        }
 }
 
 /* the short ones, then the items' and triggers' places and the drawables' render entities, in one */
@@ -758,6 +784,7 @@ __attribute__((cold)) void g_overlays_load(void)
         { MDL_FLOATER, "FLOATER.OVL" }, { MDL_BRAIN, "BRAIN.OVL" }, { MDL_MUTANT, "MUTANT.OVL" },
         { MDL_CTANK, "TANK.OVL" },      /* (the tank commander: the tank's code with its own model) */
         { MDL_MEDIC, "MEDIC.OVL" },     { MDL_BOSS2, "BOSS2.OVL" },     { MDL_SUPERTANK, "SUPERTAN.OVL" },
+        { MDL_JORG, "JORG.OVL" },       { MDL_MAKRON, "MAKRON.OVL" },
     };
     unsigned        i;
 
@@ -922,7 +949,8 @@ __attribute__((cold)) void g_init(void)
                 e->kind = EK_FREE;          /* (an optional one with no room on the cart: tools/models.txt) */
                 continue;
             }
-            ++total_monsters;
+            if (c != C_MONSTER_BOSS3_STAND)
+                ++total_monsters;           /* (the Makron standing on boss1 isn't a kill: he's gone when triggered) */
             for (k = 0; k < 3; ++k)
                 e->old_origin[k] = e->origin[k];    /* (where its spawn dropped it to: no blend from above) */
 #ifdef KILL_OTHERS
@@ -945,8 +973,8 @@ __attribute__((cold)) void g_init(void)
                 e->solid = false;
                 e->use = monster_triggered_spawn;
             }
-            else
-                e->use = monster_use;
+            else if (!e->use)
+                e->use = monster_use;       /* (unless its spawn set its own: monster_boss3_stand's) */
             e->leaf = (s16)level_leaf(e->origin);
             continue;
         }

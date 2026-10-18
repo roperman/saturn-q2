@@ -5256,3 +5256,71 @@ on you and coming, the screen flashing red as its rockets and bullets
 land; no VDP1 stall. Power Plant's stands in a spot the search still
 finds no room about (the fallback took you into its ceiling before,
 in front of it now). Not seen yet: its pains and its death.
+
+## 103. Jorg and the Makron: the last fight
+
+The last two of section 100's list but the shark: m_jorg.c and
+m_makron.c, overlays, their models (boss3/jorg and boss3/rider) and
+sounds from the retail pak0.pak; Quake's game/m_boss31.c, m_boss32.c
+and m_boss3.c.
+
+Jorg (boss2's map): 3000 health, a 160-unit box 140 tall. Three times
+in four both machineguns (six bursts of two, 6 of damage a bullet,
+again while it sees you nine times in ten), else a BFG ball. A light
+hit mostly doesn't stop it (Quake's six in ten under 40). Dying it
+goes down over 50 frames, blows up eight times over its body, the body
+stays, and the Makron jumps out of it at you (Quake's MakronToss, 400
+at you and 200 up), with his popup.
+
+The Makron: 3000 health, a 60-unit box 90 tall; each as likely, a
+BFG ball, seventeen hyperblaster bolts swept across from 80 degrees
+one side to straight ahead and from 70 the other (15 each, their
+pitch at you), or the railgun (50, wound up for seven frames and fired
+at where you stood when it took its aim). A light hit mostly doesn't
+stop him either. Dying he goes down over 95 frames, his final blow
+and his brains out heard, and his body stays. Standing on boss1's map
+(monster_boss3_stand: the same model and code) he only cycles in place,
+can't be shot, isn't counted a kill, and goes in a flash of light with
+Quake's teleport sound when his trigger fires.
+
+Two weapons the port hadn't: the BFG ball (fx.c fx_bfg: a green glow
+at 300 a second, what it hits takes its damage and everything within
+its radius a share, 200 units for Jorg's, 300 for the Makron's; the
+lasers Quake plays from it as it flies are left out) and the railgun
+(g_main.c g_fire_rail: one straight hitscan shot and its trail to the
+wall, the parasite's beam for want of a blue one).
+
+The Makron rides Jorg through the fight (Quake draws him as Jorg's
+second model). The port's entities have one model each, so a level
+with a Jorg gets a spare full entity (g_main.c g_count), which Jorg's
+spawn takes for the rider: a monster with no move and the Makron's
+model, drawn where Jorg is at Jorg's frame (every frame of Jorg's
+moves runs rider_follow after its AI). MAKRON.MDL's first eight
+animations are Jorg's, baked with the same thinning, so a model frame
+number is the same in both. When Jorg dies the rider becomes the
+Makron (g_monster_revive with the Makron's class, as the medic's
+raising); without the spare entity (or no Makron model) the Makron
+comes out of Jorg's own entity and Jorg's body goes. The Makron's
+model is loaded wherever a Jorg is (g_items.c g_models_needed).
+
+Both meshes were over the renderer: section 101's collapse makes Jorg
+686 vertices and 1224 triangles into 400 and 620 (395 polygons), the
+Makron 493 and 870 into 400 and 680 (420 polygons). Jorg's 351 KB;
+the Makron's 686 KB with the ride's 106 frames in it. boss2's map had
+2.46 MB of cart to spare, boss1's 1.98 MB: room for both.
+
+Test switches: -DMONSTER_HEALTH=n spawns every monster that weak (a
+boss's death in a few blaster shots), and local/mon_test.sh FIRE=1
+holds the blaster on the warp's monster.
+
+Seen on boss2's map (Mednafen, god mode, every monster at 40 health
+and the blaster held on it): Jorg with the Makron in its cockpit,
+walking at you, its guns going, a BFG ball lighting the hall green;
+shot, it goes down, the eight bangs, and the Makron out of it and in
+your face, his head filling the view; shot in turn he lies before
+Jorg's wreck, whose lights stay on. On boss1's map the Makron stands
+on his platform. No VDP1 stall. Not seen yet: the railgun and the
+hyperblaster sweep (he died first), the Makron's pains, the stand's
+flash when triggered. The first try had the rider clobbered: Jorg's
+spawn took the first free entity, which the spawn loop, still at Jorg,
+filled next; it takes the last now.

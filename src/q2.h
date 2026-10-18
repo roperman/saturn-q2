@@ -364,6 +364,7 @@ void                fx_spark(const s32 *p);
 void                fx_explosion(const s32 *p);
 void                fx_beam(const s32 *a, const s32 *b);  /* (the parasite's tongue: a beam for a moment) */
 void                fx_grenade(struct g_ent_s *owner, const s32 *start, const s32 *dir, int damage, s32 speed);
+void                fx_bfg(struct g_ent_s *owner, const s32 *start, const s32 *dir, int damage, int radius);
 void                fx_rocket(struct g_ent_s *owner, const s32 *start, const s32 *dir, int damage, int radius_damage);
 void                fx_gib(int mdl, const s32 *pos, const s32 *vel);   /* a piece of a monster, flying */
 void                fx_render(void);                       /* rockets and grenades into the renderer's entities */

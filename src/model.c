@@ -132,6 +132,9 @@ __attribute__((cold)) void                models_load_all(void)
     int             i, best;
 
     g_models_needed(need);
+#ifdef MEDIC_TEST
+    need[MDL_MEDIC] *= 100;                 /* (OPT=-DMEDIC_TEST: the medics' model first, whatever the map has more of) */
+#endif
     nmodels_loaded = 0;
     for (i = 0; i < MDL_COUNT; ++i)
         models[i].loaded = false;

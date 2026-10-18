@@ -45,7 +45,8 @@ MF_START_OPEN, MF_PROXIMITY, MF_SHOOT = 1, 2, 4
 CLASSES = """
     monster_soldier_light monster_soldier monster_soldier_ss monster_infantry monster_gunner monster_berserk monster_tank
     monster_flyer monster_parasite monster_gladiator monster_chick monster_hover monster_floater monster_brain
-    monster_mutant monster_tank_commander
+    monster_mutant monster_tank_commander monster_medic monster_flipper monster_supertank monster_boss2 monster_jorg
+    monster_makron monster_boss3_stand
     item_health_small item_health item_health_large item_health_mega
     item_armor_shard item_armor_jacket item_armor_combat item_armor_body
     ammo_shells ammo_bullets ammo_grenades ammo_rockets ammo_cells ammo_slugs

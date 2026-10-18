@@ -424,7 +424,7 @@ static const s32    *goal_point(const g_ent *ent)
     return ent->goalentity == &goal_marker ? ent->goal_pos : ent->goalentity ? ent->goalentity->origin : ent->origin;
 }
 
-static void         M_MoveToGoal(g_ent *ent, s32 dist)
+void                M_MoveToGoal(g_ent *ent, s32 dist)
 {
     if (!ent->on_ground && !(ent->flags & FL_FLY))
         return;                             /* (in the air: falling, unless it flies) */
@@ -1101,4 +1101,5 @@ __attribute__((cold)) void                monster_start(g_ent *self)
     self->frame = self->move->first + (int)(rng() % (u32)(self->move->last - self->move->first + 1));
     M_AnimOf(self, self->move);
     self->old_frame = self->frame;
+    self->old_mframe = g_model_frame(self);
 }

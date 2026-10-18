@@ -63,10 +63,12 @@ and over half of each level's never came), more monsters and items.
   (Installation and Comm Center) and the parasite (Comm Center). They see
   and hear you, chase you (the flyer flies), shoot, slash or drain you,
   flinch and die, and a hard enough hit (or a body shot again) leaves them
-  in pieces, as Quake's gibs. For the retail game's maps, seven more of its
+  in pieces, as Quake's gibs. For the retail game's maps, eight more of its
   monsters (their models and sounds from its own `pak0.pak`, see Building):
   the gladiator, the iron maiden, the icarus, the technician, the brains,
-  the mutant and the tank commander. A level's monster models go on the
+  the mutant, the tank commander and the medic, which raises the dead
+  monsters it finds (the raised one is after you again at once). A level's
+  monster models go on the
   RAM cart after the level; where it hasn't room for all of them, the
   kinds it has fewest of are left out. To fit more, these monsters' idle,
   pain and death animations keep a third or a half of their frames and
@@ -118,7 +120,8 @@ It builds on Linux. You need:
   distribution with the licence attached, so nothing made from it is in
   this repository.
 - Optionally, the retail game's `pak0.pak`, for the monsters the demo
-  hasn't (the gladiator, iron maiden, icarus, technician, brains, mutant):
+  hasn't (the gladiator, iron maiden, icarus, technician, brains, mutant,
+  tank commander, medic):
   `RETAIL_PAK=/path/to/baseq2/pak0.pak ./build.sh` bakes their models and
   sounds too. Without it they're left out, and a level that has them goes
   without them (the demo's three have none).

@@ -192,4 +192,66 @@ void                hud_draw(void)
                    w->ammo != AMMO_NONE ? client.ammo[w->ammo] : 0, client.armor);
     if (center_msg && level.time < center_until)
         draw_center(center_msg, 76);
+#ifdef MEDIC_TEST
+    {   /* (OPT=-DMEDIC_TEST: the medic nearest you, the bodies about (V: within its reach and sight), how many raised) */
+        extern int  g_revived;
+        const g_ent *m = NULL;
+        int         i, medics = 0, bodies = 0, seen = 0, d = 0, near = 9999, nt = '?', ni = '?', nv = '?';
+        s32         best = 0;
+
+        for (i = 1; i < g_nfull; ++i)
+        {
+            const g_ent *e = &g_edicts[i];
+            s32         v[3], l;
+            int         k;
+
+            if (e->kind != EK_MONSTER || e->mdl != &models[MDL_MEDIC])
+                continue;
+            ++medics;
+            for (k = 0; k < 3; ++k)
+                v[k] = e->origin[k] - g_player->origin[k];
+            l = vlen(v);
+            if (!m || l < best)
+            {
+                m = e;
+                best = l;
+            }
+        }
+        for (i = 1; m && i < g_nfull; ++i)
+        {
+            const g_ent *e = &g_edicts[i];
+            s32         v[3], l;
+            int         k;
+
+            if (e->kind != EK_MONSTER || !e->dead || e->move)
+                continue;
+            ++bodies;
+            for (k = 0; k < 3; ++k)
+                v[k] = e->origin[k] - m->origin[k];
+            l = vlen(v) >> 16;
+            if (l < near)
+            {
+                near = l;
+                nt = e->takedamage ? 't' : '-';
+                ni = e->inactive ? 'i' : '-';
+                nv = visible(m, e) ? 'v' : '-';
+            }
+            if (e->takedamage && !e->inactive && l <= 1024 && visible(m, e))
+                ++seen;
+        }
+        if (m && m->enemy)
+        {
+            s32 v[3];
+
+            for (i = 0; i < 3; ++i)
+                v[i] = m->enemy->origin[i] - m->origin[i];
+            d = vlen(v) >> 16;
+        }
+        vdp_printf(8, 8, RGB(255, 255, 120), "M%d%c%c%c A%X E%c D%d Z%d F%d H%d B%d V%d N%d%c%c%c UP%d T%d", medics, m && m->inactive ? 'i' : ' ',
+                   m && m->on_ground ? 'g' : '-', m && m->chase_fail == level.time - FRAMETIME ? 'c' : '-',
+                   m ? m->aiflags : 0, !m || !m->enemy ? '-' : m->enemy == g_player ? 'P' : m->enemy->dead ? 'B' : 'M', d,
+                   m && m->enemy ? (m->enemy->origin[2] - m->origin[2]) >> 16 : 0,
+                   m && m->move ? m->frame - m->move->first : -1, m ? m->health : 0, bodies, seen, near, nt, ni, nv, g_revived, level.framenum);
+    }
+#endif
 }

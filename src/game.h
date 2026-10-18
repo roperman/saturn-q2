@@ -59,6 +59,7 @@ typedef struct
 #define AI_PURSUE_TEMP      (0x0040)
 #define AI_HOLD_FRAME       (0x0080)
 #define AI_LOST             (0x0100)            /* chasing with no way to its enemy: standing, a look a second (g_ai.c) */
+#define AI_MEDIC            (0x0200)            /* the medic's enemy is a body it's going to raise (m_medic.c) */
 
 /* attack_state */
 #define AS_STRAIGHT     (1)
@@ -152,6 +153,7 @@ struct g_ent_s
     int             old_yaw;
     int             frame, old_frame, skinnum;      /* frames of the move (afirst.. the model's: M_ResolveMoves) */
     s16             afirst, aend, lbase, astride;   /* the move's animation (kept when the move's gone: a body) */
+    int             old_mframe;             /* the model frame drawn at the last tick (g_model_frame then) */
     s32             mins[3], maxs[3];
     int             max_health, gib_health;
     s32             velocity[3];
@@ -167,6 +169,7 @@ struct g_ent_s
     s32             pausetime, attack_finished, search_time, idle_time, pain_debounce, show_hostile;
     s32             last_sighting[3], saved_goal[3];
     g_ent           *enemy, *goalentity;
+    g_ent           *healer;                    /* a body: the medic on its way to revive it (m_medic.c) */
     s32             goal_pos[3];                /* when goalentity is &goal_marker */
     s32             aim[3];                     /* where its shot's going (the gladiator's rail: aimed as it charges) */
     void            (*stand)(g_ent *self);
@@ -224,7 +227,9 @@ extern g_ent        goal_marker;            /* a stand-in goal: a point (ai_run'
 
 /* g_main.c */
 void                g_init(void);           /* after the level and models are loaded */
-int                 g_monster_model(int cls);   /* the model a monster class uses (-1: not a monster) */
+int                 g_monster_model(int cls);   /* the model a monster class uses (-1: not a monster, or not done) */
+void                g_monster_revive(g_ent *e);     /* a body on its feet again, after you (the medic's) */
+int                 g_model_frame(const g_ent *e);  /* the model frame its move's frame draws (M_ResolveMoves) */
 void                g_frame(s32 dt);        /* the game: ticks at 10 Hz as the time comes */
 void                g_render_ents(void);    /* the monsters, items and barrels in view into the renderer's list, blended */
 void                g_render_late(bool pvs);    /* once the camera's moved: pvs, the PVS marked is the camera's */
@@ -315,6 +320,7 @@ menu_action         menu_input(u16 pressed);
 void                menu_draw(void);
 int                 hud_pic(const char *name, int x, int y);   /* (hud.c) its width, 0 if there's none */
 void                M_ChangeYaw(g_ent *ent);
+void                M_MoveToGoal(g_ent *ent, s32 dist);   /* a step toward goalentity, round what's in the way */
 bool                M_walkmove(g_ent *ent, int yaw, s32 dist);
 void                M_MoveFrame(g_ent *self);
 void                M_ResolveMoves(g_ent *self, mmove_t *const *moves, int n);   /* at spawn: their frames from its model */

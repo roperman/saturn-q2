@@ -591,18 +591,90 @@ enum { G_NONE, G_FULL, G_ITEM, G_TRIG, G_POINT, G_POOLS };
    CLASSES order, the retail game's monsters after the demo's (OVERNIGHT.md 98) */
 int                 g_monster_model(int c)
 {
-    static const u8 mdl[] = {
+    static const s8 mdl[] = {
         MDL_SOLDIER, MDL_SOLDIER, MDL_SOLDIER, MDL_INFANTRY, MDL_GUNNER, MDL_BERSERK, MDL_TANK, MDL_FLYER, MDL_PARASITE,
-        MDL_GLADIATOR, MDL_CHICK, MDL_HOVER, MDL_FLOATER, MDL_BRAIN, MDL_MUTANT, MDL_CTANK,
+        MDL_GLADIATOR, MDL_CHICK, MDL_HOVER, MDL_FLOATER, MDL_BRAIN, MDL_MUTANT, MDL_CTANK, MDL_MEDIC,
+        -1, -1, -1, -1, -1, -1,             /* (the barracuda shark, the supertank, the hornet, the Jorg, the Makron: to come) */
     };
     _Static_assert(sizeof(mdl) == C_MONSTER_LAST - C_MONSTER_FIRST + 1, "g_monster_model: a model a monster class");
     return c >= C_MONSTER_FIRST && c <= C_MONSTER_LAST ? mdl[c - C_MONSTER_FIRST] : -1;
 }
 
+static void         (*ovl_spawn[MDL_COUNT])(g_ent *self);  /* (g_overlays_load, below) */
+
+/* a monster's spawn by its class: its model and its code (false: the level hasn't them, the cart
+   having had no room for the model, tools/models.txt; or the monster isn't done) */
+static __attribute__((cold)) bool         g_monster_spawn(g_ent *e)
+{
+    int             c = e->cls, m = g_monster_model(c);
+
+    if (m < 0 || !models[m].loaded)
+        return false;
+    e->mdl = &models[m];
+    if (m == MDL_SOLDIER)
+        SP_monster_x_soldier(e, c == C_MONSTER_SOLDIER_LIGHT ? 0 : c == C_MONSTER_SOLDIER ? 2 : 4);
+    else if (c == C_MONSTER_INFANTRY)
+        SP_monster_infantry(e);
+    else if (ovl_spawn[m])
+        ovl_spawn[m](e);                    /* (its code loaded with the level: g_overlays_load) */
+    else
+        return false;
+    e->takedamage = true;
+    return true;
+}
+
+/* a body on its feet again (the medic's cable, m_medic.c): spawned afresh where it lies, as
+   Quake's, and after you at once */
+#ifdef MEDIC_TEST
+int                 g_revived;              /* (OPT=-DMEDIC_TEST: the HUD's count, hud.c) */
+#endif
+
+/* the model frame a monster's frame draws: its move's animation's first kept frame, so many on
+   (a move counts in the animation's frames as if none were thinned: M_ResolveMoves). Before its
+   first move the frame's the model's own */
+int                 g_model_frame(const g_ent *e)
+{
+    int             l;
+
+    if (e->astride <= 0)
+        return e->frame;
+    l = iclamp(e->frame - e->lbase, 0, (e->aend - e->afirst + 1) * e->astride - 1);
+    return e->afirst + l / e->astride;
+}
+
+__attribute__((cold)) void                g_monster_revive(g_ent *e)
+{
+    int             k;
+
+#ifdef MEDIC_TEST
+    ++g_revived;
+#endif
+    e->dead = false;
+    e->healer = NULL;
+    e->attack_finished = 0;                 /* (held a medic's give-up on the body) */
+    e->aiflags = 0;
+    e->spawnflags = 0;
+    e->nextframe = 0;
+    e->move = NULL;
+    for (k = 0; k < 3; ++k)
+        e->velocity[k] = 0;
+    if (!g_monster_spawn(e))
+    {
+        e->kind = EK_FREE;
+        return;
+    }
+    e->enemy = g_player;
+    FoundTarget(e);
+}
+
 static __attribute__((cold)) int          g_pool(int c)
 {
     if (c >= C_MONSTER_FIRST && c <= C_MONSTER_LAST)
-        return models[g_monster_model(c)].loaded ? G_FULL : G_NONE;
+    {
+        int m = g_monster_model(c);
+
+        return m >= 0 && models[m].loaded ? G_FULL : G_NONE;
+    }
     if (c == C_MISC_EXPLOBOX)
         return models[MDL_BARREL].loaded ? G_FULL : G_NONE;
     if (c == C_FUNC_EXPLOSIVE)
@@ -673,8 +745,8 @@ u32                 g_cart_need(void)
    not loaded after all, its monsters left out), and run from there: the cart's misses cost
    about what low work RAM's do, and low work RAM's wanted for the entities' tables, read far
    more often. The file: "Q2OV", the base it was linked at, the image's size, how many words to
-   move by where it lands; the image (its spawn's address first); those words' offsets */
-static void         (*ovl_spawn[MDL_COUNT])(g_ent *self);
+   move by where it lands; the image (its spawn's address first); those words' offsets.
+   (ovl_spawn, each loaded monster's spawn: declared above g_monster_spawn) */
 
 __attribute__((cold)) void g_overlays_load(void)
 {
@@ -685,6 +757,7 @@ __attribute__((cold)) void g_overlays_load(void)
         { MDL_GLADIATOR, "GLADIATO.OVL" }, { MDL_CHICK, "CHICK.OVL" }, { MDL_HOVER, "HOVER.OVL" },
         { MDL_FLOATER, "FLOATER.OVL" }, { MDL_BRAIN, "BRAIN.OVL" }, { MDL_MUTANT, "MUTANT.OVL" },
         { MDL_CTANK, "TANK.OVL" },      /* (the tank commander: the tank's code with its own model) */
+        { MDL_MEDIC, "MEDIC.OVL" },
     };
     unsigned        i;
 
@@ -844,32 +917,25 @@ __attribute__((cold)) void g_init(void)
         e->kind = EK_POINT;
         if (c >= C_MONSTER_FIRST && c <= C_MONSTER_LAST)
         {
-            if (c != C_MONSTER_SOLDIER_LIGHT && c != C_MONSTER_SOLDIER && c != C_MONSTER_SOLDIER_SS)
+            if (!g_monster_spawn(e))
             {
-                int m = g_monster_model(c);
-
-                if (!models[m].loaded)
-                {
-                    e->kind = EK_FREE;      /* (an optional one with no room on the cart: tools/models.txt) */
-                    continue;
-                }
-                e->mdl = &models[m];
-                if (c == C_MONSTER_INFANTRY)
-                    SP_monster_infantry(e);
-                else
-                    ovl_spawn[m](e);        /* (its code loaded with the level: g_overlays_load) */
+                e->kind = EK_FREE;          /* (an optional one with no room on the cart: tools/models.txt) */
+                continue;
             }
-            else
-            {
-                e->mdl = &models[MDL_SOLDIER];
-                SP_monster_x_soldier(e, c == C_MONSTER_SOLDIER_LIGHT ? 0 : c == C_MONSTER_SOLDIER ? 2 : 4);
-            }
-            e->takedamage = true;
             ++total_monsters;
             for (k = 0; k < 3; ++k)
                 e->old_origin[k] = e->origin[k];    /* (where its spawn dropped it to: no blend from above) */
-#ifdef SPAWN_ALL
-            if (0)                          /* (OPT=-DSPAWN_ALL: the triggered ones there from the start, a test) */
+#ifdef MEDIC_TEST
+            if (c != C_MONSTER_MEDIC)       /* (OPT=-DMEDIC_TEST: all but the medics lie dead from the start, for them to raise) */
+            {
+                e->dead = true;
+                e->health = 0;
+                e->move = NULL;
+                e->maxs[2] = -FIX(8);
+            }
+#endif
+#if defined(SPAWN_ALL) || defined(MEDIC_TEST)
+            if (0)                          /* (OPT=-DSPAWN_ALL: the triggered ones there from the start, a test; the medic's test wants their bodies) */
 #else
             if (e->spawnflags & 2)
 #endif
@@ -1110,6 +1176,7 @@ static void         g_tick_monsters(int g)
             e->old_origin[k] = e->origin[k];
         e->old_yaw = e->yaw;
         e->old_frame = e->frame;
+        e->old_mframe = g_model_frame(e);
         if (!e->move)
             continue;                       /* dead and done */
 #ifdef TICK_PROF
@@ -1285,8 +1352,8 @@ static void         fill_ent(q_entity *r, const g_ent *e, s32 f, int spin)
         r->skin = e->skinnum;
         if (e->astride <= 1)
         {
-            r->oldframe = e->old_frame;
-            r->frame = e->frame;
+            r->oldframe = e->old_mframe;
+            r->frame = g_model_frame(e);
             r->lerp = e->old_frame == e->frame ? 0 : f;
         }
         else

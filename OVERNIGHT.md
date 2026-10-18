@@ -5099,3 +5099,64 @@ Open: mine1 and city3 want 180 and 400 KB more cart, which is the
 level's to give (the leafs lump stays on the cart on both). And the
 choice of what a heavy map loses is the cart's by count for now; a
 per-map say (some of the lost kinds are a map's set piece) is wanted.
+
+## 100. The medic, and a drawn frame that wasn't its animation's
+
+The medic (monster_medic: lab, jail2 and jail3, city1, hangar1), the
+first of the retail monsters left after section 98: m_medic.c, an
+overlay as the others, its model and sounds from the retail pak0.pak
+(305 KB thinned as section 99's: its 90-frame idle keeps every fifth,
+the pains and the death every other). Quake's medic: 300 health, a
+blaster at you from a distance (two bolts, then nineteen times in
+twenty twelve more from its hyperblaster), and when a monster lies dead
+in sight within 1024 units it goes to that instead (AI_MEDIC: its run's
+frames walk it to the body round whatever's in the way, the same
+goal-chasing step as after you) and from 200 units puts its cable on it
+(attack43-51, Quake's hand offsets a frame, the beam fx_beam's); on the
+cable's eighth frame the body's spawned afresh where it lies (g_main.c
+g_monster_revive: its class's spawn again, dead no more, and after you
+at once). A body keeps its monster's class, model and frame of death on
+the entity, so the raised one is what died. Hurt or shot while it works,
+or its body gibbed or taken by another medic, it's after you again.
+Quake's medic has no give-up: with a body it can't reach (lab's medics
+stand on walkways over the cages, the bodies 18 to 34 units below, and
+a monster never drops off a ledge) it runs at it for ever, forgetting
+you. Here, no nearer to its body for 3 s, it leaves that body alone (no
+medic tries it for 30 s) and comes for you.
+
+Found on the way: a drawn frame that wasn't its animation's. Section
+99's drawing took a move's frame as the model's own when its animation
+had every frame (stride 1), which is right only while no thinned
+animation comes before it in the model: the medic's attack animation
+starts at logical frame 149 of a 111-frame model, and the renderer
+built quads from the vertices past its end, VDP1 hanging on the garbage
+(BOOT_TRACE: "STUCK ... 70 SUBMIT: SWAP WAIT", coordinates like F830).
+The gunner's, berserker's and tank's runs and attacks had the same
+offset on the demo's levels, by less (their thinned idles come first
+too), and looked plausible by luck. Now every monster's frame goes
+through its animation (g_main.c g_model_frame: the animation's first
+kept frame, plus the logical frame's offset over the stride), an entity
+keeps the model frame it drew last tick (old_mframe) for the blend, and
+the stride-1 and thinned paths differ only in the lerp.
+
+Tests (local, not scripts in the repo): `OPT="-DMEDIC_TEST
+-DWARP_ONLY=MDL_MEDIC"` with a retail map as DEMO1: every monster but
+the medics lies dead from the start (the trigger-spawned ones too, as
+SPAWN_ALL), START + A warps to the next medic, and the HUD's top line
+says the medic nearest you: its AI flags, its enemy (P you, B a body),
+the distance and height to it, its frame, the bodies about and how
+many of them it could take (within reach and in sight), the nearest
+one's flags, and how many have been raised (UP).
+Seen on lab (Mednafen): the medic by the first cages takes the body
+156 units off (AI_MEDIC, enemy B), walks to it, the cable goes on, and
+the body count falls by one as the raised iron maiden gets up (UP 1;
+it then shot the player dead while the next medic was looked at). The
+second medic's nearest body lies 29 units below its walkway: it runs
+at it, gets no nearer, gives it up after 3 s and comes for you with
+its blaster, and tries the body again once its hold is over. Before
+the give-up it stood at the ledge for the whole run, as Quake's would.
+Lab alone with the medics (nothing dead): the medic drawn right in
+every pose, its blaster and hyperblaster on you, no VDP1 stall.
+
+The demo's three load as before (NO ROOM 0 0 0 each; cart spare
+1425408 / 616448 / 491520).

@@ -78,6 +78,7 @@ typedef struct
 #define FL_STEPPED      (2)                 /* (this tick: its own step put it on the ground) */
 #define FL_IDLE_ODD     (4)                 /* (standing out of sight: this tick's the one it skips) */
 #define FL_FLY          (8)                 /* flies: no steps, no falling, leans up or down towards its goal */
+#define FL_SWIM         (16)                /* swims: as FL_FLY, but never out of the water (the shark) */
 
 #define ANG(d)          ((int)((d) * 65536 / 360))     /* degrees as the game's angles (a turn is 65536) */
 

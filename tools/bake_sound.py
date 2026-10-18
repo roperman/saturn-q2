@@ -58,6 +58,7 @@ MONSTER_SOUNDS = {
     "bh_": ("monster_boss2",),
     "bt_": ("monster_supertank",),
     "jo_": ("monster_jorg",),
+    "flp_": ("monster_flipper",),
     "mk_": ("monster_makron", "monster_boss3_stand", "monster_jorg"),
 }
 # monsters a level has that are left out anyway (none now: the cart has room, OVERNIGHT.md 50)
@@ -234,6 +235,11 @@ SOUNDS = [
     ("mk_rail", "weapons/railgf1a", 0.8, 115),
     ("mk_bfgx", "weapons/bfg__x1b", 1.0, 120),
     ("mk_tele", "misc/bigtele", 1.5, 120),
+    ("flp_pain1", "flipper/flppain1", 0.8, 110),
+    ("flp_pain2", "flipper/flppain2", 0.8, 110),
+    ("flp_death", "flipper/flpdeth1", 1.0, 115),
+    ("flp_chomp", "flipper/flpatck1", 0.5, 110),
+    ("flp_sight", "flipper/flpsght1", 0.8, 110),
     ("player_pain25", "player/male/pain25_1", 0.6, 120),
     ("player_pain50", "player/male/pain50_1", 0.7, 120),
     ("player_pain75", "player/male/pain75_1", 0.6, 120),

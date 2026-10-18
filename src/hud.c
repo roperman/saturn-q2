@@ -194,19 +194,38 @@ void                hud_draw(void)
         draw_center(center_msg, 76);
 #ifdef WARP_ONLY
     {   /* (OPT=-DWARP_ONLY=MDL_x: how many of the level's entities took that model, how many are monsters now) */
-        int         i, n = 0, live = 0;
+        int         i, n = 0, live = 0, d = 0, dz = 0;
+        const g_ent *near = NULL;
+        s32         best = 0;
 
         for (i = 1; i < g_nfull; ++i)
             if (g_edicts[i].mdl == &models[WARP_ONLY])
             {
+                const g_ent *e = &g_edicts[i];
+                s32         v[3], l;
+                int         k;
+
                 ++n;
-                live += g_edicts[i].kind == EK_MONSTER;
+                live += e->kind == EK_MONSTER;
+                for (k = 0; k < 3; ++k)
+                    v[k] = e->origin[k] - g_player->origin[k];
+                l = vlen(v);
+                if (e->kind == EK_MONSTER && (!near || l < best))
+                {
+                    near = e;
+                    best = l;
+                    d = l >> 16;
+                    dz = v[2] >> 16;
+                }
             }
         {
             extern int warp_how;
 
-            vdp_printf(8, 20, RGB(255, 255, 120), "WARP %d OF %d%s %s", live, n, models[WARP_ONLY].loaded ? "" : " NOT LOADED",
-                       warp_how == 1 ? "SPOT" : warp_how == 2 ? "OWN" : "-");
+            /* (and the nearest live one: how far, how high, its move's frame, its AI flags, its enemy) */
+            vdp_printf(8, 20, RGB(255, 255, 120), "WARP %d OF %d%s %s D%d Z%d F%d A%X E%c", live, n,
+                       models[WARP_ONLY].loaded ? "" : " NOT LOADED", warp_how == 1 ? "SPOT" : warp_how == 2 ? "OWN" : "-",
+                       d, dz, near && near->move ? near->frame - near->move->first : -1, near ? near->aiflags : 0,
+                       !near || !near->enemy ? '-' : near->enemy == g_player ? 'P' : 'M');
         }
 #ifdef WARP_ALSO
         {   /* (OPT=-DWARP_ALSO=MDL_y: a second model's, the same: the Makron's riding Jorg) */

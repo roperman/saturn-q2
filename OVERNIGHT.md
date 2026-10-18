@@ -5324,3 +5324,34 @@ hyperblaster sweep (he died first), the Makron's pains, the stand's
 flash when triggered. The first try had the rider clobbered: Jorg's
 spawn took the first free entity, which the spawn loop, still at Jorg,
 filled next; it takes the last now.
+
+## 104. The barracuda shark, and swimming
+
+The last of section 100's list: the barracuda shark (monster_flipper:
+bunk1, fact1, hangar1, train), m_flipper.c, an overlay, its model and
+sounds from the retail pak0.pak. Quake's: 50 health, a 32-unit box,
+and it bites you within reach (5 of damage, twice a lunge), nothing
+else. Its horizontal swim is its stand (Quake plays one frame of it)
+and the start of its run, the vertical swim its run. Left out: its
+search and idle calls, and its tail animation, which Quake never plays.
+
+Swimming is new (g_ai.c): FL_SWIM takes a monster through the flyer's
+step (SV_flystep: no stairs, no ground, a lean up or down towards its
+goal) with the water's rules instead of the air's. A swimmer's step
+fails where its feet would leave the water (Quake's "swim monsters
+don't exit water voluntarily"), and it rises towards you only while
+its top stays under (Quake's waterlevel < 2). It isn't dropped to the
+floor at its spawn, never falls, and its moves need no ground, as the
+flyer's. The model's 308 vertices and 544 triangles are under the
+renderer's limits as they are.
+
+Seen on hangar1 (Mednafen, the sharks alone, god mode on): the warp
+puts you in the water 100 units from one, its jaws at the middle of the
+view; the WARP line (the nearest one's distance, height and frame now)
+has it close from 75 units to 76 and stay there, 39 units up, its frame
+cycling through the twenty of its lunge: it swims to you and bites.
+Too dark in that water to watch it swim; its pains and its death not
+seen yet.
+
+That's every monster in the retail game: the fourteen from before, the
+medic, the hornet, the supertank, Jorg and the Makron, the shark.

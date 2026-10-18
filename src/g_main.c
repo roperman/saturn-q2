@@ -585,7 +585,7 @@ static __attribute__((cold)) void         monster_triggered_spawn(g_ent *self, g
     self->inactive = false;
     self->solid = true;
     self->use = monster_use;
-    if (!(self->flags & FL_FLY))
+    if (!(self->flags & (FL_FLY | FL_SWIM)))
         M_droptofloor(self);
     self->leaf = (s16)level_leaf(self->origin);     /* (where it dropped to: g_render_ents' PVS test) */
     for (k = 0; k < 3; ++k)
@@ -610,7 +610,7 @@ int                 g_monster_model(int c)
     static const s8 mdl[] = {
         MDL_SOLDIER, MDL_SOLDIER, MDL_SOLDIER, MDL_INFANTRY, MDL_GUNNER, MDL_BERSERK, MDL_TANK, MDL_FLYER, MDL_PARASITE,
         MDL_GLADIATOR, MDL_CHICK, MDL_HOVER, MDL_FLOATER, MDL_BRAIN, MDL_MUTANT, MDL_CTANK, MDL_MEDIC,
-        -1, MDL_SUPERTANK, MDL_BOSS2, MDL_JORG, MDL_MAKRON, MDL_MAKRON,     /* (the barracuda shark: to come; boss3_stand the Makron's model and code) */
+        MDL_FLIPPER, MDL_SUPERTANK, MDL_BOSS2, MDL_JORG, MDL_MAKRON, MDL_MAKRON,   /* (boss3_stand: the Makron's model and code) */
     };
     _Static_assert(sizeof(mdl) == C_MONSTER_LAST - C_MONSTER_FIRST + 1, "g_monster_model: a model a monster class");
     return c >= C_MONSTER_FIRST && c <= C_MONSTER_LAST ? mdl[c - C_MONSTER_FIRST] : -1;
@@ -784,7 +784,7 @@ __attribute__((cold)) void g_overlays_load(void)
         { MDL_FLOATER, "FLOATER.OVL" }, { MDL_BRAIN, "BRAIN.OVL" }, { MDL_MUTANT, "MUTANT.OVL" },
         { MDL_CTANK, "TANK.OVL" },      /* (the tank commander: the tank's code with its own model) */
         { MDL_MEDIC, "MEDIC.OVL" },     { MDL_BOSS2, "BOSS2.OVL" },     { MDL_SUPERTANK, "SUPERTAN.OVL" },
-        { MDL_JORG, "JORG.OVL" },       { MDL_MAKRON, "MAKRON.OVL" },
+        { MDL_JORG, "JORG.OVL" },       { MDL_MAKRON, "MAKRON.OVL" },   { MDL_FLIPPER, "FLIPPER.OVL" },
     };
     unsigned        i;
 

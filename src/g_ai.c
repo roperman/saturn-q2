@@ -98,16 +98,27 @@ static __attribute__((cold, noinline)) bool SV_flystep(g_ent *ent, const s32 *mo
                 neworg[2] += FIX(8);
             else
                 neworg[2] += dz;
+            if (ent->flags & FL_SWIM && neworg[2] > ent->origin[2])
+            {
+                /* (a swimmer rises only while its top stays under: Quake's waterlevel < 2) */
+                test[0] = neworg[0];
+                test[1] = neworg[1];
+                test[2] = neworg[2] + ent->maxs[2];
+                if (!(point_contents(test, 0) & MASK_WATER))
+                    neworg[2] = ent->origin[2] + move[2];
+            }
         }
         t = g_trace(ent->origin, ent->mins, ent->maxs, neworg, ent, MASK_MONSTERSOLID, &hit);
-        if (ent->waterlevel == 0)
+        test[0] = t.endpos[0];
+        test[1] = t.endpos[1];
+        test[2] = t.endpos[2] + ent->mins[2] + FIX(1);
+        if (ent->flags & FL_SWIM)
         {
-            test[0] = t.endpos[0];
-            test[1] = t.endpos[1];
-            test[2] = t.endpos[2] + ent->mins[2] + FIX(1);
-            if (point_contents(test, 0) & MASK_WATER)
-                return false;
+            if (!(point_contents(test, 0) & MASK_WATER))
+                return false;               /* (a swimmer never leaves the water) */
         }
+        else if (ent->waterlevel == 0 && (point_contents(test, 0) & MASK_WATER))
+            return false;                   /* (a flyer never enters it) */
         if (t.fraction == FIX(1))
         {
             for (k = 0; k < 3; ++k)
@@ -146,7 +157,7 @@ static bool         SV_movestep(g_ent *ent, const s32 *move)
     int             k;
 
     step_world_no = false;
-    if (ent->flags & FL_FLY)
+    if (ent->flags & (FL_FLY | FL_SWIM))
     {
         TP_FAIL(6);
         return SV_flystep(ent, move);
@@ -426,8 +437,8 @@ static const s32    *goal_point(const g_ent *ent)
 
 void                M_MoveToGoal(g_ent *ent, s32 dist)
 {
-    if (!ent->on_ground && !(ent->flags & FL_FLY))
-        return;                             /* (in the air: falling, unless it flies) */
+    if (!ent->on_ground && !(ent->flags & (FL_FLY | FL_SWIM)))
+        return;                             /* (in the air: falling, unless it flies or swims) */
     if (ent->enemy && SV_CloseEnough(ent, ent->enemy, dist))
         return;
     /* bump around... */
@@ -445,7 +456,7 @@ bool                M_walkmove(g_ent *ent, int yaw, s32 dist)
 {
     s32             move[3];
 
-    if (!ent->on_ground && !(ent->flags & FL_FLY))
+    if (!ent->on_ground && !(ent->flags & (FL_FLY | FL_SWIM)))
         return false;
     move[0] = fmul(fcos(yaw), dist);
     move[1] = fmul(fsin(yaw), dist);
@@ -1017,7 +1028,7 @@ static void         M_CheckGround(g_ent *ent)
     s32             p[3];
     q_trace         t;
 
-    if (ent->velocity[2] > FIX(100) || ent->flags & FL_FLY)
+    if (ent->velocity[2] > FIX(100) || ent->flags & (FL_FLY | FL_SWIM))
     {
         ent->on_ground = false;
         return;
@@ -1068,7 +1079,7 @@ void                monster_physics(g_ent *self)
     q_trace         t;
     int             k;
 
-    if (self->flags & FL_FLY)
+    if (self->flags & (FL_FLY | FL_SWIM))
         return;                             /* (never falls) */
     M_CheckGround(self);
     if (self->on_ground)
@@ -1095,7 +1106,7 @@ __attribute__((cold)) void                monster_start(g_ent *self)
     self->max_health = self->health;
     self->ideal_yaw = self->yaw;
     self->old_yaw = self->yaw;
-    if (!(self->flags & FL_FLY))
+    if (!(self->flags & (FL_FLY | FL_SWIM)))
         M_droptofloor(self);
     self->stand(self);
     self->frame = self->move->first + (int)(rng() % (u32)(self->move->last - self->move->first + 1));

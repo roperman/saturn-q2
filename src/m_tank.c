@@ -345,8 +345,16 @@ void                SP_monster_tank(g_ent *self)
     self->maxs[0] = self->maxs[1] = FIX(32);
     self->maxs[2] = FIX(72);
     self->skinnum = 0;
-    self->health = 750;
-    self->gib_health = -200;
+    if (self->cls == C_MONSTER_TANK_COMMANDER)  /* (the retail game's: CTANK.MDL's skins, Quake's health) */
+    {
+        self->health = 1000;
+        self->gib_health = -225;
+    }
+    else
+    {
+        self->health = 750;
+        self->gib_health = -200;
+    }
     self->stand = tank_stand;
     self->run = tank_run;
     self->attack = tank_attack;

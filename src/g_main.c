@@ -310,7 +310,8 @@ static __attribute__((cold)) void g_gib(g_ent *self, int damage)
         { 1, 0, 1, 4, 1, 0 },               /* the tank (the gear its head) */
     };
     static const u8 mdl[6] = { MDL_GIB_MEAT, MDL_GIB_BONE, MDL_GIB_CHEST, MDL_GIB_METAL, MDL_GIB_GEAR, MDL_GIB_HEAD };
-    const s8        *set = sets[self->mdl == &models[MDL_SOLDIER] ? 0 : self->mdl == &models[MDL_TANK] ? 2 : 1];
+    const s8        *set = sets[self->mdl == &models[MDL_SOLDIER] ? 0
+                                : self->mdl == &models[MDL_TANK] || self->mdl == &models[MDL_CTANK] ? 2 : 1];
     s32             scale = damage < 50 ? FIX(0.7) : FIX(1.2);
     int             g, n, k;
 
@@ -586,15 +587,22 @@ static __attribute__((cold)) void         monster_triggered_spawn(g_ent *self, g
    for), a full entity, or a short one: an item, a trigger (a volume the player touches), the rest */
 enum { G_NONE, G_FULL, G_ITEM, G_TRIG, G_POINT, G_POOLS };
 
+/* the model a monster class uses (the soldiers share one; -1: not a monster): tools/bake_map.py's
+   CLASSES order, the retail game's monsters after the demo's (OVERNIGHT.md 98) */
+int                 g_monster_model(int c)
+{
+    static const u8 mdl[] = {
+        MDL_SOLDIER, MDL_SOLDIER, MDL_SOLDIER, MDL_INFANTRY, MDL_GUNNER, MDL_BERSERK, MDL_TANK, MDL_FLYER, MDL_PARASITE,
+        MDL_GLADIATOR, MDL_CHICK, MDL_HOVER, MDL_FLOATER, MDL_BRAIN, MDL_MUTANT, MDL_CTANK,
+    };
+    _Static_assert(sizeof(mdl) == C_MONSTER_LAST - C_MONSTER_FIRST + 1, "g_monster_model: a model a monster class");
+    return c >= C_MONSTER_FIRST && c <= C_MONSTER_LAST ? mdl[c - C_MONSTER_FIRST] : -1;
+}
+
 static __attribute__((cold)) int          g_pool(int c)
 {
-    if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_PARASITE)
-        return (c == C_MONSTER_INFANTRY && !models[MDL_INFANTRY].loaded)
-               || (c == C_MONSTER_GUNNER && !models[MDL_GUNNER].loaded)
-               || (c == C_MONSTER_BERSERK && !models[MDL_BERSERK].loaded)
-               || (c == C_MONSTER_TANK && !models[MDL_TANK].loaded)
-               || (c == C_MONSTER_FLYER && !models[MDL_FLYER].loaded)
-               || (c == C_MONSTER_PARASITE && !models[MDL_PARASITE].loaded) ? G_NONE : G_FULL;
+    if (c >= C_MONSTER_FIRST && c <= C_MONSTER_LAST)
+        return models[g_monster_model(c)].loaded ? G_FULL : G_NONE;
     if (c == C_MISC_EXPLOBOX)
         return models[MDL_BARREL].loaded ? G_FULL : G_NONE;
     if (c == C_FUNC_EXPLOSIVE)
@@ -645,6 +653,21 @@ static __attribute__((cold)) void         *g_room(u32 bytes, bool cart)
     return cart && ca >= bytes + G_CART_ROOM ? cart_alloc(bytes) : NULL;
 }
 
+/* what g_init may take from the cart (model.c's room for an optional model): its entities at every
+   skill, where low work RAM hasn't the room for them with what the renderer takes there after the
+   models (the parents' tables, the texture slots on a map short of high work RAM: 128 KB allowed),
+   and then the spill of low work RAM would want the cart too */
+u32                 g_cart_need(void)
+{
+    int             all[G_POOLS];
+    u32             hw, lw, ca, bytes;
+
+    g_count(all, -1);
+    bytes = (u32)imin(1 + all[G_FULL], MAX_FULL) * sizeof(g_ent) + g_short_bytes(all);
+    level_free(&hw, &lw, &ca);
+    return lw >= bytes + G_LW_KEEP + 128 * 1024 ? 0 : bytes + 64 * 1024;
+}
+
 /* The monsters only some levels have: their code on the CD (build.sh build_overlays), read
    onto the cart by the levels that have them, after the models (a model loaded with no code:
    not loaded after all, its monsters left out), and run from there: the cart's misses cost
@@ -658,6 +681,10 @@ __attribute__((cold)) void g_overlays_load(void)
     static const struct { int mdl; const char *file; } ovl[] = {
         { MDL_GUNNER, "GUNNER.OVL" }, { MDL_BERSERK, "BERSERK.OVL" }, { MDL_TANK, "TANK.OVL" },
         { MDL_FLYER, "FLYER.OVL" }, { MDL_PARASITE, "PARASITE.OVL" },
+        /* (the retail game's: the files' names are the sources' first eight letters) */
+        { MDL_GLADIATOR, "GLADIATO.OVL" }, { MDL_CHICK, "CHICK.OVL" }, { MDL_HOVER, "HOVER.OVL" },
+        { MDL_FLOATER, "FLOATER.OVL" }, { MDL_BRAIN, "BRAIN.OVL" }, { MDL_MUTANT, "MUTANT.OVL" },
+        { MDL_CTANK, "TANK.OVL" },      /* (the tank commander: the tank's code with its own model) */
     };
     unsigned        i;
 
@@ -815,13 +842,11 @@ __attribute__((cold)) void g_init(void)
         e->count = r->count;
         e->model = r->model;
         e->kind = EK_POINT;
-        if (c >= C_MONSTER_SOLDIER_LIGHT && c <= C_MONSTER_PARASITE)
+        if (c >= C_MONSTER_FIRST && c <= C_MONSTER_LAST)
         {
             if (c != C_MONSTER_SOLDIER_LIGHT && c != C_MONSTER_SOLDIER && c != C_MONSTER_SOLDIER_SS)
             {
-                int m = c == C_MONSTER_INFANTRY ? MDL_INFANTRY : c == C_MONSTER_GUNNER ? MDL_GUNNER
-                        : c == C_MONSTER_BERSERK ? MDL_BERSERK : c == C_MONSTER_TANK ? MDL_TANK
-                        : c == C_MONSTER_FLYER ? MDL_FLYER : MDL_PARASITE;
+                int m = g_monster_model(c);
 
                 if (!models[m].loaded)
                 {

@@ -5,11 +5,17 @@ obj/gen/q2models.h: MDL_<NAME> numbers and the files, in the list's order. Rows 
 VIEW_FILES, and the biggest one's bytes, textures and polygons (VIEW_MAX_BYTES, VIEW_MAX_TEX,
 VIEW_MAX_POLYS); they have VIEW_SUBS spare polygon records after their own.
 
-    tools/bake_models.py data/pak0.pak cd/
+    tools/bake_models.py data/pak0.pak[:more.pak...] cd/
+
+A model in none of the paks (the retail game's monsters, with only the demo's pak) is left out:
+not baked, its number still in the header, the levels that have it going without.
 """
 import os
 import subprocess
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from q2data import Paks                     # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VIEW_SUBS = 64      # the guns' spare polygon records (src/render.c: those cut at the near plane)
@@ -23,9 +29,13 @@ def main():
         if line:
             rows.append(line)
     me = [os.path.getmtime(os.path.join(ROOT, "tools", f)) for f in ("models.txt", "bake_md2.py", "bake_models.py")]
+    paks = Paks(pak)
     for name, file, md2, skins, anims, *opts in rows:
         dst = os.path.join(out, file)
         if os.path.exists(dst) and os.path.getmtime(dst) > max(me):
+            continue
+        if not paks.has(md2):
+            print("%s: not in the paks, left out" % file)
             continue
         cmd = [sys.executable, os.path.join(ROOT, "tools", "bake_md2.py"), pak, md2, dst, "--skins=" + skins]
         if anims != "-":
@@ -53,7 +63,7 @@ def main():
         f.write("#define VIEW_FILES       %s\n" % ", ".join('"%s"' % r[1] for r in view))
         vbytes = vtex = vpolys = 0
         for r in view:
-            b = open(os.path.join(out, r[1]), "rb").read()
+            b = open(os.path.join(out, r[1]), "rb").read()      # (the guns are the demo's: always baked)
             vbytes = max(vbytes, len(b))
             vtex = max(vtex, int.from_bytes(b[14:16], "big"))     # (the header's ntex)
             vpolys = max(vpolys, int.from_bytes(b[6:8], "big"))   # (npolys)

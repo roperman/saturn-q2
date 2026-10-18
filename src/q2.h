@@ -429,7 +429,9 @@ bool                model_parse(q_mdl *m, const u8 *b);     /* a baked model in 
 extern int          nmodels_loaded;
 void                models_load_all(void);                  /* tools/models.txt's this level uses, onto the cart */
 void                g_models_needed(bool *need);            /* (g_items.c) which of them */
-u32                 r_level_hw_bytes(u32 naxes);           /* (level.c: the high work RAM r_level will take) */
+u32                 r_level_hw_bytes(u32 naxes);
+u32                 r_cart_after(void);     /* the cart the renderer takes once the models are in (model.c) */
+u32                 g_cart_need(void);      /* ...and the game's entities, where low work RAM hasn't room (g_main.c) */           /* (level.c: the high work RAM r_level will take) */
 void                models_hot(void);                       /* the monsters' polygons into HWRAM (last at start-up) */
 extern q_entity     ents[MAX_ENTITIES];
 extern int          nents;                  /* (fx_render's, the master's: the game's and then the effects') */

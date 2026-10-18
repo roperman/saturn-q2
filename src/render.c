@@ -5048,6 +5048,13 @@ u32                 r_level_hw_bytes(u32 naxes)
     return n;
 }
 
+/* what the renderer takes from the cart once the models are loaded (model.c's room for an optional
+   one): the two texture rings, and the gun's kept drawing where high work RAM hasn't the room */
+u32                 r_cart_after(void)
+{
+    return 2 * GEN_RING_BYTES + (((u32)VIEW_KEEP_BYTES + 2047) & ~2047u);
+}
+
 /* a new level, the gun's slots had (main.c, after view_level_init: nothing takes HWRAM after
    them): more of the models' DSP blocks in what it's left (Installation's: one monster near
    more; Comm Center's: many; demo3's: a far one) */

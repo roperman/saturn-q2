@@ -25,7 +25,7 @@ import sys
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from q2data import Pak, palette
+from q2data import Pak, palette, Paks
 
 MAX_TEX = 16
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -181,7 +181,7 @@ def poly_texture(skin, st_uv, w, h):
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     opts = dict((a[2:].split("=", 1) + [""])[:2] for a in sys.argv[1:] if a.startswith("--"))
-    pak = Pak(args[0])
+    pak = Paks(args[0])
     m = Md2(pak.read(args[1]))
     pal = palette(pak)
     base = os.path.dirname(args[1])

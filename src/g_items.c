@@ -66,7 +66,7 @@ static const g_item *item_of(int cls);
 __attribute__((cold)) void                g_models_needed(bool *need)
 {
     const q_erec    *r = (const q_erec *)lv.erecs;
-    int             i;
+    int             i, m;
 
     for (i = 0; i < MDL_COUNT; ++i)
         need[i] = false;
@@ -78,20 +78,14 @@ __attribute__((cold)) void                g_models_needed(bool *need)
 
         if (it)
             need[it->model] = true;
-        else if (r->cls == C_MONSTER_SOLDIER || r->cls == C_MONSTER_SOLDIER_LIGHT || r->cls == C_MONSTER_SOLDIER_SS)
-            need[MDL_SOLDIER] = need[MDL_GIB_CHEST] = true;
-        else if (r->cls == C_MONSTER_INFANTRY)
-            need[MDL_INFANTRY] = true;
-        else if (r->cls == C_MONSTER_GUNNER)
-            need[MDL_GUNNER] = true;
-        else if (r->cls == C_MONSTER_BERSERK)
-            need[MDL_BERSERK] = true;
-        else if (r->cls == C_MONSTER_TANK)
-            need[MDL_TANK] = need[MDL_GIB_CHEST] = need[MDL_GIB_METAL] = need[MDL_GIB_GEAR] = true;
-        else if (r->cls == C_MONSTER_FLYER)
-            need[MDL_FLYER] = true;
-        else if (r->cls == C_MONSTER_PARASITE)
-            need[MDL_PARASITE] = true;
+        else if ((m = g_monster_model(r->cls)) >= 0)
+        {
+            need[m] = true;
+            if (m == MDL_SOLDIER)
+                need[MDL_GIB_CHEST] = true;
+            else if (m == MDL_TANK || m == MDL_CTANK)
+                need[MDL_GIB_CHEST] = need[MDL_GIB_METAL] = need[MDL_GIB_GEAR] = true;
+        }
         else if (r->cls == C_MISC_EXPLOBOX)
             need[MDL_BARREL] = true;
     }

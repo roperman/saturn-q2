@@ -7,7 +7,6 @@
 #include "game.h"
 
 #define STEPSIZE        FIX(18)
-#define MELEE_DISTANCE  FIX(80)
 
 static bool         enemy_vis, enemy_infront;
 static int          enemy_range, enemy_yaw;

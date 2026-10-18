@@ -2,7 +2,13 @@
 """Quake 2's sound effects into a sound bank for the SCSP (engine/m68k/driver.c),
 one a level: what every level has, and the sounds of the monsters in it.
 
-    bake_sound.py data/pak0.pak cd obj/gen/sound_ids.h      (cd/DEMO1.SND ...)
+    bake_sound.py data/pak0.pak[:more.pak...] cd obj/gen/sound_ids.h [map...]   (cd/DEMO1.SND ...)
+
+With maps named, their banks instead of the demo's three (a retail map's, from the retail pak:
+cd/COOL1.SND, say, to copy over DEMO1.SND beside its MAP for a run on the emulator).
+
+A sound in none of the paks (the retail game's monsters', with only the demo's pak) is a
+moment's silence in every bank.
 
 The ids are the same in every level's bank (a sound a level hasn't got is a
 moment's silence there); src/sound.c loads a level's as the level loads.
@@ -30,7 +36,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 from bake_map import Pak                    # noqa: E402
-from q2data import Bsp                      # noqa: E402
+from q2data import Bsp, Paks                # noqa: E402
 
 MAPS = ["demo1", "demo2", "demo3"]
 # the monsters' sounds (by the name's start): only in the banks of levels with those monsters
@@ -39,9 +45,15 @@ MONSTER_SOUNDS = {
     "inf_": ("monster_infantry",),
     "gun_": ("monster_gunner",),
     "ber_": ("monster_berserk",),
-    "tnk_": ("monster_tank",),
+    "tnk_": ("monster_tank", "monster_tank_commander"),
     "fly_": ("monster_flyer",),
     "par_": ("monster_parasite",),
+    "gld_": ("monster_gladiator",),
+    "chk_": ("monster_chick",),
+    "hov_": ("monster_hover",),
+    "flt_": ("monster_floater",),
+    "brn_": ("monster_brain",),
+    "mut_": ("monster_mutant",),
 }
 # monsters a level has that are left out anyway (none now: the cart has room, OVERNIGHT.md 50)
 LEFT_OUT = {}
@@ -117,6 +129,56 @@ SOUNDS = [
     ("par_suck", "parasite/Paratck3", 0.8, 100),
     ("par_reelin", "parasite/Paratck4", 0.5, 110),
     ("par_tap", "parasite/Paridle1", 0.25, 70),
+    # the retail game's monsters (its pak0.pak: RETAIL_PAK)
+    ("gld_sight", "gladiator/sight", 0.8, 110),
+    ("gld_pain1", "gladiator/pain", 0.6, 110),
+    ("gld_pain2", "gladiator/gldpain2", 0.5, 110),
+    ("gld_death", "gladiator/glddeth2", 1.0, 115),
+    ("gld_gun", "gladiator/railgun", 1.2, 115),
+    ("gld_swing", "gladiator/melee1", 0.5, 100),
+    ("gld_hit", "gladiator/melee2", 0.5, 110),
+    ("gld_miss", "gladiator/melee3", 0.3, 100),
+    ("chk_sight", "chick/chksght1", 0.8, 110),
+    ("chk_pain1", "chick/chkpain1", 0.6, 110),
+    ("chk_pain2", "chick/chkpain2", 0.6, 110),
+    ("chk_pain3", "chick/chkpain3", 0.6, 110),
+    ("chk_death1", "chick/chkdeth1", 1.0, 115),
+    ("chk_death2", "chick/chkdeth2", 1.0, 115),
+    ("chk_prelaunch", "chick/chkatck1", 0.5, 110),
+    ("chk_swing", "chick/chkatck3", 0.4, 110),
+    ("chk_hit", "chick/chkatck4", 0.4, 110),
+    ("chk_reload", "chick/chkatck5", 0.5, 100),
+    ("hov_sight", "hover/hovsght1", 0.7, 110),
+    ("hov_pain1", "hover/hovpain1", 0.6, 110),
+    ("hov_pain2", "hover/hovpain2", 0.4, 110),
+    ("hov_death1", "hover/hovdeth1", 1.0, 115),
+    ("hov_death2", "hover/hovdeth2", 0.8, 115),
+    ("hov_blaster", "hover/hovatck1", 0.35, 100),
+    ("flt_sight", "floater/fltsght1", 0.8, 110),
+    ("flt_pain1", "floater/fltpain1", 0.6, 110),
+    ("flt_pain2", "floater/fltpain2", 0.6, 110),
+    ("flt_death", "floater/fltdeth1", 1.0, 115),
+    ("flt_blaster", "floater/fltatck1", 0.35, 100),
+    ("flt_zap", "floater/fltatck2", 0.5, 110),
+    ("flt_wham", "floater/fltatck3", 0.4, 110),
+    ("brn_sight", "brain/brnsght1", 0.8, 110),
+    ("brn_pain1", "brain/brnpain1", 0.6, 110),
+    ("brn_pain2", "brain/brnpain2", 0.6, 110),
+    ("brn_death", "brain/brndeth1", 1.0, 115),
+    ("brn_chest", "brain/brnatck1", 0.6, 110),
+    ("brn_tentacles", "brain/brnatck3", 0.5, 110),
+    ("brn_swing1", "brain/melee1", 0.3, 100),
+    ("brn_swing2", "brain/melee2", 0.3, 100),
+    ("brn_hit", "brain/melee3", 0.4, 110),
+    ("mut_sight", "mutant/mutsght1", 1.0, 110),
+    ("mut_pain1", "mutant/mutpain1", 0.6, 110),
+    ("mut_pain2", "mutant/mutpain2", 0.6, 110),
+    ("mut_death", "mutant/mutdeth1", 1.0, 115),
+    ("mut_swing", "mutant/mutatck1", 0.3, 100),
+    ("mut_hit1", "mutant/mutatck2", 0.4, 110),
+    ("mut_hit2", "mutant/mutatck3", 0.4, 110),
+    ("mut_thud", "mutant/thud1", 0.4, 110),
+    ("mut_step", "mutant/step1", 0.25, 80),
     ("player_pain25", "player/male/pain25_1", 0.6, 120),
     ("player_pain50", "player/male/pain50_1", 0.7, 120),
     ("player_pain75", "player/male/pain75_1", 0.6, 120),
@@ -229,25 +291,44 @@ def bank(samples, have):
 
 
 def main():
-    pak = Pak(sys.argv[1])
+    pak = Paks(sys.argv[1])
     samples = []
+    missing = []
     for name, path, secs, vol in SOUNDS:
+        if not pak.has("sound/%s.wav" % path):
+            samples.append(b"")             # (silence: not in the paks)
+            missing.append(name)
+            continue
         v, rate = wav_pcm(pak.read("sound/%s.wav" % path))
         samples.append(to_11k8(v, rate, secs))
-    for m in MAPS:
+    if missing:
+        print("bake_sound: not in the paks, silent: %s" % " ".join(missing))
+    for m in sys.argv[4:] or MAPS:
         classes = {e.get("classname") for e in Bsp(pak.read("maps/%s.bsp" % m)).parse_entities()}
         classes -= set(LEFT_OUT.get(m, ()))
         have = []
         for name, _, _, _ in SOUNDS:
             tag = next((t for t in MONSTER_SOUNDS if name.startswith(t)), None)
-            have.append(tag is None or any(c in classes for c in MONSTER_SOUNDS[tag]))
+            have.append(bool(samples[len(have)]) and (tag is None or any(c in classes for c in MONSTER_SOUNDS[tag])))
         blob, ndata = bank(samples, have)
-        if BASE + len(blob) > TOP:
-            sys.exit("bake_sound: %s: %d bytes, more than sound RAM's %d" % (m, len(blob), TOP - BASE))
+        cut = 1.0
+        while BASE + len(blob) > TOP:
+            # over sound RAM (a retail map with four kinds of monster): the monsters' sounds shortened
+            # evenly, a tenth at a time, until it fits (the voices keep their starts)
+            cut -= 0.1
+            if cut < 0.3:
+                sys.exit("bake_sound: %s: %d bytes, more than sound RAM's %d" % (m, len(blob), TOP - BASE))
+            trimmed = [s[:int(len(s) * cut)] if any(SOUNDS[i][0].startswith(t) for t in MONSTER_SOUNDS) else s
+                       for i, s in enumerate(samples)]
+            blob, ndata = bank(trimmed, have)
+        if cut < 1.0:
+            print("%s.SND: the monsters' sounds cut to %d%% to fit" % (m.upper(), int(cut * 100 + 0.5)))
         with open(os.path.join(sys.argv[2], m.upper() + ".SND"), "wb") as f:
             f.write(blob)
         print("%s.SND: %d effects, %d KB of samples (%d KB free)" % (m.upper(), sum(have), ndata // 1024,
                                                                     (TOP - BASE - len(blob)) // 1024))
+    if sys.argv[4:]:
+        return                              # (the ids are the same in every bank: the demo's build wrote them)
     with open(sys.argv[3], "w") as f:
         f.write("/* generated by tools/bake_sound.py */\n")
         for i, (name, _, _, _) in enumerate(SOUNDS):

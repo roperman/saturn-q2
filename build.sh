@@ -46,6 +46,9 @@ for m in demo1 demo2 demo3; do
     cmp -s "$b" "$out" || cp "$b" "$out"
     cmp -s "${b%.MAP}.SKY" "${out%.MAP}.SKY" || cp "${b%.MAP}.SKY" "${out%.MAP}.SKY"
 done
+# the retail game's pak0.pak too, for its monsters' models and sounds (RETAIL_PAK=/path/to/pak0.pak;
+# never in the repository: without it they're left out, and the levels that have them go without)
+PAKS="data/pak0.pak${RETAIL_PAK:+:$RETAIL_PAK}"
 # the status bar's pictures
 [ -f cd/HUD.BIN ] && [ cd/HUD.BIN -nt tools/bake_hud.py ] || python3 tools/bake_hud.py data/pak0.pak cd/HUD.BIN
 # Quake 2's console background, behind the loading screens
@@ -53,7 +56,7 @@ done
 # the sound effects, a bank a level (and their ids for the C)
 rm -f cd/SOUND.BIN
 [ -f cd/DEMO3.SND ] && [ -f obj/gen/sound_ids.h ] && [ cd/DEMO3.SND -nt tools/bake_sound.py ] \
-    || python3 tools/bake_sound.py data/pak0.pak cd obj/gen/sound_ids.h
+    || python3 tools/bake_sound.py "$PAKS" cd obj/gen/sound_ids.h
 # the walls' dynamic lights' three DSP programs (engine/walls1.dsp, walls2.dsp, then the models'
 # back after them, then walls0.dsp) and the texture maker's (engine/make.dsp): one file, read into
 # the cart each level, where the DSP loads them from itself
@@ -64,10 +67,10 @@ python3 tools/dspasm.py engine/xformm.dsp obj/xformm_b.h xformm_prog obj/xformm.
 python3 tools/dspasm.py engine/make.dsp obj/gen/make.h make_prog obj/make.bin >/dev/null
 cat obj/walls1.bin obj/walls2.bin obj/xformm.bin obj/walls0.bin obj/make.bin > cd/WALLS.BIN
 # the models (tools/models.txt): whichever are out of date
-python3 tools/bake_models.py data/pak0.pak cd
+python3 tools/bake_models.py "$PAKS" cd
 # the monsters only some levels have: their code on the CD, each linked against game.elf, loaded by
 # the levels that have them (src/g_main.c g_overlays_load; tools/overlay.py)
-OVERLAYS="gunner berserk tank flyer parasite"
+OVERLAYS="gunner berserk tank flyer parasite gladiator chick hover floater brain mutant"
 build_overlays()
 {
     local cflags="$1" m b
@@ -79,7 +82,7 @@ build_overlays()
             "$OBJCOPY" -O binary "obj/ovl_$m.$b.elf" "obj/ovl_$m.$b.bin"
         done
         python3 tools/overlay.py "obj/ovl_$m.0x00200000.bin" "obj/ovl_$m.0x00210000.bin" 0x00200000 \
-            "cd/$(echo "$m" | tr a-z A-Z).OVL" >/dev/null || return 1
+            "cd/$(echo "$m" | tr a-z A-Z | cut -c1-8).OVL" >/dev/null || return 1
     done
 }
 POST_LINK=build_overlays

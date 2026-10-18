@@ -29,6 +29,25 @@ class Pak:
         return name.lower() in self.files
 
 
+class Paks:
+    """several .pak files, the first that has a name winning: a list of paths, or one string with ":"
+    between them (build.sh: the demo's, then the retail game's if RETAIL_PAK names it)"""
+
+    def __init__(self, paths):
+        if isinstance(paths, str):
+            paths = [p for p in paths.split(":") if p]
+        self.paks = [Pak(p) for p in paths]
+
+    def read(self, name):
+        for p in self.paks:
+            if p.has(name):
+                return p.read(name)
+        raise KeyError(name)
+
+    def has(self, name):
+        return any(p.has(name) for p in self.paks)
+
+
 def palette(pak):
     """the 256-colour palette: the last 768 bytes of pics/colormap.pcx"""
     pcx = pak.read("pics/colormap.pcx")

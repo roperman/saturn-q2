@@ -63,6 +63,7 @@ typedef struct
 #define AS_MELEE        (3)
 #define AS_MISSILE      (4)
 
+#define MELEE_DISTANCE  FIX(80)             /* (Quake's: in reach) */
 #define RANGE_MELEE     (0)
 #define RANGE_NEAR      (1)
 #define RANGE_MID       (2)
@@ -163,6 +164,7 @@ struct g_ent_s
     s32             last_sighting[3], saved_goal[3];
     g_ent           *enemy, *goalentity;
     s32             goal_pos[3];                /* when goalentity is &goal_marker */
+    s32             aim[3];                     /* where its shot's going (the gladiator's rail: aimed as it charges) */
     void            (*stand)(g_ent *self);
     void            (*run)(g_ent *self);
     void            (*attack)(g_ent *self);
@@ -218,6 +220,7 @@ extern g_ent        goal_marker;            /* a stand-in goal: a point (ai_run'
 
 /* g_main.c */
 void                g_init(void);           /* after the level and models are loaded */
+int                 g_monster_model(int cls);   /* the model a monster class uses (-1: not a monster) */
 void                g_frame(s32 dt);        /* the game: ticks at 10 Hz as the time comes */
 void                g_render_ents(void);    /* the monsters, items and barrels in view into the renderer's list, blended */
 void                g_render_late(bool pvs);    /* once the camera's moved: pvs, the PVS marked is the camera's */
@@ -329,10 +332,11 @@ extern int          found_secrets, total_secrets, found_goals, total_goals, kill
 /* m_infantry.c */
 void                SP_monster_infantry(g_ent *self);
 
-/* m_gunner.c */
-void                SP_monster_gunner(g_ent *self);         /* (loaded per level: g_overlays_load) */
+/* m_gunner.c, m_berserk.c, m_tank.c, m_flyer.c, m_parasite.c, and the retail game's m_gladiator.c,
+   m_chick.c, m_hover.c, m_floater.c, m_brain.c, m_mutant.c (loaded per level: g_overlays_load) */
+void                SP_monster_gunner(g_ent *self);
 void                SP_monster_berserk(g_ent *self);
-void                SP_monster_tank(g_ent *self);
+void                SP_monster_tank(g_ent *self);             /* (the tank commander too: its class, CTANK.MDL) */
 void                g_overlays_load(void);                  /* (a level's start, after the models) */
 
 /* g_target.c: triggers, relays, timers, targets, barrels */

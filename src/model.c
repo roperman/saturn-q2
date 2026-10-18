@@ -106,15 +106,20 @@ __attribute__((cold)) bool                model_parse(q_mdl *m, const u8 *b)
 }
 
 /* An optional model (tools/models.txt: the gunner) is loaded only if the cart has room after
-   it for both gun slots and the gun's kept drawing (src/view.c, render.c): Installation has,
-   Comm Center hasn't (its gunners are left out, src/g_main.c) */
-#define CART_AFTER      (2 * VIEW_MAX_BYTES + 16 * 1024)
+   it for what's taken from the cart once the models are in: both gun slots, the renderer's
+   texture rings and the gun's kept drawing (r_cart_after), the level's entities if low work
+   RAM hasn't the room for them (g_cart_need), the monsters' code (the overlays: a few KB each)
+   and the spill of low work RAM (64 KB at a time). Installation has the room for its gunners,
+   Comm Center hasn't (they're left out, src/g_main.c); the retail maps' extra monsters filled
+   the cart to the old margin, and the rings after them overflowed it (OVERNIGHT.md 98) */
+#define CART_AFTER      (2 * VIEW_MAX_BYTES + 32 * 1024 + 16 * 1024)
 
 static bool         room_for(const char *file)
 {
     u32             lba, size;
 
-    return cd_find(file, &lba, &size) && cart_free() >= ((size + 2047) & ~2047u) + CART_AFTER;
+    return cd_find(file, &lba, &size)
+           && cart_free() >= ((size + 2047) & ~2047u) + CART_AFTER + r_cart_after() + g_cart_need();
 }
 
 __attribute__((cold)) void                models_load_all(void)

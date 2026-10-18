@@ -4938,3 +4938,89 @@ high work RAM and cart figures.
 Speed on the hardware isn't measured: the lumps a retail map leaves on
 the cart are read at the cart's speed, and the texture slots in low
 work RAM at low's; the demo's three are untouched.
+
+## 98. Seven more of the retail game's monsters
+
+The retail maps use ten monster kinds the port hadn't, and the bosses
+(the census is in local/survey/entities.txt, counted in 97's write-up:
+the gladiator on 16 of the 38 maps, the icarus on 11, the technician on
+9, the iron maiden on 8). The seven that fit the port's AI as it is are
+in, each ported from Quake 2's game code as the others were, its code
+an overlay loaded with the levels that have it (build.sh OVERLAYS) and
+its model baked from the retail pak0.pak, which the demo's hasn't: the
+build takes `RETAIL_PAK=/path/to/baseq2/pak0.pak` and without it bakes
+what it can (tools/q2data.py Paks: several paks, the first that has a
+file wins; a model or sound in none is left out, the level going
+without that monster, as it does when the cart hasn't room).
+
+- The gladiator (m_gladiator.c): the cleaver in reach, the railgun from
+  beyond a small safe zone, aimed at where you stand as it starts to
+  charge (g_ent aim), so the half second before the shot is the dodge
+  Quake gives you; a hitscan for 50 drawn with the parasite's beam.
+- The iron maiden (m_chick.c): rockets, again while she sees you; the
+  slash in reach, again while you're there; her run starts with ten
+  frames of getting going, as Quake's.
+- The icarus (m_hover.c) and the technician (m_floater.c): flying, as
+  the flyer (FL_FLY); blaster bolts, the technician's claws or zap in
+  reach; both explode when they die (the icarus after its fall).
+- The brains (m_brain.c): melee only, the claws or the tentacles from
+  the chest, the claws after if those land (above easy), as Quake's.
+- The mutant (m_mutant.c): the claws in reach, again while you're
+  there, and from beyond 100 units the leap: 600 units a second forward
+  and 250 up, monster_physics flying it until it lands (Quake's
+  mutant_jump_touch hurt you on contact; here the held frame in the air
+  checks whether it's on you, 40 to 50 once), the port's AI rolling the
+  leap now and then where Quake's custom check rolled one in ten.
+- The tank commander: the tank's code (m_tank.c, by its class: 1000
+  health) with its own model, CTANK.MDL, the commander's skins on the
+  tank's mesh. Baking the skins into TANK.MDL instead would have added
+  105 KB to every level with a tank; the three with commanders have no
+  plain tanks, so a file of its own costs nothing elsewhere.
+
+Left out of each, as of the others: walks, fidgets and ducks, the idle
+and search sounds. Not done: the medic (revives corpses), the barracuda
+shark (the AI has no swimming), the bosses (their models are 0.7 to 1
+MB each and their fights need their own logic).
+
+The plumbing: tools/bake_map.py's CLASSES has the seven after the
+parasite (the generated header now says C_MONSTER_FIRST and LAST, and
+g_main.c g_monster_model maps a class to its model, used by the pool,
+the spawn and g_models_needed in place of the chains of ifs); the
+sounds (tools/bake_sound.py, 49 more, in a level's bank only with its
+monsters) and models (tools/models.txt, all optional, loaded where the
+cart has room after the gun's slots) follow. The overlays' files are
+the sources' first eight letters (GLADIATO.OVL). The class numbers
+after the monsters moved, so every bake is redone: the demo's three in
+the build, the survey's 39 by local/survey_par.sh. Baked lean, the
+models are: gladiator 237 KB, iron maiden 394, icarus 323, technician
+235, brains 346, mutant 334, commander 556; on the cart that's one or
+two of them a level beside the level itself (waste1 had 354 KB to
+spare before any), the rest left out by room, so which monsters a
+retail map gets is the cart's call until the models or the levels get
+smaller.
+
+Two things the first runs found. The optional models' room check
+(model.c CART_AFTER) kept only the gun's two slots and 16 KB after
+them, and the new models filled the cart to that: the renderer's two
+32 KB texture rings, the gun's kept drawing and the overlays overflowed
+it on three of four maps ("OUT OF THE CART: 32768 BYTES MORE"). The
+margin is now what's really taken from the cart once the models are
+in: render.c r_cart_after (the rings, the kept drawing), g_main.c
+g_cart_need (the level's entities, where low work RAM hasn't 128 KB
+over them, and then the spill of low work RAM wants the cart too), 32
+KB for the overlays and 16 KB. And a retail map's sound bank with four
+kinds of new monster was 30 KB over sound RAM (cool1: 521 KB of 480):
+tools/bake_sound.py now shortens the monsters' sounds evenly, a tenth
+at a time, until a bank fits (it also takes map names now, for a
+retail map's bank on the emulator: local/play_map.sh, warp_map.sh).
+
+Seen on Mednafen (the debugging warp, START+A, in front of each
+monster in turn, a screenshot each: local/play/warp_*.png): mine1's
+gladiator and mutant, city1's gladiators and an icarus, city3's iron
+maidens, textured, animated and attacking (the warps cost the player
+most of his health, one run his life). Not played through, and not
+measured on the Saturn; the demo's three levels load as before (their
+bakes redone for the class numbers). Open: which of a map's monsters
+the cart has room for is first come first served by models.txt's order
+(the demo's optional ones first), not by how many of each the map has;
+the medic, the barracuda shark and the bosses.

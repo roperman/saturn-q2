@@ -373,6 +373,10 @@ void                fx_reset(void);                         /* a new level: noth
 /* model.c: MD2 models (tools/bake_md2.py) */
 typedef struct { u16 v[4], tex, flags; } q_mpoly;           /* flags 1: a triangle (v[3] == v[2]) */
 typedef struct { u32 ofs; u8 w, h; u16 lut; } q_mtex;       /* lut: its colour table (of its skin's; if no lutmap) */
+#ifdef MEDIC_TEST
+#define KILL_OTHERS     MDL_MEDIC           /* (OPT=-DMEDIC_TEST: all but the medics lie dead from the start, for them to raise;
+                                               -DKILL_OTHERS=MDL_x the same for any kind, a test of it alone) */
+#endif
 typedef struct { char name[12]; u16 first, lfirst; u8 count, stride; } q_manim;   /* (lfirst: its first frame as if every stride-th weren't thinned: the moves count in those) */
 typedef struct
 {

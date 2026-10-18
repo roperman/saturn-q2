@@ -5160,3 +5160,59 @@ every pose, its blaster and hyperblaster on you, no VDP1 stall.
 
 The demo's three load as before (NO ROOM 0 0 0 each; cart spare
 1425408 / 616448 / 491520).
+
+## 101. The hornet, and a mesh collapsed to the renderer's limits
+
+The hornet (monster_boss2: Big Gun's boss, and one each on hangar2 and
+space), the second of section 100's list: m_boss2.c, an overlay, its
+model and sounds from the retail pak0.pak. Quake's: it flies, 2000
+health, both machineguns raked across you (6 of damage a bullet, two
+a frame, again while you're in front seven times in ten) or four
+rockets at once from past 125 units (four in ten; 50 each). Hurt below
+half its health its skin's the damaged one; its cries are heard over
+the whole level, as Quake has them. Dying, it falls through its 49
+frames and then blows up eight times over its body before it goes
+(Quake's BossExplode, without the gibs it throws). Left out: its
+fidget, its walk along a path, its engine hum and its search call.
+
+Its mesh was the problem: 911 vertices and 1686 triangles, where the
+renderer draws a model of at most 416 and 432 polygons (render.c
+MAX_MVERTS, MAX_MPOLYS: the tank, the biggest so far, is 405 and 430).
+tools/bake_md2.py takes "mesh=N" on a model's row now (tools/models.txt)
+and collapses the mesh to N vertices before anything else: its shortest
+edges first (lengths averaged over eight frames), one end onto the
+other, so every frame's vertices stay as they were baked and nothing
+new is made up; the end with more neighbours survives; triangles that
+close up go; the frames are trimmed to the survivors. Fewer than N if
+the polygons are still too many. The hornet at 400: 638 triangles, 425
+polygons (213 quads: the pairing's poorer than the others' two thirds,
+a merged corner carrying two skin coordinates, so a triangle more
+often stands alone; matching the edge's coordinates within a few
+texels gained nothing). Grid clustering (the far mesh's Decimated)
+would have needed a third of the triangles for the same count. The
+model's 347 KB (356 KB on the cart) with its idle every third frame,
+its pain and death every other.
+
+The warp (START + A) stands you further from a big one now (100 units
+plus three for each unit of its half-width over 16: 220 from the
+hornet), and one with no clear spot about it (Big Gun's hornet waits
+in the solid until its arena opens) takes you to its own spot with
+noclip on. OPT=-DWARP_ONLY=MDL_x builds say on the HUD how many of
+the level's entities took the model and how many are monsters now.
+-DKILL_OTHERS=MDL_x is the medic test's "everything else dead from
+the start" for any kind (MEDIC_TEST is that for the medic); the
+trigger-spawned come in from the start with it, as SPAWN_ALL.
+
+Seen on space (Mednafen, the hornet alone, god mode on): warped to
+220 units off, it's the hornet, torso, head, wings, gun pods and legs
+told apart at that distance; it comes straight at you, climbs over
+your head (its origin keeps 30 to 40 units over yours, as Quake's
+flyers do) and fires from there, the screen flashing red as its
+bullets and rockets land; no VDP1 stall. Not seen yet: its pains and
+its death (2000 health; the test doesn't fire), and its fight in
+biggun's arena.
+
+Where it fits: biggun has 2.2 MB of cart to spare with it, space 1.2
+MB; hangar2 (100 KB spare before it) hasn't the room, and the loader
+leaves it out there as the rarest kind. That's one for the per-map
+choice (section 99).

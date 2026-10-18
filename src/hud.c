@@ -192,6 +192,19 @@ void                hud_draw(void)
                    w->ammo != AMMO_NONE ? client.ammo[w->ammo] : 0, client.armor);
     if (center_msg && level.time < center_until)
         draw_center(center_msg, 76);
+#ifdef WARP_ONLY
+    {   /* (OPT=-DWARP_ONLY=MDL_x: how many of the level's entities took that model, how many are monsters now) */
+        int         i, n = 0, live = 0;
+
+        for (i = 1; i < g_nfull; ++i)
+            if (g_edicts[i].mdl == &models[WARP_ONLY])
+            {
+                ++n;
+                live += g_edicts[i].kind == EK_MONSTER;
+            }
+        vdp_printf(8, 20, RGB(255, 255, 120), "WARP %d OF %d%s", live, n, models[WARP_ONLY].loaded ? "" : " NOT LOADED");
+    }
+#endif
 #ifdef MEDIC_TEST
     {   /* (OPT=-DMEDIC_TEST: the medic nearest you, the bodies about (V: within its reach and sight), how many raised) */
         extern int  g_revived;

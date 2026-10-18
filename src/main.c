@@ -1210,17 +1210,39 @@ static __attribute__((cold)) void         warp_ent(bool items)
         for (a = 0; a < 0x10000; a += 0x2000)
         {
             int     ang = (e->yaw + a) & 0xFFFF;
+            int     d = 100 + 3 * imax((e->maxs[0] >> 16) - 16, 0);    /* (further from a big one: the hornet's 56) */
             s32     p[3];
             q_trace t;
 
-            p[0] = e->origin[0] + fcos(ang) * 100;
-            p[1] = e->origin[1] + fsin(ang) * 100;
+            p[0] = e->origin[0] + fcos(ang) * d;
+            p[1] = e->origin[1] + fsin(ang) * d;
             p[2] = e->origin[2] + FIX(16);
             t = pm_trace(p, p);
             if (t.startsolid || lv.leafs[level_leaf(p)].cluster < 0)
                 continue;
             pmove_spawn(p);
             cam.yaw = (ang + 0x8000) & 0xFFFF;
+            {   /* (looking at its middle: a flyer's above you) */
+                s32 v[3];
+
+                v[0] = FIX(d);
+                v[1] = e->origin[2] + (e->mins[2] + e->maxs[2]) / 2 - (p[2] + FIX(22));
+                v[2] = 0;
+                cam.pitch = -vectoyaw(v);
+                if (cam.pitch > 0x8000)
+                    cam.pitch -= 0x10000;
+            }
+            return;
+        }
+        {   /* (no clear spot about it: one parked in the solid until its moment; its own spot, flying through walls) */
+            s32     p[3];
+
+            p[0] = e->origin[0];
+            p[1] = e->origin[1];
+            p[2] = e->origin[2] + e->maxs[2] + FIX(8);
+            pmove_spawn(p);
+            cam.yaw = e->yaw;
+            pl.noclip = true;
             return;
         }
     }

@@ -4,6 +4,9 @@
     tools/bake_md2.py data/pak0.pak models/monsters/soldier/tris.md2 cd/SOLDIER.MDL \\
         --skins=skin,skin_lt,skin_ss --anims=stand1:stand101-stand130/3,run:run03-run08,...
 
+"--mesh=N" collapses a model over the renderer's 416 vertices or 432
+polygons to N vertices (its shortest edges first, an end onto the other).
+
 An animation's "/n" keeps every nth frame (the game plays the move as if
 they were all there, drawing between the kept ones: src/g_ai.c M_ResolveMoves,
 src/g_main.c g_render_ents); its record says so.
@@ -19,6 +22,7 @@ Frames keep MD2's packing: a byte a coordinate, scaled and moved per frame,
 and a normal index for the shading table (16 yaw steps x 162 normals).
 Big-endian; the layout matches src/model.c.
 """
+import heapq
 import io
 import math
 import os
@@ -161,6 +165,77 @@ class Decimated:
         self.used = len(groups)
 
 
+class Collapsed:
+    """the model with its shortest edges collapsed, one end onto the other (so every frame's
+    vertices stay as they were baked), until at most `target` vertices are left: for a mesh over
+    the renderer's limits (--mesh=N). The edge lengths are averaged over eight frames; the end
+    with more neighbours survives. The triangles are renumbered to the survivors and the frames
+    trimmed to them, so what comes out is a smaller model."""
+    def __init__(self, m, target):
+        n = m.nverts
+        sample = range(0, len(m.frames), max(1, len(m.frames) // 8))
+        pos = [[m.pos(f, v) for v in range(n)] for f in sample]
+        rep = list(range(n))
+
+        def find(v):
+            while rep[v] != v:
+                rep[v] = rep[rep[v]]
+                v = rep[v]
+            return v
+
+        def elen(a, b):
+            return sum(math.dist(P[a], P[b]) for P in pos) / len(pos)
+
+        adj = {}
+        for t in m.tris:
+            for i in range(3):
+                a, b = t[i], t[(i + 1) % 3]
+                adj.setdefault(a, set()).add(b)
+                adj.setdefault(b, set()).add(a)
+        heap = [(elen(a, b), a, b) for a in adj for b in adj[a] if a < b]
+        heapq.heapify(heap)
+        alive = n
+        while alive > target and heap:
+            l, a, b = heapq.heappop(heap)
+            a, b = find(a), find(b)
+            if a == b:
+                continue
+            l2 = elen(a, b)
+            if l2 > l * 1.001 and heap and l2 > heap[0][0]:
+                heapq.heappush(heap, (l2, a, b))    # (its ends moved on: back in the queue at its length now)
+                continue
+            if len(adj[b]) > len(adj[a]):
+                a, b = b, a
+            rep[b] = a
+            for c in adj[b]:
+                if c != a:
+                    c2 = find(c)
+                    adj[a].add(c2)
+                    adj[c2].add(a)
+                    adj[c2].discard(b)
+                    heapq.heappush(heap, (elen(a, c2), a, c2))
+            adj[a].discard(b)
+            del adj[b]
+            alive -= 1
+        keep = sorted({find(v) for v in range(n)})
+        renum = {v: i for i, v in enumerate(keep)}
+        tris, seen = [], set()
+        for t in m.tris:
+            a, b, c = find(t[0]), find(t[1]), find(t[2])
+            if a == b or b == c or a == c or (a, b, c) in seen:
+                continue
+            seen.add((a, b, c))
+            tris.append((renum[a], renum[b], renum[c], t[3], t[4], t[5]))
+        self.tris, self.st, self.nverts = tris, m.st, len(keep)
+        self.frames = [(name, s, t, [verts[v] for v in keep]) for name, s, t, verts in m.frames]
+        self.frame_index = m.frame_index
+        self.skinw, self.skinh = m.skinw, m.skinh
+
+    def pos(self, frame, v):
+        _, s, t, verts = self.frames[frame]
+        return tuple(verts[v][k] * s[k] + t[k] for k in range(3))
+
+
 def poly_texture(skin, st_uv, w, h):
     """the skin warped into a w x h rectangle: texel (s, t) samples bilinear(A, B, C, D)(s, t),
     which is where VDP1's quad mapping puts it"""
@@ -210,6 +285,13 @@ def main():
         lfirst += b - a + 1
 
     polys = make_polys(m)
+    # a mesh over the renderer's limits: collapsed to --mesh=N vertices (fewer if its polygons
+    # are still too many), src/render.c MAX_MVERTS / MAX_MPOLYS below
+    mesh = int(opts.get("mesh") or 0)
+    while mesh and (m.nverts > 416 or len(polys) > 432):
+        m = Collapsed(m, mesh)
+        polys = make_polys(m)
+        mesh -= 10
     # far away (src/render.c draw_model): the mesh on a coarse grid, its own polygons and textures
     # after the full one's (--lod=cells across its size; 0: none)
     lod_cells = int(opts.get("lod") or 0)

@@ -5024,3 +5024,28 @@ bakes redone for the class numbers). Open: which of a map's monsters
 the cart has room for is first come first served by models.txt's order
 (the demo's optional ones first), not by how many of each the map has;
 the medic, the barracuda shark and the bosses.
+
+Which monsters the cart leaves out, measured (the level test's title
+has a NO ROOM line now: the level's models that weren't loaded, a bit
+each by q2models.h's numbers; every retail map a boot on Mednafen as
+DEMO1, local/retail_models.sh, the test build). Of the 37 maps with
+optional monsters, 28 get all of theirs. The nine that don't, with the
+cart's spare after everything:
+
+    jail3    the 3 icarus                              49 KB spare
+    mine1    the 4 mutants                               0
+    mine2    the 2 mutants                             207 KB
+    mine3    the 2 mutants                             115 KB
+    power2   the 10 iron maidens                       256 KB
+    cool1    the 9 icarus                               72 KB
+    waste1   2 tanks, 9 iron maidens, 7 icarus         110 KB
+    command  2 gladiators, 4 iron maidens, 6 technicians  156 KB
+    city3    the 2 tank commanders                      14 KB
+
+(The spare after a model's left out can be bigger than the model:
+room_for wants the model plus the margin, and the spill of low work RAM
+takes the cart after the models.) Nothing but monsters was ever left
+out: no pickup's or piece's model failed on any map. A caveat: these
+are the test build's figures, whose code is bigger; the plain build had
+mine1's mutants in the warp run above, so a map at the margin can go
+either way between builds. The demo's three, as ever, get all theirs.

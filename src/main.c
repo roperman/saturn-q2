@@ -503,7 +503,7 @@ static void         counts_at_end(void)
 }
 
 #ifdef LEVEL_TEST
-u32                 lt_hw[4][10], lt_nhw, lt_fl[4];
+u32                 lt_hw[4][10], lt_nhw, lt_fl[4], lt_miss[4];
 
 static u32          lt_count(int mdl)       /* (the level's entities with that model) */
 {
@@ -1402,10 +1402,11 @@ static __attribute__((cold)) bool         load_level(const char *name, const cha
     r_dspm_level();
 #ifdef LEVEL_TEST
     {
-        extern u32 models_cold;
+        extern u32 models_cold, models_noroom;
 
         level_free(&lt_hw[lt_nhw & 3][0], &lt_hw[lt_nhw & 3][1], &lt_hw[lt_nhw & 3][2]);      /* (what's left, each level) */
         lt_hw[lt_nhw & 3][3] = models_cold;
+        lt_miss[lt_nhw & 3] = models_noroom;
         {
             extern u32 lw_allocd;
 
@@ -1782,10 +1783,11 @@ void                main(void)
 #endif
 #ifdef LEVEL_TEST
     {
-        extern u32 models_cold;
+        extern u32 models_cold, models_noroom;
 
         level_free(&lt_hw[0][0], &lt_hw[0][1], &lt_hw[0][2]);
         lt_hw[0][3] = models_cold;
+        lt_miss[0] = models_noroom;
         lt_fl[0] = (u32)(r_level_flags() | view_nslots() << 2 | models[MDL_GUNNER].loaded << 4
                          | models[MDL_BERSERK].loaded << 7 | lt_count(MDL_BERSERK) << 8 | models[MDL_TANK].loaded << 12
                          | ((u32)g_edicts >> 24 == 0x02) << 5 | ((u32)g_shorts >> 24 == 0x02) << 6);
@@ -3034,6 +3036,8 @@ void                main(void)
             for (k = 0; k < 3; ++k)         /* (the keep against what level_alloc took, the lumps it kept on the cart) */
                 vdp_printf(8, 66 + k * 9, RGB(255, 255, 120), "%d KEPT %d TOOK %d T%d S%X L%X", k + 1, lt_hw[k][5], lt_hw[k][6],
                            lt_hw[k][8], lt_hw[k][7], lt_hw[k][9]);
+            /* (the level's models the cart hadn't room for, a bit each by obj/gen/q2models.h's numbers) */
+            vdp_printf(8, 93, RGB(255, 255, 120), "NO ROOM %X %X %X", lt_miss[0], lt_miss[1], lt_miss[2]);
         }
 #endif
 #if defined(LEVEL_TEST) && defined(FACE_CHECK)

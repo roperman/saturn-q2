@@ -122,6 +122,10 @@ static bool         room_for(const char *file)
            && cart_free() >= ((size + 2047) & ~2047u) + CART_AFTER + r_cart_after() + g_cart_need();
 }
 
+#ifdef LEVEL_TEST
+extern u32          models_noroom;
+#endif
+
 __attribute__((cold)) void                models_load_all(void)
 {
     bool            need[MDL_COUNT];
@@ -138,6 +142,12 @@ __attribute__((cold)) void                models_load_all(void)
     for (i = 0; i < MDL_COUNT; ++i)
         if (need[i] && MDL_OPTIONAL >> i & 1 && room_for(model_files[i]) && model_load(&models[i], model_files[i]))
             nmodels_loaded = imax(nmodels_loaded, i + 1);
+#ifdef LEVEL_TEST
+    models_noroom = 0;                      /* (the first 32 models: the monsters, the pieces, the pickups) */
+    for (i = 0; i < 32 && i < MDL_COUNT; ++i)
+        if (need[i] && !models[i].loaded)
+            models_noroom |= 1u << i;
+#endif
 }
 
 /* The animated models' polygons, far mesh and texture records into HWRAM,
@@ -149,6 +159,7 @@ __attribute__((cold)) void                models_load_all(void)
 
 #ifdef LEVEL_TEST
 u32                 models_cold;            /* (OPT=-DLEVEL_TEST: what didn't fit, bytes) */
+u32                 models_noroom;          /* (OPT=-DLEVEL_TEST: the level's models left out, a bit each: the title's NO ROOM) */
 #endif
 
 static const void   *hot(const void *p, u32 bytes)

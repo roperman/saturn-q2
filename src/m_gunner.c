@@ -22,31 +22,31 @@ static const mframe_t gunner_frames_stand[] = {
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
 };
-static mmove_t      gunner_move_stand = { "stand", 0, 29, gunner_frames_stand, NULL, 0, 0 };
+static mmove_t      gunner_move_stand = { "stand", 0, 29, gunner_frames_stand, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t gunner_frames_run[] = {
     { ai_run, 26, NULL }, { ai_run, 9, NULL }, { ai_run, 9, NULL }, { ai_run, 9, NULL },
     { ai_run, 15, NULL }, { ai_run, 10, NULL }, { ai_run, 13, NULL }, { ai_run, 6, NULL },
 };
-static mmove_t      gunner_move_run = { "run", 0, 7, gunner_frames_run, NULL, 0, 0 };
+static mmove_t      gunner_move_run = { "run", 0, 7, gunner_frames_run, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t gunner_frames_pain3[] = {
     { ai_move, -3, NULL }, { ai_move, 1, NULL }, { ai_move, 1, NULL }, { ai_move, 0, NULL }, { ai_move, 1, NULL },
 };
-static mmove_t      gunner_move_pain3 = { "pain3", 0, 4, gunner_frames_pain3, gunner_run, 0, 0 };
+static mmove_t      gunner_move_pain3 = { "pain3", 0, 4, gunner_frames_pain3, gunner_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t gunner_frames_pain2[] = {
     { ai_move, -2, NULL }, { ai_move, 11, NULL }, { ai_move, 6, NULL }, { ai_move, 2, NULL },
     { ai_move, -1, NULL }, { ai_move, -7, NULL }, { ai_move, -2, NULL }, { ai_move, -7, NULL },
 };
-static mmove_t      gunner_move_pain2 = { "pain2", 0, 7, gunner_frames_pain2, gunner_run, 0, 0 };
+static mmove_t      gunner_move_pain2 = { "pain2", 0, 7, gunner_frames_pain2, gunner_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t gunner_frames_death[] = {
     { ai_move, 0, NULL }, { ai_move, 0, NULL }, { ai_move, 0, NULL }, { ai_move, -7, NULL }, { ai_move, -3, NULL },
     { ai_move, -5, NULL }, { ai_move, 8, NULL }, { ai_move, 6, NULL }, { ai_move, 0, NULL }, { ai_move, 0, NULL },
     { ai_move, 0, NULL },
 };
-static mmove_t      gunner_move_death = { "death", 0, 10, gunner_frames_death, gunner_dead, 0, 0 };
+static mmove_t      gunner_move_death = { "death", 0, 10, gunner_frames_death, gunner_dead, 0, 0, 0, 0, 0, 0 };
 
 /* the chaingun: opened, fired (a shot a frame), and put away; "chain" is attak209-attak230 */
 #define C0              { ai_charge, 0, NULL }
@@ -54,19 +54,19 @@ static mmove_t      gunner_move_death = { "death", 0, 10, gunner_frames_death, g
 static const mframe_t gunner_frames_attack_chain[] = {
     { ai_charge, 0, gunner_opengun }, C0, C0, C0, C0, C0, C0,
 };
-static mmove_t      gunner_move_attack_chain = { "chain", 0, 6, gunner_frames_attack_chain, gunner_fire_chain, 0, 0 };
+static mmove_t      gunner_move_attack_chain = { "chain", 0, 6, gunner_frames_attack_chain, gunner_fire_chain, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t gunner_frames_fire_chain[] = { CF, CF, CF, CF, CF, CF, CF, CF };
-static mmove_t      gunner_move_fire_chain = { "chain", 7, 14, gunner_frames_fire_chain, gunner_refire_chain, 0, 0 };
+static mmove_t      gunner_move_fire_chain = { "chain", 7, 14, gunner_frames_fire_chain, gunner_refire_chain, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t gunner_frames_endfire_chain[] = { C0, C0, C0, C0, C0, C0, C0 };
-static mmove_t      gunner_move_endfire_chain = { "chain", 15, 21, gunner_frames_endfire_chain, gunner_run, 0, 0 };
+static mmove_t      gunner_move_endfire_chain = { "chain", 15, 21, gunner_frames_endfire_chain, gunner_run, 0, 0, 0, 0, 0, 0 };
 
 #define CG              { ai_charge, 0, GunnerGrenade }
 static const mframe_t gunner_frames_attack_grenade[] = {
     C0, C0, C0, C0, CG, C0, C0, CG, C0, C0, CG, C0, C0, CG, C0, C0, C0, C0, C0, C0, C0,
 };
-static mmove_t      gunner_move_attack_grenade = { "grenade", 0, 20, gunner_frames_attack_grenade, gunner_run, 0, 0 };
+static mmove_t      gunner_move_attack_grenade = { "grenade", 0, 20, gunner_frames_attack_grenade, gunner_run, 0, 0, 0, 0, 0, 0 };
 
 static mmove_t      *all_moves[] = {
     &gunner_move_stand, &gunner_move_run, &gunner_move_pain3, &gunner_move_pain2, &gunner_move_death,
@@ -197,16 +197,7 @@ static void         gunner_die(g_ent *self, g_ent *attacker, int damage, const s
 
 void                SP_monster_gunner(g_ent *self)
 {
-    unsigned        i;
-
-    for (i = 0; i < sizeof(all_moves) / sizeof(all_moves[0]); ++i)
-    {
-        mmove_t *m = all_moves[i];
-        int     a = model_anim(self->mdl, m->anim);
-
-        m->first = self->mdl->anims[a].first + m->from;
-        m->last = self->mdl->anims[a].first + m->to;
-    }
+    M_ResolveMoves(self, all_moves, sizeof(all_moves) / sizeof(all_moves[0]));
     self->mins[0] = self->mins[1] = -FIX(16);
     self->mins[2] = -FIX(24);
     self->maxs[0] = self->maxs[1] = FIX(16);

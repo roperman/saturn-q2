@@ -16,40 +16,40 @@ static void         berserk_attack_club(g_ent *self);
 
 #define S0              { ai_stand, 0, NULL }
 static const mframe_t berserk_frames_stand[] = { S0, S0, S0, S0, S0 };
-static mmove_t      berserk_move_stand = { "stand", 0, 4, berserk_frames_stand, NULL, 0, 0 };
+static mmove_t      berserk_move_stand = { "stand", 0, 4, berserk_frames_stand, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t berserk_frames_run[] = {
     { ai_run, 21, NULL }, { ai_run, 11, NULL }, { ai_run, 21, NULL },
     { ai_run, 25, NULL }, { ai_run, 18, NULL }, { ai_run, 19, NULL },
 };
-static mmove_t      berserk_move_run = { "run", 0, 5, berserk_frames_run, NULL, 0, 0 };
+static mmove_t      berserk_move_run = { "run", 0, 5, berserk_frames_run, NULL, 0, 0, 0, 0, 0, 0 };
 
 /* "attack" is att_c1-att_c20: the spike is its first 8, the club the next 12 */
 #define C0              { ai_charge, 0, NULL }
 static const mframe_t berserk_frames_attack_spike[] = {
     C0, C0, { ai_charge, 0, berserk_swing }, { ai_charge, 0, berserk_attack_spike }, C0, C0, C0, C0,
 };
-static mmove_t      berserk_move_attack_spike = { "attack", 0, 7, berserk_frames_attack_spike, berserk_run, 0, 0 };
+static mmove_t      berserk_move_attack_spike = { "attack", 0, 7, berserk_frames_attack_spike, berserk_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t berserk_frames_attack_club[] = {
     C0, C0, C0, C0, { ai_charge, 0, berserk_swing }, C0, C0, C0, { ai_charge, 0, berserk_attack_club }, C0, C0, C0,
 };
-static mmove_t      berserk_move_attack_club = { "attack", 8, 19, berserk_frames_attack_club, berserk_run, 0, 0 };
+static mmove_t      berserk_move_attack_club = { "attack", 8, 19, berserk_frames_attack_club, berserk_run, 0, 0, 0, 0, 0, 0 };
 
 #define M0              { ai_move, 0, NULL }
 static const mframe_t berserk_frames_pain1[] = { M0, M0, M0, M0 };
-static mmove_t      berserk_move_pain1 = { "pain1", 0, 3, berserk_frames_pain1, berserk_run, 0, 0 };
+static mmove_t      berserk_move_pain1 = { "pain1", 0, 3, berserk_frames_pain1, berserk_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t berserk_frames_pain2[] = {
     M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0,
 };
-static mmove_t      berserk_move_pain2 = { "pain2", 0, 19, berserk_frames_pain2, berserk_run, 0, 0 };
+static mmove_t      berserk_move_pain2 = { "pain2", 0, 19, berserk_frames_pain2, berserk_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t berserk_frames_death1[] = { M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0 };
-static mmove_t      berserk_move_death1 = { "death1", 0, 12, berserk_frames_death1, berserk_dead, 0, 0 };
+static mmove_t      berserk_move_death1 = { "death1", 0, 12, berserk_frames_death1, berserk_dead, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t berserk_frames_death2[] = { M0, M0, M0, M0, M0, M0, M0, M0 };
-static mmove_t      berserk_move_death2 = { "death2", 0, 7, berserk_frames_death2, berserk_dead, 0, 0 };
+static mmove_t      berserk_move_death2 = { "death2", 0, 7, berserk_frames_death2, berserk_dead, 0, 0, 0, 0, 0, 0 };
 
 static mmove_t      *all_moves[] = {
     &berserk_move_stand, &berserk_move_run, &berserk_move_attack_spike, &berserk_move_attack_club,
@@ -131,16 +131,7 @@ static void         berserk_die(g_ent *self, g_ent *attacker, int damage, const 
 
 void                SP_monster_berserk(g_ent *self)
 {
-    unsigned        i;
-
-    for (i = 0; i < sizeof(all_moves) / sizeof(all_moves[0]); ++i)
-    {
-        mmove_t *m = all_moves[i];
-        int     a = model_anim(self->mdl, m->anim);
-
-        m->first = self->mdl->anims[a].first + m->from;
-        m->last = self->mdl->anims[a].first + m->to;
-    }
+    M_ResolveMoves(self, all_moves, sizeof(all_moves) / sizeof(all_moves[0]));
     self->mins[0] = self->mins[1] = -FIX(16);
     self->mins[2] = -FIX(24);
     self->maxs[0] = self->maxs[1] = FIX(16);

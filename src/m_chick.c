@@ -26,37 +26,37 @@ static const mframe_t chick_frames_stand[] = {
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
 };
-static mmove_t      chick_move_stand = { "stand", 0, 29, chick_frames_stand, NULL, 0, 0 };
+static mmove_t      chick_move_stand = { "stand", 0, 29, chick_frames_stand, NULL, 0, 0, 0, 0, 0, 0 };
 
 /* "run" is walk01-walk20: getting going, then the loop */
 static const mframe_t chick_frames_start_run[] = {
     { ai_run, 1, NULL }, { ai_run, 0, NULL }, { ai_run, 0, NULL }, { ai_run, -1, NULL }, { ai_run, -1, NULL },
     { ai_run, 0, NULL }, { ai_run, 1, NULL }, { ai_run, 3, NULL }, { ai_run, 6, NULL }, { ai_run, 3, NULL },
 };
-static mmove_t      chick_move_start_run = { "run", 0, 9, chick_frames_start_run, chick_run, 0, 0 };
+static mmove_t      chick_move_start_run = { "run", 0, 9, chick_frames_start_run, chick_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t chick_frames_run[] = {
     { ai_run, 6, NULL }, { ai_run, 8, NULL }, { ai_run, 13, NULL }, { ai_run, 5, NULL }, { ai_run, 7, NULL },
     { ai_run, 4, NULL }, { ai_run, 11, NULL }, { ai_run, 5, NULL }, { ai_run, 9, NULL }, { ai_run, 7, NULL },
 };
-static mmove_t      chick_move_run = { "run", 10, 19, chick_frames_run, NULL, 0, 0 };
+static mmove_t      chick_move_run = { "run", 10, 19, chick_frames_run, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t chick_frames_pain1[] = { M0, M0, M0, M0, M0 };
-static mmove_t      chick_move_pain1 = { "pain1", 0, 4, chick_frames_pain1, chick_run, 0, 0 };
+static mmove_t      chick_move_pain1 = { "pain1", 0, 4, chick_frames_pain1, chick_run, 0, 0, 0, 0, 0, 0 };
 static const mframe_t chick_frames_pain2[] = { M0, M0, M0, M0, M0 };
-static mmove_t      chick_move_pain2 = { "pain2", 0, 4, chick_frames_pain2, chick_run, 0, 0 };
+static mmove_t      chick_move_pain2 = { "pain2", 0, 4, chick_frames_pain2, chick_run, 0, 0, 0, 0, 0, 0 };
 static const mframe_t chick_frames_pain3[] = {
     M0, M0, { ai_move, -6, NULL }, { ai_move, 3, NULL }, { ai_move, 11, NULL }, { ai_move, 3, NULL }, M0, M0,
     { ai_move, 4, NULL }, { ai_move, 1, NULL }, M0, { ai_move, -3, NULL }, { ai_move, -4, NULL }, { ai_move, 5, NULL },
     { ai_move, 7, NULL }, { ai_move, -2, NULL }, { ai_move, 3, NULL }, { ai_move, -5, NULL }, { ai_move, -2, NULL },
     { ai_move, -8, NULL }, { ai_move, 2, NULL },
 };
-static mmove_t      chick_move_pain3 = { "pain3", 0, 20, chick_frames_pain3, chick_run, 0, 0 };
+static mmove_t      chick_move_pain3 = { "pain3", 0, 20, chick_frames_pain3, chick_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t chick_frames_death1[] = {
     M0, M0, { ai_move, -7, NULL }, { ai_move, 4, NULL }, { ai_move, 11, NULL }, M0, M0, M0, M0, M0, M0, M0,
 };
-static mmove_t      chick_move_death1 = { "death1", 0, 11, chick_frames_death1, chick_dead, 0, 0 };
+static mmove_t      chick_move_death1 = { "death1", 0, 11, chick_frames_death1, chick_dead, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t chick_frames_death2[] = {
     { ai_move, -6, NULL }, M0, { ai_move, -1, NULL }, { ai_move, -5, NULL }, M0, { ai_move, -1, NULL },
@@ -65,14 +65,14 @@ static const mframe_t chick_frames_death2[] = {
     { ai_move, -3, NULL }, { ai_move, -5, NULL }, { ai_move, 4, NULL }, { ai_move, 15, NULL }, { ai_move, 14, NULL },
     { ai_move, 1, NULL },
 };
-static mmove_t      chick_move_death2 = { "death2", 0, 22, chick_frames_death2, chick_dead, 0, 0 };
+static mmove_t      chick_move_death2 = { "death2", 0, 22, chick_frames_death2, chick_dead, 0, 0, 0, 0, 0, 0 };
 
 /* "rocket" is attak101-attak132: the launcher raised, a rocket and a reload (again while she sees you), lowered */
 static const mframe_t chick_frames_start_attack1[] = {
     { ai_charge, 0, Chick_PreAttack1 }, C0, C0, { ai_charge, 4, NULL }, C0, { ai_charge, -3, NULL }, { ai_charge, 3, NULL },
     { ai_charge, 5, NULL }, { ai_charge, 7, NULL }, C0, C0, C0, { ai_charge, 0, chick_attack1 },
 };
-static mmove_t      chick_move_start_attack1 = { "rocket", 0, 12, chick_frames_start_attack1, NULL, 0, 0 };
+static mmove_t      chick_move_start_attack1 = { "rocket", 0, 12, chick_frames_start_attack1, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t chick_frames_attack1[] = {
     { ai_charge, 19, ChickRocket }, { ai_charge, -6, NULL }, { ai_charge, -5, NULL }, { ai_charge, -2, NULL },
@@ -80,27 +80,27 @@ static const mframe_t chick_frames_attack1[] = {
     { ai_charge, 5, NULL }, { ai_charge, 6, NULL }, { ai_charge, 6, NULL }, { ai_charge, 4, NULL },
     { ai_charge, 3, chick_rerocket },
 };
-static mmove_t      chick_move_attack1 = { "rocket", 13, 26, chick_frames_attack1, NULL, 0, 0 };
+static mmove_t      chick_move_attack1 = { "rocket", 13, 26, chick_frames_attack1, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t chick_frames_end_attack1[] = {
     { ai_charge, -3, NULL }, C0, { ai_charge, -6, NULL }, { ai_charge, -4, NULL }, { ai_charge, -2, NULL },
 };
-static mmove_t      chick_move_end_attack1 = { "rocket", 27, 31, chick_frames_end_attack1, chick_run, 0, 0 };
+static mmove_t      chick_move_end_attack1 = { "rocket", 27, 31, chick_frames_end_attack1, chick_run, 0, 0, 0, 0, 0, 0 };
 
 /* "slash" is attak201-attak216: a step in, the slash (again while you're in reach), a step back */
 static const mframe_t chick_frames_start_slash[] = { { ai_charge, 1, NULL }, { ai_charge, 8, NULL }, { ai_charge, 3, NULL } };
-static mmove_t      chick_move_start_slash = { "slash", 0, 2, chick_frames_start_slash, chick_slash, 0, 0 };
+static mmove_t      chick_move_start_slash = { "slash", 0, 2, chick_frames_start_slash, chick_slash, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t chick_frames_slash[] = {
     { ai_charge, 1, NULL }, { ai_charge, 7, ChickSlash }, { ai_charge, -7, NULL }, { ai_charge, 1, NULL },
     { ai_charge, -1, NULL }, { ai_charge, 1, NULL }, C0, { ai_charge, 1, NULL }, { ai_charge, -2, chick_reslash },
 };
-static mmove_t      chick_move_slash = { "slash", 3, 11, chick_frames_slash, NULL, 0, 0 };
+static mmove_t      chick_move_slash = { "slash", 3, 11, chick_frames_slash, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t chick_frames_end_slash[] = {
     { ai_charge, -6, NULL }, { ai_charge, -1, NULL }, { ai_charge, -6, NULL }, C0,
 };
-static mmove_t      chick_move_end_slash = { "slash", 12, 15, chick_frames_end_slash, chick_run, 0, 0 };
+static mmove_t      chick_move_end_slash = { "slash", 12, 15, chick_frames_end_slash, chick_run, 0, 0, 0, 0, 0, 0 };
 
 static mmove_t      *all_moves[] = {
     &chick_move_stand, &chick_move_start_run, &chick_move_run, &chick_move_pain1, &chick_move_pain2, &chick_move_pain3,
@@ -253,16 +253,7 @@ static void         chick_die(g_ent *self, g_ent *attacker, int damage, const s3
 
 void                SP_monster_chick(g_ent *self)
 {
-    unsigned        i;
-
-    for (i = 0; i < sizeof(all_moves) / sizeof(all_moves[0]); ++i)
-    {
-        mmove_t *m = all_moves[i];
-        int     a = model_anim(self->mdl, m->anim);
-
-        m->first = self->mdl->anims[a].first + m->from;
-        m->last = self->mdl->anims[a].first + m->to;
-    }
+    M_ResolveMoves(self, all_moves, sizeof(all_moves) / sizeof(all_moves[0]));
     self->mins[0] = self->mins[1] = -FIX(16);
     self->mins[2] = 0;                      /* (her origin's at her feet, as Quake's) */
     self->maxs[0] = self->maxs[1] = FIX(16);

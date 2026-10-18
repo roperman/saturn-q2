@@ -1283,9 +1283,21 @@ static void         fill_ent(q_entity *r, const g_ent *e, s32 f, int spin)
         }
         r->yaw = (e->old_yaw + fmul((s16)((e->yaw - e->old_yaw) & 0xFFFF), f)) & 0xFFFF;
         r->skin = e->skinnum;
-        r->oldframe = e->old_frame;
-        r->frame = e->frame;
-        r->lerp = e->old_frame == e->frame ? 0 : f;
+        if (e->astride <= 1)
+        {
+            r->oldframe = e->old_frame;
+            r->frame = e->frame;
+            r->lerp = e->old_frame == e->frame ? 0 : f;
+        }
+        else
+        {   /* a thinned animation (models.txt "/n"): between the kept frame this one falls after and the next */
+            int l = iclamp(e->frame - e->lbase, 0, (e->aend - e->afirst + 1) * e->astride - 1);
+            int m = e->afirst + l / e->astride, sub = l % e->astride;
+
+            r->oldframe = m;
+            r->frame = m < e->aend ? m + 1 : m;
+            r->lerp = r->frame == m ? 0 : (FIX(sub) + (e->old_frame == e->frame ? 0 : f)) / e->astride;
+        }
     }
     else
     {

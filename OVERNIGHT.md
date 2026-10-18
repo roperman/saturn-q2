@@ -5049,3 +5049,53 @@ out: no pickup's or piece's model failed on any map. A caveat: these
 are the test build's figures, whose code is bigger; the plain build had
 mine1's mutants in the warp run above, so a map at the margin can go
 either way between builds. The demo's three, as ever, get all theirs.
+
+## 99. Thinned animations, and the cart's monsters by count
+
+The nine retail maps short of room for a monster (section 98) wanted
+their models smaller, and the loader to leave out the right ones.
+
+An animation can now be baked keeping every nth frame (tools/models.txt,
+"/n" after its range: tools/bake_md2.py): the model's record for it
+says how many frames were kept and the stride, and where it would have
+started had none been dropped. The game counts in those undropped
+frames throughout, so no monster's code changed: a move's from/to and
+its frame table are as Quake's, the ticks are the same, every think
+fires on its frame. The drawing (g_main.c g_render_ents) finds the kept
+frame the current one falls after and the next, and draws between them
+by how far along it is, so the thinned animation plays at the original
+rate through the kept poses rather than holding each. The thirteen
+monsters' spawns resolve their moves through one g_ai.c M_ResolveMoves
+now (they'd each had the same loop), and an entity carries its move's
+animation (afirst, aend, lbase, astride) so a body keeps drawing right
+once its move is gone. The optional monsters' idles keep a third of
+their frames, their pains and deaths a half; runs and attacks every
+frame. Lean, that's: gunner 272 to 222 KB, berserk 220 to 180, tank
+and commander 541 to 445, flyer 193 to 152, parasite 185 to 158,
+gladiator 231 to 195, iron maiden 384 to 298, icarus 315 to 243,
+technician 229 to 182, brains 337 to 257, mutant 326 to 242. (Frames
+are 70 to 80 percent of a monster: 4 bytes a vertex a frame; the pair
+of skins is most of the rest.)
+
+The loader (model.c models_load_all) takes a level's optional models
+most-used first (g_items.c g_models_needed counts each kind's
+monsters), so a map short of room loses its rarest kinds rather than
+whichever came last in models.txt.
+
+Measured as section 98's pass (the test build, each map a boot):
+six of the nine now get all their monsters: jail3 its icarus (47 KB to
+spare after), mine2 (80 KB) and mine3 (45 KB) their mutants, power2 its
+ten iron maidens (119 KB), cool1 its icarus (70 KB). Of the rest,
+command keeps its six technicians now and loses the 2 gladiators and 4
+iron maidens (82 KB spare); waste1 keeps its 9 iron maidens and loses
+the 2 tanks, 2 gladiators and 7 icarus (129 KB spare: the icarus's 243
+KB didn't fit after the maidens); mine1 still hasn't the mutant's 242
+KB (63 KB spare) and city3 the commander's 445 (51 KB). The demo's
+three load with everything, their cart spare 1425408 / 616448 / 491520.
+Seen on Mednafen by the warps: power2's iron maidens and mine2's
+mutants standing and attacking in their proper poses.
+
+Open: mine1 and city3 want 180 and 400 KB more cart, which is the
+level's to give (the leafs lump stays on the cart on both). And the
+choice of what a heavy map loses is the cart's by count for now; a
+per-map say (some of the lost kinds are a map's set piece) is wanted.

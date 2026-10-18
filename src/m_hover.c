@@ -22,13 +22,13 @@ static const mframe_t hover_frames_stand[] = {
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
 };
-static mmove_t      hover_move_stand = { "stand", 0, 29, hover_frames_stand, NULL, 0, 0 };
+static mmove_t      hover_move_stand = { "stand", 0, 29, hover_frames_stand, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t hover_frames_run[] = {
     R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0,
     R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0,
 };
-static mmove_t      hover_move_run = { "run", 0, 34, hover_frames_run, NULL, 0, 0 };
+static mmove_t      hover_move_run = { "run", 0, 34, hover_frames_run, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t hover_frames_pain1[] = {
     M0, M0, { ai_move, 2, NULL }, { ai_move, -8, NULL }, { ai_move, -4, NULL }, { ai_move, -6, NULL },
@@ -37,27 +37,27 @@ static const mframe_t hover_frames_pain1[] = {
     { ai_move, 1, NULL }, M0, M0, { ai_move, 2, NULL }, M0, M0, { ai_move, 5, NULL }, { ai_move, 3, NULL },
     { ai_move, 4, NULL },
 };
-static mmove_t      hover_move_pain1 = { "pain1", 0, 27, hover_frames_pain1, hover_run, 0, 0 };
+static mmove_t      hover_move_pain1 = { "pain1", 0, 27, hover_frames_pain1, hover_run, 0, 0, 0, 0, 0, 0 };
 static const mframe_t hover_frames_pain2[] = { M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0 };
-static mmove_t      hover_move_pain2 = { "pain2", 0, 11, hover_frames_pain2, hover_run, 0, 0 };
+static mmove_t      hover_move_pain2 = { "pain2", 0, 11, hover_frames_pain2, hover_run, 0, 0, 0, 0, 0, 0 };
 static const mframe_t hover_frames_pain3[] = { M0, M0, M0, M0, M0, M0, M0, M0, M0 };
-static mmove_t      hover_move_pain3 = { "pain3", 0, 8, hover_frames_pain3, hover_run, 0, 0 };
+static mmove_t      hover_move_pain3 = { "pain3", 0, 8, hover_frames_pain3, hover_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t hover_frames_death1[] = {
     M0, M0, M0, M0, M0, M0, { ai_move, -10, NULL }, { ai_move, 3, NULL }, { ai_move, 5, NULL }, { ai_move, 4, NULL },
     { ai_move, 7, NULL },
 };
-static mmove_t      hover_move_death1 = { "death", 0, 10, hover_frames_death1, hover_dead, 0, 0 };
+static mmove_t      hover_move_death1 = { "death", 0, 10, hover_frames_death1, hover_dead, 0, 0, 0, 0, 0, 0 };
 
 /* "attack" is attak101-attak108: the guns up, two bolts backing off (again while it sees you), the guns down */
 static const mframe_t hover_frames_start_attack[] = { { ai_charge, 1, NULL }, { ai_charge, 1, NULL }, { ai_charge, 1, NULL } };
-static mmove_t      hover_move_start_attack = { "attack", 0, 2, hover_frames_start_attack, hover_attack, 0, 0 };
+static mmove_t      hover_move_start_attack = { "attack", 0, 2, hover_frames_start_attack, hover_attack, 0, 0, 0, 0, 0, 0 };
 static const mframe_t hover_frames_attack1[] = {
     { ai_charge, -10, hover_fire_blaster }, { ai_charge, -10, hover_fire_blaster }, { ai_charge, 0, hover_reattack },
 };
-static mmove_t      hover_move_attack1 = { "attack", 3, 5, hover_frames_attack1, NULL, 0, 0 };
+static mmove_t      hover_move_attack1 = { "attack", 3, 5, hover_frames_attack1, NULL, 0, 0, 0, 0, 0, 0 };
 static const mframe_t hover_frames_end_attack[] = { { ai_charge, 1, NULL }, { ai_charge, 1, NULL } };
-static mmove_t      hover_move_end_attack = { "attack", 6, 7, hover_frames_end_attack, hover_run, 0, 0 };
+static mmove_t      hover_move_end_attack = { "attack", 6, 7, hover_frames_end_attack, hover_run, 0, 0, 0, 0, 0, 0 };
 
 static mmove_t      *all_moves[] = {
     &hover_move_stand, &hover_move_run, &hover_move_pain1, &hover_move_pain2, &hover_move_pain3, &hover_move_death1,
@@ -172,16 +172,7 @@ static void         hover_die(g_ent *self, g_ent *attacker, int damage, const s3
 
 void                SP_monster_hover(g_ent *self)
 {
-    unsigned        i;
-
-    for (i = 0; i < sizeof(all_moves) / sizeof(all_moves[0]); ++i)
-    {
-        mmove_t *m = all_moves[i];
-        int     a = model_anim(self->mdl, m->anim);
-
-        m->first = self->mdl->anims[a].first + m->from;
-        m->last = self->mdl->anims[a].first + m->to;
-    }
+    M_ResolveMoves(self, all_moves, sizeof(all_moves) / sizeof(all_moves[0]));
     self->mins[0] = self->mins[1] = -FIX(24);
     self->mins[2] = -FIX(24);
     self->maxs[0] = self->maxs[1] = FIX(24);

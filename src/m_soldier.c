@@ -19,27 +19,27 @@ static const mframe_t soldier_frames_stand1[] = {
     STAND30, STAND30, STAND30, STAND30, STAND30, STAND30, STAND30, STAND30, STAND30, STAND30,
     STAND30, STAND30, STAND30, STAND30, STAND30, STAND30, STAND30, STAND30, STAND30, STAND30,
 };
-static mmove_t      soldier_move_stand1 = { "stand", 0, 29, soldier_frames_stand1, soldier_stand, 0, 0 };
+static mmove_t      soldier_move_stand1 = { "stand", 0, 29, soldier_frames_stand1, soldier_stand, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t soldier_frames_start_run[] = { { ai_run, 7, NULL }, { ai_run, 5, NULL } };
-static mmove_t      soldier_move_start_run = { "run", 0, 1, soldier_frames_start_run, soldier_run, 0, 0 };
+static mmove_t      soldier_move_start_run = { "run", 0, 1, soldier_frames_start_run, soldier_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t soldier_frames_run[] = {
     { ai_run, 10, NULL }, { ai_run, 11, NULL }, { ai_run, 11, NULL },
     { ai_run, 16, NULL }, { ai_run, 10, NULL }, { ai_run, 15, NULL },
 };
-static mmove_t      soldier_move_run = { "run", 2, 7, soldier_frames_run, NULL, 0, 0 };
+static mmove_t      soldier_move_run = { "run", 2, 7, soldier_frames_run, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t soldier_frames_pain1[] = {
     { ai_move, -3, NULL }, { ai_move, 4, NULL }, { ai_move, 1, NULL }, { ai_move, 1, NULL }, { ai_move, 0, NULL },
 };
-static mmove_t      soldier_move_pain1 = { "pain1", 0, 4, soldier_frames_pain1, soldier_run, 0, 0 };
+static mmove_t      soldier_move_pain1 = { "pain1", 0, 4, soldier_frames_pain1, soldier_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t soldier_frames_pain2[] = {
     { ai_move, -13, NULL }, { ai_move, -1, NULL }, { ai_move, 2, NULL }, { ai_move, 4, NULL },
     { ai_move, 2, NULL }, { ai_move, 3, NULL }, { ai_move, 2, NULL },
 };
-static mmove_t      soldier_move_pain2 = { "pain2", 0, 6, soldier_frames_pain2, soldier_run, 0, 0 };
+static mmove_t      soldier_move_pain2 = { "pain2", 0, 6, soldier_frames_pain2, soldier_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t soldier_frames_attack1[] = {
     { ai_charge, 0, NULL }, { ai_charge, 0, NULL }, { ai_charge, 0, soldier_fire1 },
@@ -47,7 +47,7 @@ static const mframe_t soldier_frames_attack1[] = {
     { ai_charge, 0, NULL }, { ai_charge, 0, NULL }, { ai_charge, 0, soldier_attack1_refire2 },
     { ai_charge, 0, NULL }, { ai_charge, 0, NULL }, { ai_charge, 0, NULL },
 };
-static mmove_t      soldier_move_attack1 = { "attack", 0, 11, soldier_frames_attack1, soldier_run, 0, 0 };
+static mmove_t      soldier_move_attack1 = { "attack", 0, 11, soldier_frames_attack1, soldier_run, 0, 0, 0, 0, 0, 0 };
 
 #define DEATH0          { ai_move, 0, NULL }
 /* (Quake 2's death1: the dying soldier gets one last shot off on its 23rd frame, soldier_fire6) */
@@ -57,7 +57,7 @@ static const mframe_t soldier_frames_death1[] = {
     DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, { ai_move, 0, soldier_fire1 }, DEATH0, DEATH0,
     DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0, DEATH0,
 };
-static mmove_t      soldier_move_death1 = { "death", 0, 35, soldier_frames_death1, soldier_dead, 0, 0 };
+static mmove_t      soldier_move_death1 = { "death", 0, 35, soldier_frames_death1, soldier_dead, 0, 0, 0, 0, 0, 0 };
 
 static mmove_t      *all_moves[] = {
     &soldier_move_stand1, &soldier_move_start_run, &soldier_move_run, &soldier_move_pain1, &soldier_move_pain2,
@@ -203,17 +203,8 @@ static void         soldier_die(g_ent *self, g_ent *attacker, int damage, const 
 
 __attribute__((cold)) void                SP_monster_x_soldier(g_ent *self, int skin)
 {
-    unsigned        i;
-
     /* the moves' model frames, from the model's animations */
-    for (i = 0; i < sizeof(all_moves) / sizeof(all_moves[0]); ++i)
-    {
-        mmove_t *m = all_moves[i];
-        int     a = model_anim(self->mdl, m->anim);
-
-        m->first = self->mdl->anims[a].first + m->from;
-        m->last = self->mdl->anims[a].first + m->to;
-    }
+    M_ResolveMoves(self, all_moves, sizeof(all_moves) / sizeof(all_moves[0]));
     self->mins[0] = self->mins[1] = -FIX(16);
     self->mins[2] = -FIX(24);
     self->maxs[0] = self->maxs[1] = FIX(16);

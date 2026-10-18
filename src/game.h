@@ -43,7 +43,10 @@ typedef struct
     int             from, to;               /* frames of that anim */
     const mframe_t  *frames;
     void            (*endfunc)(g_ent *self);
-    int             first, last;            /* model frames, filled in at spawn */
+    int             first, last;            /* its frames, filled in at spawn (M_ResolveMoves): the animation's as if
+                                               none were thinned (lfirst + from, + to) */
+    s16             afirst, aend;           /* the animation's model frames (the kept ones), its first as counted */
+    s16             lbase, stride;          /* (frame f draws afirst + (f - lbase) / stride, g_render_ents) */
 }                   mmove_t;
 
 /* aiflags */
@@ -147,7 +150,8 @@ struct g_ent_s
     /* the full ones' (a trigger's box is in g_trig_areas, an item's 15 units round it) */
     s32             old_origin[3];          /* at the last tick (the renderer blends) */
     int             old_yaw;
-    int             frame, old_frame, skinnum;      /* model frames */
+    int             frame, old_frame, skinnum;      /* frames of the move (afirst.. the model's: M_ResolveMoves) */
+    s16             afirst, aend, lbase, astride;   /* the move's animation (kept when the move's gone: a body) */
     s32             mins[3], maxs[3];
     int             max_health, gib_health;
     s32             velocity[3];
@@ -313,6 +317,7 @@ int                 hud_pic(const char *name, int x, int y);   /* (hud.c) its wi
 void                M_ChangeYaw(g_ent *ent);
 bool                M_walkmove(g_ent *ent, int yaw, s32 dist);
 void                M_MoveFrame(g_ent *self);
+void                M_ResolveMoves(g_ent *self, mmove_t *const *moves, int n);   /* at spawn: their frames from its model */
 void                M_droptofloor(g_ent *ent);
 void                monster_physics(g_ent *self);   /* falling, when not on the ground */
 void                monster_start(g_ent *self);

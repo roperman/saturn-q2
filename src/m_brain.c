@@ -26,36 +26,36 @@ static const mframe_t brain_frames_stand[] = {
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
 };
-static mmove_t      brain_move_stand = { "stand", 0, 29, brain_frames_stand, NULL, 0, 0 };
+static mmove_t      brain_move_stand = { "stand", 0, 29, brain_frames_stand, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t brain_frames_run[] = {
     { ai_run, 9, NULL }, { ai_run, 2, NULL }, { ai_run, 3, NULL }, { ai_run, 3, NULL }, { ai_run, 1, NULL },
     { ai_run, 0, NULL }, { ai_run, 0, NULL }, { ai_run, 10, NULL }, { ai_run, -4, NULL }, { ai_run, -1, NULL },
     { ai_run, 2, NULL },
 };
-static mmove_t      brain_move_run = { "run", 0, 10, brain_frames_run, NULL, 0, 0 };
+static mmove_t      brain_move_run = { "run", 0, 10, brain_frames_run, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t brain_frames_pain1[] = {
     { ai_move, -6, NULL }, { ai_move, -2, NULL }, { ai_move, -6, NULL }, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0,
     { ai_move, 2, NULL }, M0, { ai_move, 2, NULL }, { ai_move, 1, NULL }, { ai_move, 7, NULL }, M0, { ai_move, 3, NULL },
     { ai_move, -1, NULL },
 };
-static mmove_t      brain_move_pain1 = { "pain1", 0, 20, brain_frames_pain1, brain_run, 0, 0 };
+static mmove_t      brain_move_pain1 = { "pain1", 0, 20, brain_frames_pain1, brain_run, 0, 0, 0, 0, 0, 0 };
 static const mframe_t brain_frames_pain2[] = {
     { ai_move, -2, NULL }, M0, M0, M0, M0, { ai_move, 3, NULL }, { ai_move, 1, NULL }, { ai_move, -2, NULL },
 };
-static mmove_t      brain_move_pain2 = { "pain2", 0, 7, brain_frames_pain2, brain_run, 0, 0 };
+static mmove_t      brain_move_pain2 = { "pain2", 0, 7, brain_frames_pain2, brain_run, 0, 0, 0, 0, 0, 0 };
 static const mframe_t brain_frames_pain3[] = {
     { ai_move, -2, NULL }, { ai_move, 2, NULL }, { ai_move, 1, NULL }, { ai_move, 3, NULL }, M0, { ai_move, -4, NULL },
 };
-static mmove_t      brain_move_pain3 = { "pain3", 0, 5, brain_frames_pain3, brain_run, 0, 0 };
+static mmove_t      brain_move_pain3 = { "pain3", 0, 5, brain_frames_pain3, brain_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t brain_frames_death1[] = {
     M0, M0, { ai_move, -2, NULL }, { ai_move, 9, NULL }, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0,
 };
-static mmove_t      brain_move_death1 = { "death1", 0, 17, brain_frames_death1, brain_dead, 0, 0 };
+static mmove_t      brain_move_death1 = { "death1", 0, 17, brain_frames_death1, brain_dead, 0, 0, 0, 0, 0, 0 };
 static const mframe_t brain_frames_death2[] = { M0, M0, M0, { ai_move, 9, NULL }, M0 };
-static mmove_t      brain_move_death2 = { "death2", 0, 4, brain_frames_death2, brain_dead, 0, 0 };
+static mmove_t      brain_move_death2 = { "death2", 0, 4, brain_frames_death2, brain_dead, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t brain_frames_attack1[] = {
     { ai_charge, 8, NULL }, { ai_charge, 3, NULL }, { ai_charge, 5, NULL }, { ai_charge, 0, NULL },
@@ -64,7 +64,7 @@ static const mframe_t brain_frames_attack1[] = {
     { ai_charge, -3, NULL }, { ai_charge, 6, NULL }, { ai_charge, -1, NULL }, { ai_charge, -3, NULL },
     { ai_charge, 2, NULL }, { ai_charge, -11, NULL },
 };
-static mmove_t      brain_move_attack1 = { "attack1", 0, 17, brain_frames_attack1, brain_run, 0, 0 };
+static mmove_t      brain_move_attack1 = { "attack1", 0, 17, brain_frames_attack1, brain_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t brain_frames_attack2[] = {
     { ai_charge, 5, NULL }, { ai_charge, -4, NULL }, { ai_charge, -4, NULL }, { ai_charge, -3, NULL },
@@ -73,7 +73,7 @@ static const mframe_t brain_frames_attack2[] = {
     { ai_charge, 0, NULL }, { ai_charge, 4, NULL }, { ai_charge, 3, NULL }, { ai_charge, 2, NULL },
     { ai_charge, -3, NULL }, { ai_charge, -6, NULL },
 };
-static mmove_t      brain_move_attack2 = { "attack2", 0, 16, brain_frames_attack2, brain_run, 0, 0 };
+static mmove_t      brain_move_attack2 = { "attack2", 0, 16, brain_frames_attack2, brain_run, 0, 0, 0, 0, 0, 0 };
 
 static mmove_t      *all_moves[] = {
     &brain_move_stand, &brain_move_run, &brain_move_pain1, &brain_move_pain2, &brain_move_pain3, &brain_move_death1,
@@ -189,16 +189,7 @@ static void         brain_die(g_ent *self, g_ent *attacker, int damage, const s3
 
 void                SP_monster_brain(g_ent *self)
 {
-    unsigned        i;
-
-    for (i = 0; i < sizeof(all_moves) / sizeof(all_moves[0]); ++i)
-    {
-        mmove_t *m = all_moves[i];
-        int     a = model_anim(self->mdl, m->anim);
-
-        m->first = self->mdl->anims[a].first + m->from;
-        m->last = self->mdl->anims[a].first + m->to;
-    }
+    M_ResolveMoves(self, all_moves, sizeof(all_moves) / sizeof(all_moves[0]));
     self->mins[0] = self->mins[1] = -FIX(16);
     self->mins[2] = -FIX(24);
     self->maxs[0] = self->maxs[1] = FIX(16);

@@ -22,33 +22,33 @@ static const mframe_t floater_frames_stand[] = {
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
 };
-static mmove_t      floater_move_stand = { "stand", 0, 51, floater_frames_stand, NULL, 0, 0 };
+static mmove_t      floater_move_stand = { "stand", 0, 51, floater_frames_stand, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t floater_frames_run[] = {
     R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0,
     R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0,
 };
-static mmove_t      floater_move_run = { "stand", 0, 51, floater_frames_run, NULL, 0, 0 };
+static mmove_t      floater_move_run = { "stand", 0, 51, floater_frames_run, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t floater_frames_attack1[] = { C0, C0, C0, FB, FB, FB, FB, FB, FB, FB, C0, C0, C0, C0 };
-static mmove_t      floater_move_attack1 = { "blaster", 0, 13, floater_frames_attack1, floater_run, 0, 0 };
+static mmove_t      floater_move_attack1 = { "blaster", 0, 13, floater_frames_attack1, floater_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t floater_frames_attack2[] = {
     C0, C0, C0, C0, C0, C0, C0, C0, C0, C0, C0, { ai_charge, 0, floater_wham }, C0, C0, C0, C0, C0, C0, C0, C0, C0,
     C0, C0, C0, C0,
 };
-static mmove_t      floater_move_attack2 = { "claws", 0, 24, floater_frames_attack2, floater_run, 0, 0 };
+static mmove_t      floater_move_attack2 = { "claws", 0, 24, floater_frames_attack2, floater_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t floater_frames_attack3[] = {
     C0, C0, C0, C0, C0, C0, C0, C0, { ai_charge, 0, floater_zap }, C0, C0, C0, C0, C0, C0, C0, C0, C0, C0, C0, C0,
     C0, C0, C0, C0, C0, C0, C0, C0, C0, C0, C0, C0, C0,
 };
-static mmove_t      floater_move_attack3 = { "zap", 0, 33, floater_frames_attack3, floater_run, 0, 0 };
+static mmove_t      floater_move_attack3 = { "zap", 0, 33, floater_frames_attack3, floater_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t floater_frames_pain1[] = { M0, M0, M0, M0, M0, M0, M0 };
-static mmove_t      floater_move_pain1 = { "pain1", 0, 6, floater_frames_pain1, floater_run, 0, 0 };
+static mmove_t      floater_move_pain1 = { "pain1", 0, 6, floater_frames_pain1, floater_run, 0, 0, 0, 0, 0, 0 };
 static const mframe_t floater_frames_pain2[] = { M0, M0, M0, M0, M0, M0, M0, M0 };
-static mmove_t      floater_move_pain2 = { "pain2", 0, 7, floater_frames_pain2, floater_run, 0, 0 };
+static mmove_t      floater_move_pain2 = { "pain2", 0, 7, floater_frames_pain2, floater_run, 0, 0, 0, 0, 0, 0 };
 
 static mmove_t      *all_moves[] = {
     &floater_move_stand, &floater_move_run, &floater_move_attack1, &floater_move_attack2, &floater_move_attack3,
@@ -161,16 +161,7 @@ static void         floater_die(g_ent *self, g_ent *attacker, int damage, const 
 
 void                SP_monster_floater(g_ent *self)
 {
-    unsigned        i;
-
-    for (i = 0; i < sizeof(all_moves) / sizeof(all_moves[0]); ++i)
-    {
-        mmove_t *m = all_moves[i];
-        int     a = model_anim(self->mdl, m->anim);
-
-        m->first = self->mdl->anims[a].first + m->from;
-        m->last = self->mdl->anims[a].first + m->to;
-    }
+    M_ResolveMoves(self, all_moves, sizeof(all_moves) / sizeof(all_moves[0]));
     self->mins[0] = self->mins[1] = -FIX(24);
     self->mins[2] = -FIX(24);
     self->maxs[0] = self->maxs[1] = FIX(24);

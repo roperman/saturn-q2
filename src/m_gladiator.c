@@ -19,33 +19,33 @@ static void         GladiatorGun(g_ent *self);
 #define M0              { ai_move, 0, NULL }
 #define C0              { ai_charge, 0, NULL }
 static const mframe_t gladiator_frames_stand[] = { S0, S0, S0, S0, S0, S0, S0 };
-static mmove_t      gladiator_move_stand = { "stand", 0, 6, gladiator_frames_stand, NULL, 0, 0 };
+static mmove_t      gladiator_move_stand = { "stand", 0, 6, gladiator_frames_stand, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t gladiator_frames_run[] = {
     { ai_run, 23, NULL }, { ai_run, 14, NULL }, { ai_run, 14, NULL },
     { ai_run, 21, NULL }, { ai_run, 12, NULL }, { ai_run, 13, NULL },
 };
-static mmove_t      gladiator_move_run = { "run", 0, 5, gladiator_frames_run, NULL, 0, 0 };
+static mmove_t      gladiator_move_run = { "run", 0, 5, gladiator_frames_run, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t gladiator_frames_attack_melee[] = {
     C0, C0, C0, C0, { ai_charge, 0, gladiator_cleaver_swing }, C0, { ai_charge, 0, GladiatorMelee }, C0, C0, C0,
     { ai_charge, 0, gladiator_cleaver_swing }, C0, C0, { ai_charge, 0, GladiatorMelee }, C0, C0, C0,
 };
-static mmove_t      gladiator_move_attack_melee = { "melee", 0, 16, gladiator_frames_attack_melee, gladiator_run, 0, 0 };
+static mmove_t      gladiator_move_attack_melee = { "melee", 0, 16, gladiator_frames_attack_melee, gladiator_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t gladiator_frames_attack_gun[] = { C0, C0, C0, { ai_charge, 0, GladiatorGun }, C0, C0, C0, C0, C0 };
-static mmove_t      gladiator_move_attack_gun = { "attack", 0, 8, gladiator_frames_attack_gun, gladiator_run, 0, 0 };
+static mmove_t      gladiator_move_attack_gun = { "attack", 0, 8, gladiator_frames_attack_gun, gladiator_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t gladiator_frames_pain[] = { M0, M0, M0, M0, M0, M0 };
-static mmove_t      gladiator_move_pain = { "pain", 0, 5, gladiator_frames_pain, gladiator_run, 0, 0 };
+static mmove_t      gladiator_move_pain = { "pain", 0, 5, gladiator_frames_pain, gladiator_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t gladiator_frames_pain_air[] = { M0, M0, M0, M0, M0, M0, M0 };
-static mmove_t      gladiator_move_pain_air = { "painup", 0, 6, gladiator_frames_pain_air, gladiator_run, 0, 0 };
+static mmove_t      gladiator_move_pain_air = { "painup", 0, 6, gladiator_frames_pain_air, gladiator_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t gladiator_frames_death[] = {
     M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0, M0,
 };
-static mmove_t      gladiator_move_death = { "death", 0, 21, gladiator_frames_death, gladiator_dead, 0, 0 };
+static mmove_t      gladiator_move_death = { "death", 0, 21, gladiator_frames_death, gladiator_dead, 0, 0, 0, 0, 0, 0 };
 
 static mmove_t      *all_moves[] = {
     &gladiator_move_stand, &gladiator_move_run, &gladiator_move_attack_melee, &gladiator_move_attack_gun,
@@ -178,16 +178,7 @@ static void         gladiator_die(g_ent *self, g_ent *attacker, int damage, cons
 
 void                SP_monster_gladiator(g_ent *self)
 {
-    unsigned        i;
-
-    for (i = 0; i < sizeof(all_moves) / sizeof(all_moves[0]); ++i)
-    {
-        mmove_t *m = all_moves[i];
-        int     a = model_anim(self->mdl, m->anim);
-
-        m->first = self->mdl->anims[a].first + m->from;
-        m->last = self->mdl->anims[a].first + m->to;
-    }
+    M_ResolveMoves(self, all_moves, sizeof(all_moves) / sizeof(all_moves[0]));
     self->mins[0] = self->mins[1] = -FIX(32);
     self->mins[2] = -FIX(24);
     self->maxs[0] = self->maxs[1] = FIX(32);

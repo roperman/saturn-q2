@@ -943,6 +943,36 @@ void                ai_run(g_ent *self, s32 dist)
 
 /* ---- g_monster.c ---- */
 
+/* A monster's moves' frames, from its model's animations. An animation baked thinned
+   (models.txt "/n": every nth frame kept) counts as if it weren't: a move's frames and
+   its from/to are in those, and the drawing finds the kept frame (and the next, to draw
+   between them): g_render_ents */
+void                M_ResolveMoves(g_ent *self, mmove_t *const *moves, int n)
+{
+    int             i;
+
+    for (i = 0; i < n; ++i)
+    {
+        mmove_t         *m = moves[i];
+        const q_manim   *a = &self->mdl->anims[model_anim(self->mdl, m->anim)];
+
+        m->afirst = (s16)a->first;
+        m->aend = (s16)(a->first + a->count - 1);
+        m->lbase = (s16)a->lfirst;
+        m->stride = a->stride ? a->stride : 1;
+        m->first = a->lfirst + m->from;
+        m->last = a->lfirst + m->to;
+    }
+}
+
+static void         M_AnimOf(g_ent *self, const mmove_t *move)
+{
+    self->afirst = move->afirst;
+    self->aend = move->aend;
+    self->lbase = move->lbase;
+    self->astride = move->stride;
+}
+
 void                M_MoveFrame(g_ent *self)
 {
     const mmove_t   *move = self->move;
@@ -973,6 +1003,7 @@ void                M_MoveFrame(g_ent *self)
                 self->frame = move->first;
         }
     }
+    M_AnimOf(self, move);
     index = self->frame - move->first;
     if (move->frames[index].ai)
         move->frames[index].ai(self, self->aiflags & AI_HOLD_FRAME ? 0 : FIX(move->frames[index].dist));
@@ -1068,5 +1099,6 @@ __attribute__((cold)) void                monster_start(g_ent *self)
         M_droptofloor(self);
     self->stand(self);
     self->frame = self->move->first + (int)(rng() % (u32)(self->move->last - self->move->first + 1));
+    M_AnimOf(self, self->move);
     self->old_frame = self->frame;
 }

@@ -2,7 +2,11 @@
 """Bake a Quake 2 MD2 model for the Saturn (src/model.c).
 
     tools/bake_md2.py data/pak0.pak models/monsters/soldier/tris.md2 cd/SOLDIER.MDL \\
-        --skins=skin,skin_lt,skin_ss --anims=stand1:stand101-stand130,run:run03-run08,...
+        --skins=skin,skin_lt,skin_ss --anims=stand1:stand101-stand130/3,run:run03-run08,...
+
+An animation's "/n" keeps every nth frame (the game plays the move as if
+they were all there, drawing between the kept ones: src/g_ai.c M_ResolveMoves,
+src/g_main.c g_render_ents); its record says so.
 
 Triangles that share an edge in both the mesh and the skin become quads.
 VDP1 maps a whole texture rectangle onto a quad (no texture coordinates),
@@ -190,16 +194,20 @@ def main():
     anims = []
     for spec in (opts.get("anims") or "base:#0-#0").split(","):
         name, rng = spec.split(":")
+        rng, _, stride = rng.partition("/")
         a, b = rng.split("-")
         fa = int(a[1:]) if a.startswith("#") else m.frame_index[a]
         fb = int(b[1:]) if b.startswith("#") else m.frame_index[b]
-        anims.append((name, fa, fb))
-    # the frames used, in order
+        anims.append((name, fa, fb, int(stride or 1)))
+    # the frames used, in order (every nth of a thinned animation; the record counts as if all)
     frames = []
     anim_recs = []
-    for name, a, b in anims:
-        anim_recs.append((name, len(frames), b - a + 1))
-        frames.extend(range(a, b + 1))
+    lfirst = 0
+    for name, a, b, stride in anims:
+        kept = list(range(a, b + 1, stride))
+        anim_recs.append((name, len(frames), lfirst, len(kept), stride))
+        frames.extend(kept)
+        lfirst += b - a + 1
 
     polys = make_polys(m)
     # far away (src/render.c draw_model): the mesh on a coarse grid, its own polygons and textures
@@ -318,7 +326,7 @@ def main():
         used = sorted({v for xyz, _ in lpolys for v in xyz})
         assert used == list(range(len(used)))
         ldata += struct.pack(">%dH" % (len(used) + 1), len(used), *used)
-    adata = b"".join(struct.pack(">12sHH", n.encode()[:12], a, c) for n, a, c in anim_recs)
+    adata = b"".join(struct.pack(">12sHHBB", n.encode()[:12], a, l, c, s) for n, a, l, c, s in anim_recs)
 
     ndata = b"".join(struct.pack(">3h", *[int(round(c * 16384)) for c in n]) for n in norms)   # 2.14
     parts = [pdata, bytes(b"".join(tex_table)), bytes(texdata), bytes(luts), bytes(fdata), adata, bytes(shade), ndata,

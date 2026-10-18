@@ -27,21 +27,21 @@ static const mframe_t flyer_frames_stand[] = {
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
 };
-static mmove_t      flyer_move_stand = { "stand", 0, 44, flyer_frames_stand, NULL, 0, 0 };
+static mmove_t      flyer_move_stand = { "stand", 0, 44, flyer_frames_stand, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t flyer_frames_run[] = {
     R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0,
     R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0,
     R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0, R0,
 };
-static mmove_t      flyer_move_run = { "stand", 0, 44, flyer_frames_run, NULL, 0, 0 };
+static mmove_t      flyer_move_run = { "stand", 0, 44, flyer_frames_run, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t flyer_frames_pain1[] = { M0, M0, M0, M0, M0, M0, M0, M0, M0 };
-static mmove_t      flyer_move_pain1 = { "pain1", 0, 8, flyer_frames_pain1, flyer_run, 0, 0 };
+static mmove_t      flyer_move_pain1 = { "pain1", 0, 8, flyer_frames_pain1, flyer_run, 0, 0, 0, 0, 0, 0 };
 static const mframe_t flyer_frames_pain2[] = { M0, M0, M0, M0 };
-static mmove_t      flyer_move_pain2 = { "pain2", 0, 3, flyer_frames_pain2, flyer_run, 0, 0 };
+static mmove_t      flyer_move_pain2 = { "pain2", 0, 3, flyer_frames_pain2, flyer_run, 0, 0, 0, 0, 0, 0 };
 static const mframe_t flyer_frames_pain3[] = { M0, M0, M0, M0 };
-static mmove_t      flyer_move_pain3 = { "pain3", 0, 3, flyer_frames_pain3, flyer_run, 0, 0 };
+static mmove_t      flyer_move_pain3 = { "pain3", 0, 3, flyer_frames_pain3, flyer_run, 0, 0, 0, 0, 0, 0 };
 
 /* the guns: four bolts from each, left and right in turn, backing off as it fires */
 #define FL              { ai_charge, -10, flyer_fireleft }
@@ -49,17 +49,17 @@ static mmove_t      flyer_move_pain3 = { "pain3", 0, 3, flyer_frames_pain3, flye
 static const mframe_t flyer_frames_attack[] = {
     C0, C0, C0, FL, FR, FL, FR, FL, FR, FL, FR, C0, C0, C0, C0, C0, C0,
 };
-static mmove_t      flyer_move_attack = { "attack", 0, 16, flyer_frames_attack, flyer_run, 0, 0 };
+static mmove_t      flyer_move_attack = { "attack", 0, 16, flyer_frames_attack, flyer_run, 0, 0, 0, 0, 0, 0 };
 
 /* the blades: out, then a loop of two slashes while you're in reach, then away */
 static const mframe_t flyer_frames_start_melee[] = { { ai_charge, 0, flyer_pop_blades }, C0, C0, C0, C0, C0 };
-static mmove_t      flyer_move_start_melee = { "melee", 0, 5, flyer_frames_start_melee, flyer_loop_melee, 0, 0 };
+static mmove_t      flyer_move_start_melee = { "melee", 0, 5, flyer_frames_start_melee, flyer_loop_melee, 0, 0, 0, 0, 0, 0 };
 static const mframe_t flyer_frames_loop_melee[] = {
     C0, C0, { ai_charge, 0, flyer_slash_left }, C0, C0, C0, C0, { ai_charge, 0, flyer_slash_right }, C0, C0, C0, C0,
 };
-static mmove_t      flyer_move_loop_melee = { "melee", 6, 17, flyer_frames_loop_melee, flyer_check_melee, 0, 0 };
+static mmove_t      flyer_move_loop_melee = { "melee", 6, 17, flyer_frames_loop_melee, flyer_check_melee, 0, 0, 0, 0, 0, 0 };
 static const mframe_t flyer_frames_end_melee[] = { C0, C0, C0 };
-static mmove_t      flyer_move_end_melee = { "melee", 18, 20, flyer_frames_end_melee, flyer_run, 0, 0 };
+static mmove_t      flyer_move_end_melee = { "melee", 18, 20, flyer_frames_end_melee, flyer_run, 0, 0, 0, 0, 0, 0 };
 
 static mmove_t      *all_moves[] = {
     &flyer_move_stand, &flyer_move_run, &flyer_move_pain1, &flyer_move_pain2, &flyer_move_pain3, &flyer_move_attack,
@@ -188,16 +188,7 @@ static void         flyer_die(g_ent *self, g_ent *attacker, int damage, const s3
 
 void                SP_monster_flyer(g_ent *self)
 {
-    unsigned        i;
-
-    for (i = 0; i < sizeof(all_moves) / sizeof(all_moves[0]); ++i)
-    {
-        mmove_t *m = all_moves[i];
-        int     a = model_anim(self->mdl, m->anim);
-
-        m->first = self->mdl->anims[a].first + m->from;
-        m->last = self->mdl->anims[a].first + m->to;
-    }
+    M_ResolveMoves(self, all_moves, sizeof(all_moves) / sizeof(all_moves[0]));
     self->mins[0] = self->mins[1] = -FIX(16);
     self->mins[2] = -FIX(24);
     self->maxs[0] = self->maxs[1] = FIX(16);

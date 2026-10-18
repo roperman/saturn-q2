@@ -62,32 +62,33 @@ static const int    ammo_max[AMMO_COUNT] = { 0, 100, 200, 50, 50, 200, 50 };
 
 static const g_item *item_of(int cls);
 
-/* the models this level's things use (models_load_all loads only those: cart space, and time) */
-__attribute__((cold)) void                g_models_needed(bool *need)
+/* the models this level's things use (models_load_all loads only those: cart space, and time), and
+   how many monsters use each (the optional ones are loaded most-used first, where the cart's short) */
+__attribute__((cold)) void                g_models_needed(int *count)
 {
     const q_erec    *r = (const q_erec *)lv.erecs;
     int             i, m;
 
     for (i = 0; i < MDL_COUNT; ++i)
-        need[i] = false;
-    need[MDL_ROCKET] = need[MDL_GRENADE] = true;    /* (yours, any level) */
-    need[MDL_GIB_MEAT] = need[MDL_GIB_BONE] = need[MDL_GIB_HEAD] = true;     /* (the monsters in pieces) */
+        count[i] = 0;
+    count[MDL_ROCKET] = count[MDL_GRENADE] = 1;     /* (yours, any level) */
+    count[MDL_GIB_MEAT] = count[MDL_GIB_BONE] = count[MDL_GIB_HEAD] = 1;     /* (the monsters in pieces) */
     for (i = 0; i < lv.nerecs; ++i, ++r)
     {
         const g_item *it = item_of(r->cls);
 
         if (it)
-            need[it->model] = true;
+            count[it->model] = 1;
         else if ((m = g_monster_model(r->cls)) >= 0)
         {
-            need[m] = true;
+            ++count[m];
             if (m == MDL_SOLDIER)
-                need[MDL_GIB_CHEST] = true;
+                count[MDL_GIB_CHEST] = 1;
             else if (m == MDL_TANK || m == MDL_CTANK)
-                need[MDL_GIB_CHEST] = need[MDL_GIB_METAL] = need[MDL_GIB_GEAR] = true;
+                count[MDL_GIB_CHEST] = count[MDL_GIB_METAL] = count[MDL_GIB_GEAR] = 1;
         }
         else if (r->cls == C_MISC_EXPLOBOX)
-            need[MDL_BARREL] = true;
+            count[MDL_BARREL] = 1;
     }
 }
 

@@ -128,20 +128,30 @@ extern u32          models_noroom;
 
 __attribute__((cold)) void                models_load_all(void)
 {
-    bool            need[MDL_COUNT];
-    int             i;
+    int             need[MDL_COUNT];
+    int             i, best;
 
     g_models_needed(need);
     nmodels_loaded = 0;
     for (i = 0; i < MDL_COUNT; ++i)
         models[i].loaded = false;
-    /* (the optional ones last: the room's what's left after everything else) */
+    /* (the optional ones last: the room's what's left after everything else; the most used of them
+       first, so a map short of room loses its rarest monsters) */
     for (i = 0; i < MDL_COUNT; ++i)
         if (need[i] && !(MDL_OPTIONAL >> i & 1) && model_load(&models[i], model_files[i]))
             nmodels_loaded = imax(nmodels_loaded, i + 1);
-    for (i = 0; i < MDL_COUNT; ++i)
-        if (need[i] && MDL_OPTIONAL >> i & 1 && room_for(model_files[i]) && model_load(&models[i], model_files[i]))
-            nmodels_loaded = imax(nmodels_loaded, i + 1);
+    for (;;)
+    {
+        best = -1;
+        for (i = 0; i < MDL_COUNT; ++i)
+            if (need[i] > 0 && MDL_OPTIONAL >> i & 1 && (best < 0 || need[i] > need[best]))
+                best = i;
+        if (best < 0)
+            break;
+        need[best] = -need[best];           /* (tried) */
+        if (room_for(model_files[best]) && model_load(&models[best], model_files[best]))
+            nmodels_loaded = imax(nmodels_loaded, best + 1);
+    }
 #ifdef LEVEL_TEST
     models_noroom = 0;                      /* (the first 32 models: the monsters, the pieces, the pickups) */
     for (i = 0; i < 32 && i < MDL_COUNT; ++i)

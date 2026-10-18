@@ -22,22 +22,22 @@ static void         parasite_drain_attack(g_ent *self);
 #define C0              { ai_charge, 0, NULL }
 #define DR(d)           { ai_charge, d, parasite_drain_attack }
 static const mframe_t parasite_frames_stand[] = { S0, S0, ST, S0, ST, S0, S0, S0, ST, S0, ST, S0, S0, S0, ST, S0, ST };
-static mmove_t      parasite_move_stand = { "stand", 0, 16, parasite_frames_stand, NULL, 0, 0 };
+static mmove_t      parasite_move_stand = { "stand", 0, 16, parasite_frames_stand, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t parasite_frames_start_run[] = { { ai_run, 0, NULL }, { ai_run, 30, NULL } };
-static mmove_t      parasite_move_start_run = { "run", 0, 1, parasite_frames_start_run, parasite_run, 0, 0 };
+static mmove_t      parasite_move_start_run = { "run", 0, 1, parasite_frames_start_run, parasite_run, 0, 0, 0, 0, 0, 0 };
 static const mframe_t parasite_frames_run[] = {
     { ai_run, 30, NULL }, { ai_run, 30, NULL }, { ai_run, 22, NULL }, { ai_run, 19, NULL }, { ai_run, 24, NULL },
     { ai_run, 28, NULL }, { ai_run, 25, NULL },
 };
-static mmove_t      parasite_move_run = { "run", 2, 8, parasite_frames_run, NULL, 0, 0 };
+static mmove_t      parasite_move_run = { "run", 2, 8, parasite_frames_run, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t parasite_frames_pain1[] = {
     { ai_move, 0, NULL }, { ai_move, 0, NULL }, { ai_move, 0, NULL }, { ai_move, 0, NULL }, { ai_move, 0, NULL },
     { ai_move, 0, NULL }, { ai_move, 6, NULL }, { ai_move, 16, NULL }, { ai_move, -6, NULL }, { ai_move, -7, NULL },
     { ai_move, 0, NULL },
 };
-static mmove_t      parasite_move_pain1 = { "pain1", 0, 10, parasite_frames_pain1, parasite_start_run, 0, 0 };
+static mmove_t      parasite_move_pain1 = { "pain1", 0, 10, parasite_frames_pain1, parasite_start_run, 0, 0, 0, 0, 0, 0 };
 
 /* the tongue: out, hits on the third frame, drains for ten, back */
 static const mframe_t parasite_frames_drain[] = {
@@ -45,13 +45,13 @@ static const mframe_t parasite_frames_drain[] = {
     DR(-1), { ai_charge, 0, parasite_reel_in }, { ai_charge, -2, NULL }, { ai_charge, -2, NULL },
     { ai_charge, -3, NULL }, C0,
 };
-static mmove_t      parasite_move_drain = { "drain", 0, 17, parasite_frames_drain, parasite_start_run, 0, 0 };
+static mmove_t      parasite_move_drain = { "drain", 0, 17, parasite_frames_drain, parasite_start_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t parasite_frames_death[] = {
     { ai_move, 0, NULL }, { ai_move, 0, NULL }, { ai_move, 0, NULL }, { ai_move, 0, NULL }, { ai_move, 0, NULL },
     { ai_move, 0, NULL }, { ai_move, 0, NULL },
 };
-static mmove_t      parasite_move_death = { "death", 0, 6, parasite_frames_death, parasite_dead, 0, 0 };
+static mmove_t      parasite_move_death = { "death", 0, 6, parasite_frames_death, parasite_dead, 0, 0, 0, 0, 0, 0 };
 
 static mmove_t      *all_moves[] = {
     &parasite_move_stand, &parasite_move_start_run, &parasite_move_run, &parasite_move_pain1, &parasite_move_drain,
@@ -190,16 +190,7 @@ static void         parasite_die(g_ent *self, g_ent *attacker, int damage, const
 
 void                SP_monster_parasite(g_ent *self)
 {
-    unsigned        i;
-
-    for (i = 0; i < sizeof(all_moves) / sizeof(all_moves[0]); ++i)
-    {
-        mmove_t *m = all_moves[i];
-        int     a = model_anim(self->mdl, m->anim);
-
-        m->first = self->mdl->anims[a].first + m->from;
-        m->last = self->mdl->anims[a].first + m->to;
-    }
+    M_ResolveMoves(self, all_moves, sizeof(all_moves) / sizeof(all_moves[0]));
     self->mins[0] = self->mins[1] = -FIX(16);
     self->mins[2] = -FIX(24);
     self->maxs[0] = self->maxs[1] = FIX(16);

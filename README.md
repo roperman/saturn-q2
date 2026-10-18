@@ -66,7 +66,12 @@ and over half of each level's never came), more monsters and items.
   in pieces, as Quake's gibs. For the retail game's maps, seven more of its
   monsters (their models and sounds from its own `pak0.pak`, see Building):
   the gladiator, the iron maiden, the icarus, the technician, the brains,
-  the mutant and the tank commander.
+  the mutant and the tank commander. A level's monster models go on the
+  RAM cart after the level; where it hasn't room for all of them, the
+  kinds it has fewest of are left out. To fit more, these monsters' idle,
+  pain and death animations keep a third or a half of their frames and
+  the game draws between the kept ones (`tools/models.txt`, "/n" on an
+  animation; take it off for every frame).
 - Weapons: blaster, shotgun, super shotgun, machinegun, chaingun, grenade
   launcher, rocket launcher. Quake's damage and fire rates, radius damage,
   and the weapon drawn in your hands.

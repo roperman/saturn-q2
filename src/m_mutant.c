@@ -25,45 +25,45 @@ static const mframe_t mutant_frames_stand[] = {
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
     S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0, S0,
 };
-static mmove_t      mutant_move_stand = { "stand", 0, 50, mutant_frames_stand, NULL, 0, 0 };
+static mmove_t      mutant_move_stand = { "stand", 0, 50, mutant_frames_stand, NULL, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t mutant_frames_run[] = {
     { ai_run, 40, NULL }, { ai_run, 40, mutant_step }, { ai_run, 24, NULL },
     { ai_run, 5, mutant_step }, { ai_run, 17, NULL }, { ai_run, 10, NULL },
 };
-static mmove_t      mutant_move_run = { "run", 0, 5, mutant_frames_run, NULL, 0, 0 };
+static mmove_t      mutant_move_run = { "run", 0, 5, mutant_frames_run, NULL, 0, 0, 0, 0, 0, 0 };
 
 /* "attack" is attack01-attack15: the leap, then the claws */
 static const mframe_t mutant_frames_jump[] = {
     C0, { ai_charge, 17, NULL }, { ai_charge, 15, mutant_jump_takeoff }, { ai_charge, 15, NULL },
     { ai_charge, 15, mutant_check_landing }, C0, { ai_charge, 3, NULL }, C0,
 };
-static mmove_t      mutant_move_jump = { "attack", 0, 7, mutant_frames_jump, mutant_run, 0, 0 };
+static mmove_t      mutant_move_jump = { "attack", 0, 7, mutant_frames_jump, mutant_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t mutant_frames_attack[] = {
     C0, C0, { ai_charge, 0, mutant_hit_left }, C0, C0, { ai_charge, 0, mutant_hit_right }, { ai_charge, 0, mutant_check_refire },
 };
-static mmove_t      mutant_move_attack = { "attack", 8, 14, mutant_frames_attack, mutant_run, 0, 0 };
+static mmove_t      mutant_move_attack = { "attack", 8, 14, mutant_frames_attack, mutant_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t mutant_frames_pain1[] = {
     { ai_move, 4, NULL }, { ai_move, -3, NULL }, { ai_move, -8, NULL }, { ai_move, 2, NULL }, { ai_move, 5, NULL },
 };
-static mmove_t      mutant_move_pain1 = { "pain1", 0, 4, mutant_frames_pain1, mutant_run, 0, 0 };
+static mmove_t      mutant_move_pain1 = { "pain1", 0, 4, mutant_frames_pain1, mutant_run, 0, 0, 0, 0, 0, 0 };
 static const mframe_t mutant_frames_pain2[] = {
     { ai_move, -24, NULL }, { ai_move, 11, NULL }, { ai_move, 5, NULL }, { ai_move, -2, NULL }, { ai_move, 6, NULL },
     { ai_move, 4, NULL },
 };
-static mmove_t      mutant_move_pain2 = { "pain2", 0, 5, mutant_frames_pain2, mutant_run, 0, 0 };
+static mmove_t      mutant_move_pain2 = { "pain2", 0, 5, mutant_frames_pain2, mutant_run, 0, 0, 0, 0, 0, 0 };
 static const mframe_t mutant_frames_pain3[] = {
     { ai_move, -22, NULL }, { ai_move, 3, NULL }, { ai_move, 3, NULL }, { ai_move, 2, NULL }, { ai_move, 1, NULL },
     { ai_move, 1, NULL }, { ai_move, 6, NULL }, { ai_move, 3, NULL }, { ai_move, 2, NULL }, M0, { ai_move, 1, NULL },
 };
-static mmove_t      mutant_move_pain3 = { "pain3", 0, 10, mutant_frames_pain3, mutant_run, 0, 0 };
+static mmove_t      mutant_move_pain3 = { "pain3", 0, 10, mutant_frames_pain3, mutant_run, 0, 0, 0, 0, 0, 0 };
 
 static const mframe_t mutant_frames_death1[] = { M0, M0, M0, M0, M0, M0, M0, M0, M0 };
-static mmove_t      mutant_move_death1 = { "death1", 0, 8, mutant_frames_death1, mutant_dead, 0, 0 };
+static mmove_t      mutant_move_death1 = { "death1", 0, 8, mutant_frames_death1, mutant_dead, 0, 0, 0, 0, 0, 0 };
 static const mframe_t mutant_frames_death2[] = { M0, M0, M0, M0, M0, M0, M0, M0, M0, M0 };
-static mmove_t      mutant_move_death2 = { "death2", 0, 9, mutant_frames_death2, mutant_dead, 0, 0 };
+static mmove_t      mutant_move_death2 = { "death2", 0, 9, mutant_frames_death2, mutant_dead, 0, 0, 0, 0, 0, 0 };
 
 static mmove_t      *all_moves[] = {
     &mutant_move_stand, &mutant_move_run, &mutant_move_jump, &mutant_move_attack, &mutant_move_pain1,
@@ -218,16 +218,7 @@ static void         mutant_die(g_ent *self, g_ent *attacker, int damage, const s
 
 void                SP_monster_mutant(g_ent *self)
 {
-    unsigned        i;
-
-    for (i = 0; i < sizeof(all_moves) / sizeof(all_moves[0]); ++i)
-    {
-        mmove_t *m = all_moves[i];
-        int     a = model_anim(self->mdl, m->anim);
-
-        m->first = self->mdl->anims[a].first + m->from;
-        m->last = self->mdl->anims[a].first + m->to;
-    }
+    M_ResolveMoves(self, all_moves, sizeof(all_moves) / sizeof(all_moves[0]));
     self->mins[0] = self->mins[1] = -FIX(32);
     self->mins[2] = -FIX(24);
     self->maxs[0] = self->maxs[1] = FIX(32);

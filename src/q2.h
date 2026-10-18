@@ -373,7 +373,7 @@ void                fx_reset(void);                         /* a new level: noth
 /* model.c: MD2 models (tools/bake_md2.py) */
 typedef struct { u16 v[4], tex, flags; } q_mpoly;           /* flags 1: a triangle (v[3] == v[2]) */
 typedef struct { u32 ofs; u8 w, h; u16 lut; } q_mtex;       /* lut: its colour table (of its skin's; if no lutmap) */
-typedef struct { char name[12]; u16 first, count; } q_manim;
+typedef struct { char name[12]; u16 first, lfirst; u8 count, stride; } q_manim;   /* (lfirst: its first frame as if every stride-th weren't thinned: the moves count in those) */
 typedef struct
 {
     int             nverts, npolys, nframes, nanims, nskins, ntex;
@@ -428,7 +428,7 @@ extern q_mdl        models[MDL_COUNT + VIEW_SLOTS];
 bool                model_parse(q_mdl *m, const u8 *b);     /* a baked model in memory: m its records */
 extern int          nmodels_loaded;
 void                models_load_all(void);                  /* tools/models.txt's this level uses, onto the cart */
-void                g_models_needed(bool *need);            /* (g_items.c) which of them */
+void                g_models_needed(int *count);            /* (g_items.c) which of them, and how many things use each */
 u32                 r_level_hw_bytes(u32 naxes);
 u32                 r_cart_after(void);     /* the cart the renderer takes once the models are in (model.c) */
 u32                 g_cart_need(void);      /* ...and the game's entities, where low work RAM hasn't room (g_main.c) */           /* (level.c: the high work RAM r_level will take) */

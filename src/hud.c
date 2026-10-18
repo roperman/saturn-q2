@@ -202,7 +202,12 @@ void                hud_draw(void)
                 ++n;
                 live += g_edicts[i].kind == EK_MONSTER;
             }
-        vdp_printf(8, 20, RGB(255, 255, 120), "WARP %d OF %d%s", live, n, models[WARP_ONLY].loaded ? "" : " NOT LOADED");
+        {
+            extern int warp_how;
+
+            vdp_printf(8, 20, RGB(255, 255, 120), "WARP %d OF %d%s %s", live, n, models[WARP_ONLY].loaded ? "" : " NOT LOADED",
+                       warp_how == 1 ? "SPOT" : warp_how == 2 ? "OWN" : "-");
+        }
     }
 #endif
 #ifdef MEDIC_TEST

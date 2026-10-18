@@ -594,7 +594,7 @@ int                 g_monster_model(int c)
     static const s8 mdl[] = {
         MDL_SOLDIER, MDL_SOLDIER, MDL_SOLDIER, MDL_INFANTRY, MDL_GUNNER, MDL_BERSERK, MDL_TANK, MDL_FLYER, MDL_PARASITE,
         MDL_GLADIATOR, MDL_CHICK, MDL_HOVER, MDL_FLOATER, MDL_BRAIN, MDL_MUTANT, MDL_CTANK, MDL_MEDIC,
-        -1, -1, MDL_BOSS2, -1, -1, -1,      /* (the barracuda shark, the supertank, the Jorg, the Makron: to come) */
+        -1, MDL_SUPERTANK, MDL_BOSS2, -1, -1, -1,   /* (the barracuda shark, the Jorg, the Makron: to come) */
     };
     _Static_assert(sizeof(mdl) == C_MONSTER_LAST - C_MONSTER_FIRST + 1, "g_monster_model: a model a monster class");
     return c >= C_MONSTER_FIRST && c <= C_MONSTER_LAST ? mdl[c - C_MONSTER_FIRST] : -1;
@@ -757,7 +757,7 @@ __attribute__((cold)) void g_overlays_load(void)
         { MDL_GLADIATOR, "GLADIATO.OVL" }, { MDL_CHICK, "CHICK.OVL" }, { MDL_HOVER, "HOVER.OVL" },
         { MDL_FLOATER, "FLOATER.OVL" }, { MDL_BRAIN, "BRAIN.OVL" }, { MDL_MUTANT, "MUTANT.OVL" },
         { MDL_CTANK, "TANK.OVL" },      /* (the tank commander: the tank's code with its own model) */
-        { MDL_MEDIC, "MEDIC.OVL" },     { MDL_BOSS2, "BOSS2.OVL" },
+        { MDL_MEDIC, "MEDIC.OVL" },     { MDL_BOSS2, "BOSS2.OVL" },     { MDL_SUPERTANK, "SUPERTAN.OVL" },
     };
     unsigned        i;
 

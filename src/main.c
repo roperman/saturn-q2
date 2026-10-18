@@ -1189,6 +1189,7 @@ static __attribute__((cold)) void         warp_next(void)
 
 /* debugging: in front of the next monster, item or barrel, facing it */
 static int          warp_e = -1;
+int                 warp_how;               /* (the HUD's WARP line: 1 a clear spot, 2 its own spot) */
 
 static __attribute__((cold)) void         warp_ent(bool items)
 {
@@ -1207,20 +1208,32 @@ static __attribute__((cold)) void         warp_ent(bool items)
         if (e->mdl != &models[WARP_ONLY])
             continue;                       /* (OPT=-DWARP_ONLY=MDL_x: that model's alone) */
 #endif
-        for (a = 0; a < 0x10000; a += 0x2000)
+        for (a = 0; a < 0x30000; a += 0x2000)
         {
             int     ang = (e->yaw + a) & 0xFFFF;
             int     d = 100 + 3 * imax((e->maxs[0] >> 16) - 16, 0);    /* (further from a big one: the hornet's 56) */
-            s32     p[3];
+            s32     p[3], mid[3];
             q_trace t;
 
+            d -= 48 * (a >> 16);            /* (the second and third times round, nearer) */
             p[0] = e->origin[0] + fcos(ang) * d;
             p[1] = e->origin[1] + fsin(ang) * d;
-            p[2] = e->origin[2] + FIX(16);
+            p[2] = e->origin[2] + e->mins[2] + FIX(40);     /* (16 over its feet: a boss's origin is at them) */
             t = pm_trace(p, p);
             if (t.startsolid || lv.leafs[level_leaf(p)].cluster < 0)
                 continue;
+            {   /* (to just outside its box, at its middle's height: a wall between is a spot in the next room) */
+                int r = (e->maxs[0] >> 16) + 24;
+
+                mid[0] = e->origin[0] + fcos(ang) * r;
+                mid[1] = e->origin[1] + fsin(ang) * r;
+                mid[2] = e->origin[2] + (e->mins[2] + e->maxs[2]) / 2;
+                t = pm_trace(p, mid);
+                if (t.fraction < FIX(1) && !t.startsolid)
+                    continue;
+            }
             pmove_spawn(p);
+            warp_how = 1;
             cam.yaw = (ang + 0x8000) & 0xFFFF;
             {   /* (looking at its middle: a flyer's above you) */
                 s32 v[3];
@@ -1228,20 +1241,23 @@ static __attribute__((cold)) void         warp_ent(bool items)
                 v[0] = FIX(d);
                 v[1] = e->origin[2] + (e->mins[2] + e->maxs[2]) / 2 - (p[2] + FIX(22));
                 v[2] = 0;
-                cam.pitch = -vectoyaw(v);
-                if (cam.pitch > 0x8000)
-                    cam.pitch -= 0x10000;
+                a = vectoyaw(v);
+                cam.pitch = a > 0x8000 ? 0x10000 - a : -a;   /* (positive looks down) */
             }
             return;
         }
-        {   /* (no clear spot about it: one parked in the solid until its moment; its own spot, flying through walls) */
+        {   /* (no clear spot about it: one parked in the solid until its moment, or in a tight spot; in front
+               of it at its middle's height, flying through walls) */
+            int     d = (e->maxs[0] >> 16) + 80;
             s32     p[3];
 
-            p[0] = e->origin[0];
-            p[1] = e->origin[1];
-            p[2] = e->origin[2] + e->maxs[2] + FIX(8);
+            p[0] = e->origin[0] + fcos(e->yaw) * d;
+            p[1] = e->origin[1] + fsin(e->yaw) * d;
+            p[2] = e->origin[2] + (e->mins[2] + e->maxs[2]) / 2 - FIX(22);
             pmove_spawn(p);
-            cam.yaw = e->yaw;
+            warp_how = 2;
+            cam.yaw = (e->yaw + 0x8000) & 0xFFFF;
+            cam.pitch = 0;
             pl.noclip = true;
             return;
         }

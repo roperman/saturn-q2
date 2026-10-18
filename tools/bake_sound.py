@@ -56,6 +56,7 @@ MONSTER_SOUNDS = {
     "mut_": ("monster_mutant",),
     "med_": ("monster_medic",),
     "bh_": ("monster_boss2",),
+    "bt_": ("monster_supertank",),
 }
 # monsters a level has that are left out anyway (none now: the cart has room, OVERNIGHT.md 50)
 LEFT_OUT = {}
@@ -196,6 +197,13 @@ SOUNDS = [
     ("bh_death", "bosshovr/bhvdeth1", 1.5, 127),
     ("bh_rocket", "tank/tnkatck1", 0.5, 115),
     ("bh_mg", "infantry/infatck1", 0.15, 110),
+    ("bt_pain1", "bosstank/btkpain1", 0.8, 115),
+    ("bt_pain2", "bosstank/btkpain2", 0.8, 115),
+    ("bt_pain3", "bosstank/btkpain3", 0.8, 115),
+    ("bt_death", "bosstank/btkdeth1", 1.5, 120),
+    ("bt_tread", "bosstank/btkengn1", 0.4, 90),
+    ("bt_rocket", "tank/tnkatck1", 0.5, 115),
+    ("bt_mg", "infantry/infatck1", 0.15, 110),
     ("player_pain25", "player/male/pain25_1", 0.6, 120),
     ("player_pain50", "player/male/pain50_1", 0.7, 120),
     ("player_pain75", "player/male/pain75_1", 0.6, 120),

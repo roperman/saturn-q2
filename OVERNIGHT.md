@@ -5216,3 +5216,43 @@ Where it fits: biggun has 2.2 MB of cart to spare with it, space 1.2
 MB; hangar2 (100 KB spare before it) hasn't the room, and the loader
 leaves it out there as the rarest kind. That's one for the per-map
 choice (section 99).
+
+## 102. The supertank
+
+The supertank (monster_supertank: Power Plant's, and Security's
+trigger-spawned end boss), the third of section 100's list:
+m_supertank.c, an overlay, its model (boss1) and sounds from the retail
+pak0.pak. Quake's: 1500 health, a walker with a 128-unit box 112
+tall; within 160 units, or three times in ten beyond, its chaingun
+(six bullets a burst, 6 of damage each, the burst again while it sees
+you nine times in ten), else three rockets one after another (50 each).
+Hurt below half its skin's the damaged one, and a light hit mostly
+doesn't stop it (Quake's one in five). Dying it goes down over 24
+frames and then blows up eight times over its body before it goes, as
+the hornet. Left out: its walk along a path, its turns and backing up,
+two attacks Quake never uses, and its search calls; its tread sound
+plays as its run begins, as Quake's.
+
+Its mesh, like the hornet's, was over the renderer (936 vertices, 1612
+triangles): section 101's "mesh=400" collapse makes it 400 and 548,
+361 polygons (187 quads). 348 KB with its idle every third frame and
+its death every other. Power Plant has 962 KB of cart to spare before
+it, Security 1.8 MB: it fits both.
+
+The warp's spot search had never worked for a boss: the spot's height
+was 16 over the monster's origin, a walker's 24 up its box, so for a
+boss (its origin at its feet) the player's box began in the floor and
+the search fell through to the own-spot fallback every time. It's 16
+over the monster's feet now (origin + mins + 40). The search also
+rejects a spot with a wall between it and the monster (a trace to just
+outside its box at its middle's height) and goes round again nearer,
+and the fallback stands you in front of the monster at its middle's
+height with noclip on, rather than over it in the ceiling.
+
+Seen on security (Mednafen, the supertank alone from the start, god
+mode on): the warp finds a spot 244 units off now (SPOT on the HUD),
+and the supertank's there, its camouflaged hull and treads, turning
+on you and coming, the screen flashing red as its rockets and bullets
+land; no VDP1 stall. Power Plant's stands in a spot the search still
+finds no room about (the fallback took you into its ceiling before,
+in front of it now). Not seen yet: its pains and its death.

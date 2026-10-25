@@ -6682,6 +6682,9 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
 #else
     i = 0;
 #endif
+#ifdef NO_MODEL_DLIGHTS
+    nml = 0;                                /* (the test: model.c ents_light_dyn) */
+#endif
 #if MODEL_LIGHTS > 0
     {
     int             sel[MODEL_LIGHTS], ns = i < nml ? lights_pick(msrc, nml, e->origin, sel) : 0;

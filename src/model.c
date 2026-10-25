@@ -423,6 +423,10 @@ void                ents_light_dyn(bool pvs)
         }
         c = fcos(e->yaw);
         sn = fsin(e->yaw);
+#ifdef NO_MODEL_DLIGHTS
+        nlag = 0;                           /* (OPT=-DNO_MODEL_DLIGHTS: the models unlit by the dynamic lights, a test of
+                                               what their lighting costs the frame: OVERNIGHT.md 106) */
+#endif
 #if MODEL_LIGHTS > 0
         {
         int             sel[MODEL_LIGHTS], ns = lights_pick(lag, nlag, e->origin, sel);

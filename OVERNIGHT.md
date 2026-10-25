@@ -5489,3 +5489,18 @@ models' polygons being made into VDP1's commands, so many a model;
 the walls the master's 41. Fewer polygons a model (tools/bake_md2.py's
 quad pairing, a third of them triangles still) and the far mesh
 sooner are the levers that reach the frame.
+
+Addendum (the card, SUITE 63: the models to the DSP nearest first,
+OPT=-DDSP_NEAR, the second loop): the yard fight 90.5 ms a frame
+(CPU 87.9, game 14.5) against SUITE 61's 88.7 with the default order:
+worse, by more than the runs' noise, and the new MODELS line says why
+the order never mattered: 18.4 models a frame, 13.7 the DSP's and
+5.7 the CPUs' own, and WAIT 0.2 ms a frame for the DSP's blocks, both
+CPUs together. The slave doesn't wait for the DSP's vertices, so the
+lighting it saved wasn't hiding that wait either; the first order
+stays. What the line does show: a third of the models a frame are
+transformed by the CPUs (mverts_asm, 4 to 6 ms of the pair's time)
+because the DSP's 64 blocks are full, while the DSP sits idle after
+its batch; section 95's second batch was the try at that, and its
+untried rescue (a pass of their own after each CPU's others) is the
+way back to it.

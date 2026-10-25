@@ -5504,3 +5504,23 @@ because the DSP's 64 blocks are full, while the DSP sits idle after
 its batch; section 95's second batch was the try at that, and its
 untried rescue (a pass of their own after each CPU's others) is the
 way back to it.
+
+Addendum (the card, SUITE 64: nearest first, sampled): 92.6 ms a
+frame (CPU 89.9, game 15.0), MODELS 18.4 a frame, 8.6 the CPUs' own
+and 10.4 the DSP's, WAIT 0.1: nearest first sends the big near models
+to the DSP first, so its 64 blocks fill sooner and more models fall
+to the CPUs, which is where its 2 ms went. The slave: draw_model 21.9,
+mpolys_asm 10.8, mcmds_asm 8.8, mlight2_asm 8.6, face_asm 5.6,
+mverts_asm 4.6, model_shade 3.2, tex_load 3.0, face_cells 2.9,
+slave_main 2.2, cells_asm 2.1, grid_face_asm 2.1: no idle to speak of,
+on either CPU. In every suite the fight's frame is 2.6 ms over its
+CPU time, the swap's, so the frame is the CPUs' work, and the pair's
+work didn't fall with the lighting's 4.7 ms: the models' other
+routines rose by about as much on both CPUs, a change in the fight's
+course or in the pair's split that four runs can't separate from each
+other. What the suites settle: the DSP's vertices never keep the
+slave waiting; a third to a half of the models a frame are
+transformed by the CPUs for want of DSP blocks (mverts_asm, 6 to 7
+ms of the pair's time); the models' polygons into commands are 60 ms
+of the pair's 180. The levers are those two, and both are the models'
+polygon count's.

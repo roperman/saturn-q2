@@ -5449,3 +5449,11 @@ batch, reads and writes VDP1's VRAM at 2.3 cycles a word (68), and
 can't reach low work RAM at all (the SCU's DMA has no path to it); if
 its traffic there costs the renderer's command writes little, VDP1's
 VRAM is a workspace for a lighting job in a program of the DSP's own.
+
+Addendum (the card, SUITE 62's timings page): MLIGHT 80.3 cycles a
+normal, MLIGHT V2 65.7, MLIGHT DIFF 0, on the suite's strong light
+(most of its normals clamped: the second loop's slower path), 18
+percent fewer. And the DSP's VDP1 question: ST VDP1+DSPWV 12.1 cycles
+against ST VDP1's quiet 11.5, MISS HW+DSPWV 9.2 against MISS HW's
+10.2: the DSP writing VDP1's VRAM costs the CPUs nothing they can
+measure. VDP1's VRAM is the DSP's free workspace.

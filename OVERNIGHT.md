@@ -5473,3 +5473,19 @@ the slave's lighting had been overlapping a wait for the DSP's
 vertices, which it now reaches sooner inside draw_model, or the pair
 split the models differently this run; SUITE 61, the same loop
 without the sampler, against 59's 89.5 says which.
+
+Addendum (the card, SUITE 61): the yard fight 88.7 ms a frame (CPU
+86.1, game 14.4) against SUITE 59's 89.5 with the first loop: 0.8 ms
+for the loop's 4.7. The lighting isn't on the critical path, then:
+the pair share the models as each comes free, and what the slave
+saves comes back as more models its way and waits the frame already
+had. The second loop is the default now (OPT=-DMLIGHT_V1 the first),
+a millisecond being a millisecond; the DSP lighting job of the
+paragraph above isn't started: it could take at most the same 8 ms
+off the slave for the same small share of the frame. Where the frame
+is: the slave's draw_model, mpolys_asm, mcmds_asm and mverts_asm,
+some 48 ms of its frame, and the master's 12 of the same, are the
+models' polygons being made into VDP1's commands, so many a model;
+the walls the master's 41. Fewer polygons a model (tools/bake_md2.py's
+quad pairing, a third of them triangles still) and the far mesh
+sooner are the levers that reach the frame.

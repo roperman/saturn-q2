@@ -445,8 +445,8 @@ int                 model_anim(const q_mdl *m, const char *name);
 void                model_shade(u16 *out, const u8 *sh, const u16 *ll);    /* 162 normals' Gouraud: a light, a yaw's shading */
 void                mlight(u16 *gt, const s16 *nrm, s32 mx, s32 my, s32 mz, s32 f, const q_dlight *l);   /* (model.c) */
 void                mlight_asm(u16 *gt, const s16 *nrm, const s16 *k);
-void                mlight2_asm(u16 *gt, const s16 *nrm, const s16 *k, const u32 *tab);   /* (OPT=-DMLIGHT_V2: src/mlight2.s, tab
-                                                                                           from mlight2_table) */
+void                mlight2_asm(u16 *gt, const s16 *nrm, const s16 *k, const u32 *tab);   /* (src/mlight2.s, tab from
+                                                                                           mlight2_table; -DMLIGHT_V1: mlight_asm) */
 void                mlight2_table(u32 *tab, const s16 *k);  /* a dynamic light on 162 normals (src/mlight.s): k = its
                                                                direction in the model's space (2.14) and colours x strength >> 12 */
 #ifdef MLIGHT_CHECK

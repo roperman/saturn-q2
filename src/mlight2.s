@@ -1,5 +1,5 @@
-! A dynamic light's weight on a model's 162 normals, the second way (OPT=-DMLIGHT_V2; src/mlight.s
-! is the first): the three colours added and clamped together rather than one at a time
+! A dynamic light's weight on a model's 162 normals, the second way, the default (src/mlight.s is
+! the first, OPT=-DMLIGHT_V1): the three colours added and clamped together rather than one at a time
 ! (OVERNIGHT.md 106).
 !
 !   void mlight2_asm(u16 *gt, const s16 *nrm, const s16 *k, const u32 *tab)

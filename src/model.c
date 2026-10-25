@@ -338,20 +338,20 @@ void                mlight2_table(u32 *tab, const s16 *k)
     }
 }
 
-/* a light's weights on the 162 normals: src/mlight.s (OPT=-DNO_MLIGHT_ASM: the C, which it rounds
-   a unit from at most; -DMLIGHT_V2: src/mlight2.s, the colours together; -DMLIGHT_CHECK: the asm
-   and the C both, compared) */
+/* a light's weights on the 162 normals: src/mlight2.s, the colours together (OPT=-DMLIGHT_V1:
+   src/mlight.s, one at a time, as before; -DNO_MLIGHT_ASM: the C, which they round a unit from
+   at most; -DMLIGHT_CHECK: the asm and the C both, compared) */
 void                mlight(u16 *gt, const s16 *nrm, s32 mx, s32 my, s32 mz, s32 f, const q_dlight *l)
 {
 #if !defined(NO_MLIGHT_ASM) || defined(MLIGHT_CHECK)
     s16             k[6];
-#ifdef MLIGHT_V2
-    u32             tab[32];
+#ifndef MLIGHT_V1
+    u32             tab[32];                /* (the second loop's, the default: OPT=-DMLIGHT_V1 is the first) */
 #endif
 
     k[0] = (s16)mx; k[1] = (s16)my; k[2] = (s16)mz;
     k[3] = (s16)((l->r * f) >> 12); k[4] = (s16)((l->g * f) >> 12); k[5] = (s16)((l->b * f) >> 12);
-#ifdef MLIGHT_V2
+#ifndef MLIGHT_V1
     mlight2_table(tab, k);
 #define MLIGHT_ASM(g) mlight2_asm(g, nrm, k, tab)
 #else

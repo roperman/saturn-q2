@@ -962,8 +962,10 @@ class Baker:
                 elif "targetname" not in e:
                     flags |= MF_PROXIMITY
             elif cls in ("func_wall", "func_explosive", "func_train", "func_rotating", "func_door_rotating",
-                         "func_door_secret", "func_object", "func_killbox", "func_water", "func_conveyor"):
+                         "func_door_secret", "func_object", "func_water", "func_conveyor"):
                 kind = MV_STATIC
+            # (func_killbox stays MV_NONE: a brush that kills what's in it when triggered, never solid or
+            # drawn; biggun's spans the whole map, and had the player stuck in it)
             elif cls == "worldspawn":
                 kind = MV_STATIC
             if kind == MV_DOOR and "team" in e:

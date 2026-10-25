@@ -5355,3 +5355,23 @@ seen yet.
 
 That's every monster in the retail game: the fourteen from before, the
 medic, the hornet, the supertank, Jorg and the Makron, the shark.
+
+## 105. A killbox isn't a wall
+
+The first of the monster builds on a Saturn (section 100 to 104's,
+twelve retail maps as the first level): Jorg and the Makron, the medic
+and the shark as on Mednafen; on biggun you couldn't move at all. The
+map has a func_killbox, the brush that kills what's in it when its
+trigger fires, and biggun's spans the whole map; the bake had every
+func_ brush model but the doors, buttons and lifts as a static solid
+(tools/bake_map.py movers: MV_STATIC), so the player stood inside a
+wall from the first frame. A killbox is MV_NONE now, neither solid nor
+drawn. Only biggun has one among the 38 retail maps (the demo's three
+have none); its survey bake and card builds were made again, and on
+Mednafen the player walks, the door warp works and the hornet wakes.
+Section 97's survey had checked that the maps load, not that you can
+walk in them.
+
+Also found on the card: security's supertank is trigger-spawned, so a
+warp to it finds nothing until the level's own trigger fires; the card
+build has it in from the start now (OPT=-DSPAWN_ALL).

@@ -4877,6 +4877,26 @@ instead of seven cold ones. OPT=-DNO_NORMS_HOT is the cart's. Mednafen,
 MLIGHT_CHECK: 0 of 1,817,802 normals differ from the C. SUITE 59 (the
 yard fight) and 60 (sampled) are packed for the Saturn's number.
 
+Addendum (2026-10-25, the card): SUITE 59's yard fight 89.5 ms a frame
+(CPU 86.9, game 14.2) against SUITE 57's 91.7 and 53's 91.2: 2 ms, 2
+percent, for the normals read through the cache. The held and turned
+views the same as before (CPU 2371 and 2097 us). HW 64 LW 220896 CA
+755712 SL 906, 1232 uploads, late 374 and 2626, none made or bad. The
+15 ms the sampler charged mlight_asm (94) was never all the normals'
+reads, then. SUITE 60 (sampled, 90.0 ms with the sampler) says so:
+the slave's mlight_asm 13.1 ms against SUITE 54's 15.0, the 2 ms
+seen, with draw_model 23.0 (23.1 before), mpolys_asm 9.0, mcmds_asm
+7.5, face_asm 5.2, mverts_asm 4.5, model_shade 3.2, tex_load 2.8,
+face_cells 2.4, grid_face_asm 1.9, cells_asm 1.9, slave_main 1.6; the
+master's face_cells 11.5, cells_asm 9.6, face_asm 8.9, grid_face_asm
+6.7, walk_asm 5.0, render_world 3.2, mpolys_asm 2.8, draw_model 2.8,
+g_trace 2.5, mcmds_asm 2.0, fb_add 2.0, tex_load 1.8. So 13 ms of
+mlight_asm is left for some 6,500 normals a frame, 57 cycles each,
+still twice the loop's count, and the normals now come from the
+cache: the time's in the loop's own stalls or its weights' writes.
+The next look is the loop itself (src/mlight.s), on the hardware's
+cycle counts, not the emulator's.
+
 ## 97. The loader keeps room for the renderer's tables
 
 The 19 retail maps that failed to load (92) all failed in level_alloc,

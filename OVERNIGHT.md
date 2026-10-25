@@ -5457,3 +5457,19 @@ percent fewer. And the DSP's VDP1 question: ST VDP1+DSPWV 12.1 cycles
 against ST VDP1's quiet 11.5, MISS HW+DSPWV 9.2 against MISS HW's
 10.2: the DSP writing VDP1's VRAM costs the CPUs nothing they can
 measure. VDP1's VRAM is the DSP's free workspace.
+
+Addendum (the card, SUITE 62's other pages): the yard fight 91.7 ms
+a frame (CPU 89.1, game 14.9) against SUITE 60's 90.0 with the same
+sampler, so the second loop took nothing off the frame though it took
+4.7 ms off itself: the slave's mlight2_asm 8.4 ms against mlight_asm's
+13.1, but its draw_model 25.7 against 23.0, mpolys_asm 9.9 (9.0),
+mcmds_asm 8.3 (7.5), mverts_asm 3.8 (4.5), model_shade 3.1, tex_load
+2.7, face_asm 5.2; and the master's models up too: mpolys_asm 4.1
+(2.8), mcmds_asm 2.9 (2.0), draw_model 2.6 (2.8), mverts_asm 2.0 (not
+in its twelve before), face_cells 11.0, face_asm 9.2, cells_asm 9.0,
+grid_face_asm 6.7, walk_asm 5.2, render_world 2.9, g_trace 2.6,
+fb_add 2.4. Held and turned views 2344 and 2097 us, as before. Either
+the slave's lighting had been overlapping a wait for the DSP's
+vertices, which it now reaches sooner inside draw_model, or the pair
+split the models differently this run; SUITE 61, the same loop
+without the sampler, against 59's 89.5 says which.

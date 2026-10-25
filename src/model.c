@@ -322,15 +322,41 @@ void                ent_lit_forget(void)
 }
 
 #ifndef NO_LIGHT_AHEAD
+/* (OPT=-DMLIGHT_V2) what each of the 32 steps of a normal's dot with the light adds to the
+   colours, for src/mlight2.s: the step's middle dot (2.14), its weight w = 0.35 + 0.65 dot, and
+   (k * w) >> 18 a colour, red and blue in the low word's 5-5-5 places, green in the high's */
+void                mlight2_table(u32 *tab, const s16 *k)
+{
+    int             i;
+
+    for (i = 0; i < 32; ++i)
+    {
+        s32 w = 5734 + (((i * 512 + 256) * 10650) >> 14);
+        u32 r = (u32)((k[3] * w) >> 18), g = (u32)((k[4] * w) >> 18), b = (u32)((k[5] * w) >> 18);
+
+        tab[i] = r | b << 10 | g << 21;
+    }
+}
+
 /* a light's weights on the 162 normals: src/mlight.s (OPT=-DNO_MLIGHT_ASM: the C, which it rounds
-   a unit from at most; -DMLIGHT_CHECK: both, compared) */
+   a unit from at most; -DMLIGHT_V2: src/mlight2.s, the colours together; -DMLIGHT_CHECK: the asm
+   and the C both, compared) */
 void                mlight(u16 *gt, const s16 *nrm, s32 mx, s32 my, s32 mz, s32 f, const q_dlight *l)
 {
 #if !defined(NO_MLIGHT_ASM) || defined(MLIGHT_CHECK)
     s16             k[6];
+#ifdef MLIGHT_V2
+    u32             tab[32];
+#endif
 
     k[0] = (s16)mx; k[1] = (s16)my; k[2] = (s16)mz;
     k[3] = (s16)((l->r * f) >> 12); k[4] = (s16)((l->g * f) >> 12); k[5] = (s16)((l->b * f) >> 12);
+#ifdef MLIGHT_V2
+    mlight2_table(tab, k);
+#define MLIGHT_ASM(g) mlight2_asm(g, nrm, k, tab)
+#else
+#define MLIGHT_ASM(g) mlight_asm(g, nrm, k)
+#endif
 #endif
 #if defined(NO_MLIGHT_ASM) || defined(MLIGHT_CHECK)
     {
@@ -339,7 +365,7 @@ void                mlight(u16 *gt, const s16 *nrm, s32 mx, s32 my, s32 mz, s32 
         int nn;
 
         memcpy(ref, gt, sizeof(ref));
-        mlight_asm(ref, nrm, k);
+        MLIGHT_ASM(ref);
 #else
         int nn;
 #endif
@@ -360,7 +386,7 @@ void                mlight(u16 *gt, const s16 *nrm, s32 mx, s32 my, s32 mz, s32 
         }
     }
 #else
-    mlight_asm(gt, nrm, k);
+    MLIGHT_ASM(gt);
 #endif
 }
 #ifdef MLIGHT_CHECK

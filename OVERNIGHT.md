@@ -5395,3 +5395,57 @@ walk in them.
 Also found on the card: security's supertank is trigger-spawned, so a
 warp to it finds nothing until the level's own trigger fires; the card
 build has it in from the start now (OPT=-DSPAWN_ALL).
+
+## 106. The lights' loop again, and the DSP's program memory
+
+SUITE 59 and 60 (96's addendum) left model lighting at 13 ms of the
+yard fight's frame, 57 cycles a normal, which section 94 had called
+two to three times the loop's count. Counted again, src/mlight.s is
+64 instructions a lit normal (58 facing away): 57 cycles is one an
+instruction with the MAC's extra and the branch, no stall at all,
+and the multiplier's waits (68: a MULS.W then STS 4 cycles) are in
+it. Two thirds of the 64 are the three colours: each unpacked from
+the 5-5-5 word, multiplied by the weight, added, clamped through the
+table, packed back, one after another.
+
+The second loop (src/mlight2.s, OPT=-DMLIGHT_V2) does the three at
+once. The dot product's 32 steps of a 32nd each get their colour
+adds worked out once a light (model.c mlight2_table: red and blue in
+a 5-5-5 word's places, green in another's), and a normal's colours
+are split the same way, red and blue in one word (the five zero bits
+between them and bit 15 take the carries), green in another: one add
+each, then a lane over 31 (its carry bit) is set to 31 by a bit trick,
+m = t - (t >> 5), (y | m) - t, and nothing to clamp skips it. 35
+instructions a normal, 55 with a clamp, the colours a unit apart from
+the first loop's at most (the step's rounding). The hardware timing
+suite (hwtest.c, OPT=-DHW_TEST) has both loops now, cycles a normal
+on 162 made-up normals, and their difference (channels more than a
+unit apart, none expected). SUITE 61 (the fight) and 62 (sampled,
+with the timings) are packed for the Saturn's number: 3 to 4 ms of
+the 13 expected.
+
+The DSP taking the dot products (section 27's OPT=-DDSP_LIGHT,
+xformml.dsp) was the other half of the plan, with its tables in low
+work RAM now that high is full. It doesn't build any more: it chained
+the texture maker after itself (dsp_maker_start, dsp_chain_params,
+gone with 68's maker), and the models' program it was a copy of has
+grown since from 205 instructions to the DSP's whole 256
+(obj/gen/xformm.h XFORMM_PROG_LEN), so there's no room in it for a
+lighting routine at all. Lighting on the DSP would mean a second
+program loaded and run in passes of its own, a new job, not a switch
+turned back on. Left.
+
+On Mednafen (SUITE 62's build, the timing pages at boot): MLIGHT 73.7
+cycles a normal, MLIGHT V2 62.6, MLIGHT DIFF 0 (no channel more than a
+unit apart), the fight's MLIGHT check 0 differences too. The emulator's
+counts are the emulator's (its loop's 73.7 against the Saturn's 57 in
+the fight): SUITE 62 gives the pair on the hardware. The test's light
+is a strong one, most of its normals clamped, the loop's slower path.
+
+Two more timings in the suite for the DSP question: a CPU's store to
+VDP1's VRAM, and its work RAM miss, while the DSP writes VDP1's VRAM
+(ST VDP1+DSPWV, MISS HW+DSPWV). The DSP is idle after the models'
+batch, reads and writes VDP1's VRAM at 2.3 cycles a word (68), and
+can't reach low work RAM at all (the SCU's DMA has no path to it); if
+its traffic there costs the renderer's command writes little, VDP1's
+VRAM is a workspace for a lighting job in a program of the DSP's own.

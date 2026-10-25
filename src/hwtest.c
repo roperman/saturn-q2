@@ -20,7 +20,7 @@
 #include "hwtest.h"                         /* (obj/gen: engine/hwtest.dsp, assembled) */
 
 #define ITERS           (512)               /* 8 operations each: 4096 */
-#define NT              (62)
+#define NT              (67)
 #define PER_PAGE        (15)
 #define HT_PAGES        ((NT + PER_PAGE - 1) / PER_PAGE)   /* (4: main.c's HB_PAGES counts them) */
 #define LWB             ((u8 *)0x00240000)  /* low work RAM, cart, VDP1 VRAM, VDP2 VRAM, sound RAM: */
@@ -42,7 +42,7 @@ static const char   ht_names[NT][14] __attribute__((section(".lwrodata"))) = {
     "HIT+DMA", "MISS HW+SLVH", "MISSCRT+SLVC", "MISS HW+SLVC",
     "MISSH+DSPWH16", "MISSH+DSPWH8", "MISSH+DSPRH16", "MISSC+DSPRC16", "MISSH+SLVLW", "MISSL+SLVLW", "MISSL+SLVH",
     "LD USE", "CODE 1K", "CODE 8K", "CODE8K+SLVH", "CODE8K+SLVLW", "ST HW+SLVH", "ST HW+SLVLW", "ST HW+DSPWH",
-    "DMA FLAG DIR", "DMA FLAG TAB",
+    "DMA FLAG DIR", "DMA FLAG TAB", "MLIGHT", "MLIGHT V2", "MLIGHT DIFF", "ST VDP1+DSPWV", "MISS HW+DSPWV",
 };
 static u8           *hwb;                   /* high work RAM: 64 KB to read, 64 KB a DMA's destination,
                                                128 KB the background's (a DMA's source, the DSP's, the slave's) */
@@ -287,6 +287,10 @@ static u32          ht_under(int k)
     case 59:
         ht_dsp(HWTEST_PROG_WRLOOP, hwb + 131072, 0);
         break;
+    case 65: case 66:                       /* (VDP1's VRAM as the DSP's workspace: a CPU's store there, and its work
+                                               RAM miss, while the DSP writes it: OVERNIGHT.md 106) */
+        ht_dsp(HWTEST_PROG_WRLOOP, VDP1B + 0x20000, 0);
+        break;
     }
     if (k == 55 || k == 56)
     {
@@ -294,8 +298,8 @@ static u32          ht_under(int k)
         slave_stop();
         return t;
     }
-    t = ht_cpu(k);
-    if ((k >= 36 && k <= 39) || (k >= 45 && k <= 48) || k == 59)
+    t = ht_cpu(k == 65 ? 16 : k == 66 ? 2 : k);
+    if ((k >= 36 && k <= 39) || (k >= 45 && k <= 48) || k == 59 || k >= 65)
         ht_dsp_stop();
     else if (k <= 41)
         while (scu_dma0_busy())
@@ -303,6 +307,58 @@ static u32          ht_under(int k)
     else
         slave_stop();
     return t;
+}
+
+/* cycles a normal of a dynamic light's weights on a model (src/mlight.s, or src/mlight2.s): 64 times
+   the 162, on 162 made-up normals and a light's direction and colours in high work RAM, the table
+   of src/mlight2.s's built as src/model.c mlight does (OVERNIGHT.md 106: the loop's count on a
+   Saturn, which the emulator can't give) */
+static s32          ht_mlight(int which)
+{
+    s16             *nrm = (s16 *)(hwb + 4096), k[6];
+    u16             *gt = (u16 *)(hwb + 8192), *gt2 = (u16 *)(hwb + 8192 + 512);
+    u32             *tab = (u32 *)(hwb + 12288), t, seed = 12345;
+    int             i;
+
+    for (i = 0; i < 162 * 3; ++i)
+    {
+        seed = seed * 1103515245u + 12345u;
+        nrm[i] = (s16)((seed >> 16) & 0x3FFF) - 8192;   /* (-0.5..0.5 in 2.14: a spread of directions) */
+    }
+    for (i = 0; i < 162; ++i)
+        gt[i] = (u16)(0x8000 | (i & 31) | ((i * 3) & 31) << 5 | ((i * 7) & 31) << 10);
+    k[0] = 11585; k[1] = 11585; k[2] = 0;   /* (a unit direction, 2.14) */
+    k[3] = 31 * 12; k[4] = 24 * 12; k[5] = 8 * 12;     /* (a strong orange light: 5-bit colours x (f >> 12)) */
+    mlight2_table(tab, k);
+    if (which == 2)
+    {
+        /* (the two loops' colours a channel apart at most? the channels further apart, x 10) */
+        int     d = 0;
+
+        memcpy(gt2, gt, 162 * 2);
+        mlight_asm(gt, nrm, k);
+        mlight2_asm(gt2, nrm, k, tab);
+        for (i = 0; i < 162; ++i)
+        {
+            int c;
+
+            for (c = 0; c < 15; c += 5)
+            {
+                int a = (gt[i] >> c) & 31, b = (gt2[i] >> c) & 31;
+
+                d += (a > b ? a - b : b - a) > 1;
+            }
+        }
+        return d * 10;
+    }
+    t = frt_read();
+    for (i = 0; i < 64; ++i)
+        if (which)
+            mlight2_asm(gt, nrm, k, tab);
+        else
+            mlight_asm(gt, nrm, k);
+    t = (frt_read() - t) & 0xFFFF;
+    return (s32)(t * FRT_DIV * 10 / (64 * 162));
 }
 
 /* cycles from a level 0 transfer's enable until the SCU shows it active (D0_ACTIVE): a direct one, or
@@ -361,7 +417,9 @@ void                ht_run(void)
     base = ht_cpu(0);
     for (k = 0; k < NT; ++k)
     {
-        if (k >= 60)
+        if (k >= 62 && k <= 64)
+            ht_res[k] = ht_mlight(k - 62);
+        else if (k == 60 || k == 61)
             ht_res[k] = ht_dma_lag(k == 61);
         else if (k <= 26)
         {

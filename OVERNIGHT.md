@@ -5560,3 +5560,70 @@ quantising, and the lit table kept split (red and blue in a long's low
 half, green in its high) so a light is one add and one carry test a
 normal, 11 instructions against 35, the combine moved to the shading's
 per-vertex read: 8.6 ms to about 3, 3 to 4 ms off the frame.
+
+## 107. The models' lights on the DSP, a frame ahead
+
+SUITE 65 (106's addendum) said the slave's 8.6 ms of model lighting is
+two thirds on the frame's critical path, and that the DSP, which does
+the models alone in the lean build, is busy about 10 of the 83 ms and
+idle the rest. So the lighting goes to the DSP after all, but not
+where the old DSP_LIGHT put it (each model's weights before its
+vertices, on the critical path, in a program with no room): a second
+program, engine/mlit.dsp, chained after the models' from the texture
+maker's place (RAM0[56]: xformm.dsp loads whatever block is there when
+its models are done; this one ends by loading xformm.dsp back from
+RAM0[57], as make.dsp does), and it works out the NEXT frame's tables
+in the DSP's idle time. OPT=-DMLIGHT_DSP.
+
+What's a frame old: the slave lists the jobs as its first job of the
+frame (after ents_shade, so the bases are made), from this frame's
+lagged lights at the models' places and yaws this frame; the DSP makes
+the tables after the frame's models and writes the frame's tag back;
+the next frame's first job finds the tag, forgets the cache's lines of
+that pool, and gives each model that still lives (the same entity,
+model and owner) its table. So a model's own movement lags its light a
+frame, as the light already lagged the effects: a turning monster's
+light is a frame behind. A model near a light with no table (new, more
+than the pool, off the screen when listed) is lit by draw_model as it
+draws, as before (g_lit -2).
+
+Memory: high work RAM has 112 bytes free (the rest goes to the DSP's
+"more" blocks), so the block is in VDP1's VRAM, taken before the
+texture slots (19 KB with the pool at 16: the program, the models'
+program copy, the head, the normals, two frames' jobs, two frames'
+tables of 88 words), and the old ent_lit pool (1.9 KB of high work
+RAM) goes. The CPUs read the tables through the cache (the cached
+alias of VRAM, the lines purged first); the DSP reads the normals, the
+jobs and each model's gbase (high work RAM: q_entity reordered to put
+it on a long) with the add value ST-210 No. 27 asks for, and writes
+with the B-bus's. The DSP waits for the slave's tag to match the
+master's (RAM0[58], written as the models start), 12000 polls at most,
+then gives up with no word written.
+
+The arithmetic, exact against the C: a light's job words are the
+direction to it in the model's space as 0.65 of 2.14 >> 6 (at most
+166), C = 5734 << 8, and its colour at the model (l->r f) >> 14, at
+most 124; for a normal n, w = C + max(n . k, 0) is 2^22 times the
+weight 0.35 + 0.65 cos, and c w is 2^24 times what the light adds to
+that colour, summed unclamped in a long (the base unpacked to 2^24 a
+unit with the multiplier; 4 lights and the base stay under 2^32), then
+each colour is (sum rl8) & 255 clamped to 31 and packed 5-5-5 with bit
+15, two normals to a word as the u16 tables lie. 256 words exactly,
+with the loader at 253: the constants come from the host once a level
+(the data RAM keeps them) and the jobs' count rides in the head.
+About 17 cycles a normal a light, 44 the unpack, 45 the pack: a
+monster with two lights is some 1.2 ms of the DSP, a frame of 18
+models about 25 ms of its 70 idle.
+
+Mednafen (OPT="-DMLIGHT_DSP -DMLIGHT_DSP_CHECK", a HUD line): a minute
+of demo1 with the blaster going, 50 jobs listed, 48 tables given, 48
+checked against the same sums on the CPU from the base saved at job
+time, 0 wrong. (Compared against the live base instead, 4 of 36
+differed: the base had changed in the frame between, which is the
+frame's lag, not the DSP.) One snag on the way: the DSP read its head
+right after its own program while the host had put the models'
+program copy there first (word 512, not 256): it polled to its limit
+every frame, no table ever given. The card decides: SUITE 67 (the yard
+fight, lit by the DSP) against 61's 88.7 and 65's 83.1 floor, and 68
+(sampled, the check on the HUD) for the slave's hot spots and whether
+the tables are right on a Saturn.

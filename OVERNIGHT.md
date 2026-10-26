@@ -5524,3 +5524,31 @@ transformed by the CPUs for want of DSP blocks (mverts_asm, 6 to 7
 ms of the pair's time); the models' polygons into commands are 60 ms
 of the pair's 180. The levers are those two, and both are the models'
 polygon count's.
+
+Addendum (the card, SUITE 65: the models unlit by the dynamic lights,
+OPT=-DNO_MODEL_DLIGHTS): 83.1 ms a frame (CPU 80.5, game 14.2),
+against SUITE 61's 88.7: 5.6 of the slave's 8.6 ms of lighting reached
+the frame, so the slave's work is on the critical path after all, two
+thirds of it. MODELS 18.5 a frame, 5.1 the CPUs' own and 14.3 the
+DSP's (SUITE 64: 8.6 and 10.4), WAIT 1.8 (0.1 to 0.2 before): the
+lighting is the slave's first job of the frame, before it draws, meant
+for its idle while the walk starts, but its idle is about 2 ms a frame
+(slave_main, SUITE 64), so the lighting holds the slave's drawing 8.6
+ms, the DSP's 64 blocks sit full till the slave drains them, and the
+models past them fall to the CPUs. Without it the slave drains them
+sooner, more models go through the DSP, and the slave catches it up
+and waits. The lights being a frame behind made the tables ready for
+the drawing; it didn't make them free. Two things follow. Making the lighting
+cheaper pays, about two thirds of what it saves. And the DSP is not
+where to put it: its vertices are now what the slave waits for, and a
+lighting job would take its time from them (no program memory for one
+either, 256 of 256). The cheaper lighting is a loop change: the light's
+direction snapped to the nearest of the 162 normals and a 162x162 byte
+table of the step each normal takes from each direction (26 KB in low
+work RAM) in place of the dot product and its quantising, and the
+lit table kept split (red and blue in a long's low half, green in
+its high) so a light is one add and one carry test a normal, 11
+instructions against 35, the combine moved to the shading's per-vertex
+read. Expected: 8.6 ms to about 3, 3 to 4 ms off the frame. The
+snapped direction is a look change (10 degrees at most), so it goes
+under an OPT.

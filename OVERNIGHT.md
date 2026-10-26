@@ -5530,25 +5530,33 @@ OPT=-DNO_MODEL_DLIGHTS): 83.1 ms a frame (CPU 80.5, game 14.2),
 against SUITE 61's 88.7: 5.6 of the slave's 8.6 ms of lighting reached
 the frame, so the slave's work is on the critical path after all, two
 thirds of it. MODELS 18.5 a frame, 5.1 the CPUs' own and 14.3 the
-DSP's (SUITE 64: 8.6 and 10.4), WAIT 1.8 (0.1 to 0.2 before): the
-lighting is the slave's first job of the frame, before it draws, meant
-for its idle while the walk starts, but its idle is about 2 ms a frame
-(slave_main, SUITE 64), so the lighting holds the slave's drawing 8.6
-ms, the DSP's 64 blocks sit full till the slave drains them, and the
-models past them fall to the CPUs. Without it the slave drains them
-sooner, more models go through the DSP, and the slave catches it up
-and waits. The lights being a frame behind made the tables ready for
-the drawing; it didn't make them free. Two things follow. Making the lighting
-cheaper pays, about two thirds of what it saves. And the DSP is not
-where to put it: its vertices are now what the slave waits for, and a
-lighting job would take its time from them (no program memory for one
-either, 256 of 256). The cheaper lighting is a loop change: the light's
-direction snapped to the nearest of the 162 normals and a 162x162 byte
-table of the step each normal takes from each direction (26 KB in low
-work RAM) in place of the dot product and its quantising, and the
-lit table kept split (red and blue in a long's low half, green in
-its high) so a light is one add and one carry test a normal, 11
-instructions against 35, the combine moved to the shading's per-vertex
-read. Expected: 8.6 ms to about 3, 3 to 4 ms off the frame. The
-snapped direction is a look change (10 degrees at most), so it goes
-under an OPT.
+DSP's (SUITE 63, the same split as 64's build: 13.7 and 5.7; 64: 10.4
+and 8.6: the fight's course, not the lighting's doing, since the
+master lists the DSP's models as the walk starts and the blocks aren't
+reused), WAIT 1.8 ms (0.1 to 0.2 before). The wait is a race at the
+frame's start. The lighting is the slave's first job, before it draws,
+meant for its idle while the walk starts, but its idle is about 2 ms a
+frame (slave_main, SUITE 64): the lighting held the slave's drawing
+8.6 ms, and by then the DSP had the models the slave came to. Without
+it the slave comes to them first and waits. The DSP's work in this
+build is the models alone (the walls' lights and the texture maker are
+options that lost on a Saturn: 66, 67): engine/xformm.dsp is about 900
+of its cycles a block of 16 vertices, 60 us at 14.3 MHz, so a monster
+of 300 vertices is a bit over 1 ms and the frame's list, 160 blocks at
+most, 10 ms: the DSP is busy about 10 ms of the 83 and idle the rest.
+The lights being a frame behind made the tables ready for the drawing;
+it didn't make them free. Two ways to make them free, both switchable:
+on the DSP after all, in its idle 70 ms, a second program chained
+after the models' (as the walls' are: the program memory is full, 256
+of 256, but a chained program has its own), working out the next
+frame's tables from this frame's positions and yaws, so that a model's
+own movement lags its light a frame as the light already does (a
+turning monster's light a frame behind): all 8.6 ms off the slave,
+about 5.6 off the frame by this suite. Or cheaper on the slave: the
+light's direction snapped to the nearest of the 162 normals and a
+162x162 byte table of the step each normal takes from each direction
+(26 KB in low work RAM) in place of the dot product and its
+quantising, and the lit table kept split (red and blue in a long's low
+half, green in its high) so a light is one add and one carry test a
+normal, 11 instructions against 35, the combine moved to the shading's
+per-vertex read: 8.6 ms to about 3, 3 to 4 ms off the frame.

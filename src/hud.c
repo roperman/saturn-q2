@@ -242,6 +242,18 @@ void                hud_draw(void)
 #endif
     }
 #endif
+#ifdef MLIGHT_DSP_CHECK
+    {   /* (OPT=-DMLIGHT_DSP_CHECK: the DSP's lighting jobs and tables, and the block's head and the DSP's data RAM) */
+        extern u32  lit_vram, lit_tag;
+        const volatile u32 *h = (const volatile u32 *)(VDP1_VRAM + lit_vram) + LB_HEAD;
+
+        vdp_printf(8, 44, RGB(255, 255, 120), "LIT JOBS %u GIVEN %u", lit_stat[0], lit_stat[1]);
+        vdp_printf(8, 56, RGB(255, 255, 120), "CHECKED %u WRONG %u", lit_stat[2], lit_stat[3]);
+        vdp_printf(8, 68, RGB(255, 255, 120), "V %X TAG %u DONE %u N %u", lit_vram, lit_tag, h[2], h[4]);
+        vdp_printf(8, 80, RGB(255, 255, 120), "BAD N %u DSP %X C %X NL %u T %u", lit_dbg[0], lit_dbg[1], lit_dbg[2],
+                   lit_dbg[3] & 255, lit_dbg[3] >> 8);
+    }
+#endif
 #ifdef MEDIC_TEST
     {   /* (OPT=-DMEDIC_TEST: the medic nearest you, the bodies about (V: within its reach and sight), how many raised) */
         extern int  g_revived;

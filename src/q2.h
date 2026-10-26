@@ -25,6 +25,14 @@
 #if defined(DSP_MAKER) && (defined(NO_DSP_MAKER) || defined(DSP_LIGHT) || defined(NO_DSP))
 #undef DSP_MAKER
 #endif
+/* the models' dynamic lights worked out by the DSP a frame ahead (engine/mlit.dsp, src/model.c
+   ents_light_dyn: OVERNIGHT.md 107): off unless OPT=-DMLIGHT_DSP, and not with no DSP, the lights
+   as it draws, the old DSP lighting, the texture maker or the walls' lights (its place in the
+   models' program is the maker's) */
+#if defined(MLIGHT_DSP) && (defined(NO_DSP) || defined(NO_LIGHT_AHEAD) || defined(DSP_LIGHT) || defined(DSP_MAKER) \
+                            || defined(DSP_WALLS))
+#undef MLIGHT_DSP
+#endif
 
 /* (OPT=-DHW_BENCH, for a real Saturn: the benchmark's views held, turned, and the fight, in one run,
    on one screen: src/main.c. It has the fight's counting) */
@@ -341,7 +349,32 @@ static inline int   lights_pick(const q_dlight *src, int n, const s32 *org, int 
     return ns;
 }
 #endif
+#ifndef MLIGHT_DSP
 extern u16          ent_lit[LIT_POOL][162];
+#else
+/* (OPT=-DMLIGHT_DSP) the DSP's block in VDP1's VRAM (model.c lit_level): engine/mlit.dsp, the models'
+   program back, the head (the frame's tag, its jobs, the tag back, the normals, how many; 8 words),
+   the normals (176 x 3), two frames' jobs, two frames' tables (176 colours each, two to a word) */
+#ifndef LIT_DSP_POOL
+#define LIT_DSP_POOL    (16)                    /* tables a frame (OPT=-DLIT_DSP_POOL=n, up to 64) */
+#endif
+#define LIT_DSP_LIGHTS  (4)                     /* a model's strongest lights */
+#define LB_PROG0        (256)
+#define LB_HEAD         (512)
+#define LB_NORM         (520)
+#define LB_JOBW         (31)
+#define LB_JOBS         (LB_NORM + 176 * 3)
+#define LB_TABLE        (88)
+#define LB_POOL         (LB_JOBS + 2 * LIT_DSP_POOL * LB_JOBW)
+#define LB_WORDS        (LB_POOL + 2 * LIT_DSP_POOL * LB_TABLE)
+#define LIT_DSP_BYTES   (LB_WORDS * 4)
+extern u32          lit_vram;                   /* its VRAM offset (0: none: the lights as it draws) */
+extern u32          lit_tag;                    /* the frame's tag (main.c, before the slave's first job) */
+extern u32          lit_stat[4];                /* jobs listed, tables given, checked, wrong (MLIGHT_DSP_CHECK) */
+extern u32          lit_dbg[6];                 /* (MLIGHT_DSP_CHECK: the DSP's data RAM after a run) */
+void                lit_level(u32 vram);        /* (render_init, the VRAM given) the block set up */
+const u16           *lit_table(int gl);         /* (draw_model) a model's table, through the cache */
+#endif
 void                lights_lag(void);           /* (main.c, as a frame starts: last frame's lights kept) */
 void                ents_light_dyn(bool pvs);   /* (after ents_light_pvs: the slave's, once the master's gone on) */
 void                ent_lit_forget(void);
@@ -411,17 +444,18 @@ typedef struct
     u16             g_owner;                /* the game's entity drawn here (g_render_ents' number + 1), 0 none */
     u16             g_idle;                 /* frames it's not been wanted (g_render_ents) */
     s32             g_yaw0;                 /* an item's yaw when it was filled in (g_render_ents: then it only turns) */
-    u8              live;                   /* (bytes, not bools: they're ints here, and a q_entity stays 384) */
-    u8              g_moved;                /* its origin's changed since ents_light last looked (its leaf to find) */
     /* its light by normal, as Gouraud colours: the leaf's light and Quake's
-       shading, remade when it changes leaf or turns (ents_light) */
+       shading, remade when it changes leaf or turns (ents_light); on a long's
+       boundary (the DSP reads it: MLIGHT_DSP) */
     u16             gbase[162];
     s16             g_litleaf;              /* the leaf gbase is for (with g_yaw): -1 none */
     int             g_leaf;                 /* the leaf it's in, after ents_light */
     s8              g_yaw;                  /* (0 .. 15) */
     s8              g_lit;                  /* its dynamic lights, a frame behind: ent_lit's; -1 none, -2 draw_model's */
+    u8              live;                   /* (bytes, not bools: they're ints here, and a q_entity stays 384) */
+    u8              g_moved;                /* its origin's changed since ents_light last looked (its leaf to find) */
 }                   q_entity;
-_Static_assert(sizeof(q_entity) == 384, "q_entity: g_moved in the padding");
+_Static_assert(sizeof(q_entity) == 384 && __builtin_offsetof(q_entity, gbase) % 4 == 0, "q_entity: 384, gbase aligned");
 
 #define GAME_ENTS       (64)                /* (g_render_ents' render entities; fx.c's after them) */
 #define MAX_PROJ        (24)                /* rockets, grenades, bolts in flight (fx.c) */

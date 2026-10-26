@@ -2513,6 +2513,9 @@ void                main(void)
 #endif
         if (pre_pending)
         {
+#ifdef MLIGHT_DSP
+            ++lit_tag;
+#endif
             PRE_CAM = 1;                        /* (a frame that didn't draw: the last one's first job) */
             pre_wait();
             BT(0, 4);
@@ -2598,6 +2601,9 @@ void                main(void)
         fight_pt = frt_read();
 #endif
         cam_update();
+#ifdef MLIGHT_DSP
+        ++lit_tag;                              /* (the frame's: the slave's jobs and the DSP's wait go by it) */
+#endif
         if (pre_slave)
             PRE_CAM = 1 + ents_pvs();
         view_on = bench_view < 0 && !(paused && menu_at_title());

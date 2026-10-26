@@ -19,6 +19,7 @@ engine_build()
     python3 "$REPO/tools/dspasm.py" "$ENGINE/xformml.dsp" "$gen/xformml.h" xformml_prog >/dev/null
     python3 "$REPO/tools/dspasm.py" "$ENGINE/xformf.dsp" "$gen/xformf.h" xformf_prog >/dev/null
     python3 "$REPO/tools/dspasm.py" "$ENGINE/hwtest.dsp" "$gen/hwtest.h" hwtest_prog >/dev/null
+    python3 "$REPO/tools/dspasm.py" "$ENGINE/mlit.dsp" "$gen/mlit.h" mlit_prog >/dev/null
     python3 - "$gen/sintab.h" <<'PY'
 import math, sys
 # a quarter of a wave: the rest by symmetry (the same values exactly), 4 KB not 16

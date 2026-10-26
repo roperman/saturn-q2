@@ -286,6 +286,9 @@ void                ents_light(void)
 
     ents_light_pvs(pvs);
 #ifndef NO_LIGHT_AHEAD
+#ifdef MLIGHT_DSP
+    ++lit_tag;                              /* (one CPU: the frame's tag here) */
+#endif
     ents_light_dyn(pvs);
 #endif
 }
@@ -298,7 +301,9 @@ void                ents_light(void)
    near none draws with its base, one the pool's too full for is lit by draw_model */
 static q_dlight     lag[MAX_DLIGHTS];
 static int          nlag;
+#ifndef MLIGHT_DSP
 u16                 ent_lit[LIT_POOL][162];
+#endif
 
 const q_dlight      *lights_lagged(int *n)
 {
@@ -312,6 +317,7 @@ void                lights_lag(void)
     nlag = r_ndlights;
 }
 
+#ifndef MLIGHT_DSP
 /* (a CPU that didn't make them: its cache's copies of the pool forgotten, a line at a time) */
 void                ent_lit_forget(void)
 {
@@ -320,6 +326,14 @@ void                ent_lit_forget(void)
     for (a = (u32)ent_lit & ~15u; a < (u32)ent_lit + sizeof(ent_lit); a += 16)
         *(volatile u32 *)(0x40000000 | (a & 0x1FFFFFFF)) = 0;
 }
+#else
+static void         lit_forget(int rp);
+void                ent_lit_forget(void)
+{
+    if (lit_vram)
+        lit_forget((int)((lit_tag + 1) & 1));   /* (the master, before its models: the pool read this frame) */
+}
+#endif
 
 #ifndef NO_LIGHT_AHEAD
 /* (OPT=-DMLIGHT_V2) what each of the 32 steps of a normal's dot with the light adds to the
@@ -393,6 +407,7 @@ void                mlight(u16 *gt, const s16 *nrm, s32 mx, s32 my, s32 mz, s32 
 u32                 mlight_checks, mlight_diffs;
 #endif
 
+#ifndef MLIGHT_DSP
 void                ents_light_dyn(bool pvs)
 {
     int             i, k, n = 0;
@@ -470,6 +485,267 @@ void                ents_light_dyn(bool pvs)
 #endif
     }
 }
+#else
+/* The models' dynamic lights worked out by the DSP a frame ahead (engine/mlit.dsp, OPT=-DMLIGHT_DSP;
+   OVERNIGHT.md 107). As a frame starts the slave lists a job for each model near a light: the
+   frame's lights (a frame behind the effects, as before) at the model's place and yaw this frame,
+   so the table is a frame old when it's drawn, as its lights were. The DSP makes the tables after
+   the frame's models, into a pool in VDP1's VRAM, and writes the frame's tag back; the next frame's
+   first job here finds them and gives each model that still lives its table. A model near a light
+   with no table (new, or past the pool) is lit by draw_model as it draws, as before.
+   The block (lit_level, VDP1's VRAM): the program, the models' program (which it loads back), the
+   head (the frame's tag, its jobs, the tag back, the normals, how many), the normals, two frames'
+   jobs, two frames' tables. A job: its table >> 2, the model's base colours >> 2 (gbase: high work
+   RAM, on a long), its lights, then each light's 7 words: the direction to it in the model's space
+   as 0.65 of 2.14 >> 6, C = 5734 << 8, and its colour at the model, 0..124: for a normal n the
+   DSP's w = C + max(n . k, 0) is 2^22 times the weight 0.35 + 0.65 cos, and c w 2^24 times what the
+   light adds to a colour, which it sums unclamped and clamps at the end: the C's lighting a unit
+   off at most (OPT=-DMLIGHT_DSP_CHECK: the C's same sums against the DSP's, for the HUD) */
+#include "dsp.h"
+#define DSP_PROG_SECTION __attribute__((section(".lwrodata")))
+#include "mlit.h"
+u32                 lit_vram;
+u32                 lit_tag;
+u32                 lit_stat[4];
+u32                 lit_dbg[6];
+static u32          *lit_block;             /* (VDP1's VRAM: uncached) */
+typedef struct
+{
+    s16             ent, table;
+    const q_mdl     *mdl;
+    u16             owner;
+#ifdef MLIGHT_DSP_CHECK
+    s8              nl;
+    u32             w[LIT_DSP_LIGHTS * 7];
+    u16             base[162];              /* (the base as the job was listed) */
+#endif
+}                   lit_rec;
+static lit_rec      lit_recs[2][LIT_DSP_POOL] __attribute__((section(".lwdata")));
+static int          lit_nrecs[2] __attribute__((section(".lwdata")));
+static u32          lit_tags[2] __attribute__((section(".lwdata")));
+
+void                lit_level(u32 vram)
+{
+    static const u32 consts[14] = { 255, 31, 1u << 24, 0x3E0, 1u << 19, 0x7C00, 1u << 14, 1, 32, 1024, 65536, 0x8000,
+                                    4000, 0xFFFF };
+    int             i, c;
+
+    lit_vram = vram;
+    lit_block = NULL;
+    lit_nrecs[0] = lit_nrecs[1] = 0;
+    lit_tags[0] = lit_tags[1] = 0xFFFFFFFF;
+    lit_stat[0] = lit_stat[1] = lit_stat[2] = lit_stat[3] = 0;
+    if (!vram)
+    {
+        dsp_chain_params(NULL, NULL);
+        return;
+    }
+    lit_block = (u32 *)(VDP1_VRAM + vram);
+    for (i = 0; i < 256; ++i)
+        lit_block[i] = mlit_prog[i];
+    dsp_models_prog(lit_block + LB_PROG0);
+    for (i = 0; i < 8; ++i)
+        lit_block[LB_HEAD + i] = 0;
+    lit_block[LB_HEAD + 3] = ((u32)(lit_block + LB_NORM) & 0x07FFFFFF) >> 2;
+    for (c = 0; c < nmodels_loaded && !models[c].loaded; ++c)
+        ;
+    for (i = 0; i < 176 * 3; ++i)
+        lit_block[LB_NORM + i] = i < 162 * 3 && c < nmodels_loaded ? (u32)(s32)models[c].normals[i] : 0;
+    dsp_data_write(41, consts, 14);         /* (its constants: the DSP's data RAM keeps them) */
+    dsp_chain_params(lit_block, lit_block + LB_PROG0);
+}
+
+const u16           *lit_table(int gl)
+{
+    return (const u16 *)((u32)(lit_block + LB_POOL + gl * LB_TABLE) & 0x1FFFFFFF);
+}
+
+/* (the DSP wrote the pool: the cache's lines of it forgotten) */
+static void         lit_forget(int rp)
+{
+    u32             a = (u32)(lit_block + LB_POOL + rp * LIT_DSP_POOL * LB_TABLE) & 0x1FFFFFFF;
+    u32             end = a + LIT_DSP_POOL * LB_TABLE * 4;
+
+    for (; a < end; a += 16)
+        *(volatile u32 *)(0x40000000 | a) = 0;
+}
+
+#ifdef MLIGHT_DSP_CHECK
+/* the DSP's table against the same sums here, where the base it had is still the model's */
+static void         lit_check(const lit_rec *r, const q_entity *e, int rp)
+{
+    const volatile u16 *t = (const volatile u16 *)(lit_block + LB_POOL + (rp * LIT_DSP_POOL + r->table) * LB_TABLE);
+    const s16       *nrm = e->mdl->normals;
+    int             n, k;
+
+    ++lit_stat[2];
+    for (n = 0; n < 162; ++n, nrm += 3)
+    {
+        u32         g = r->base[n];
+        u32         sr = (g & 31) << 24, sg = ((g >> 5) & 31) << 24, sb = ((g >> 10) & 31) << 24;
+
+        for (k = 0; k < r->nl; ++k)
+        {
+            const s32 *w = (const s32 *)(r->w + k * 7);
+            s32     term = nrm[0] * w[0] + nrm[1] * w[1] + nrm[2] * w[2];
+            u32     ww = (u32)w[3] + (term > 0 ? (u32)term : 0);
+
+            sr += (u32)w[4] * ww;
+            sg += (u32)w[5] * ww;
+            sb += (u32)w[6] * ww;
+        }
+        sr = imin((int)(sr >> 24), 31);
+        sg = imin((int)(sg >> 24), 31);
+        sb = imin((int)(sb >> 24), 31);
+        if (t[n] != (0x8000 | sb << 10 | sg << 5 | sr))
+        {
+            ++lit_stat[3];
+            lit_dbg[0] = (u32)n;
+            lit_dbg[1] = t[n];
+            lit_dbg[2] = 0x8000 | sb << 10 | sg << 5 | sr;
+            lit_dbg[3] = (u32)r->nl | (u32)r->table << 8;
+            return;
+        }
+    }
+}
+#endif
+
+void                ents_light_dyn(bool pvs)
+{
+    u32             tag = *(volatile u32 *)UNCACHED(&lit_tag);
+    int             rp = (int)((tag + 1) & 1), wp = (int)(tag & 1);
+    int             i, k, n = 0;
+    u32             *jobs = lit_block ? lit_block + LB_JOBS + wp * LIT_DSP_POOL * LB_JOBW : NULL;
+
+    for (i = 0; i < GAME_ENTS; ++i)
+        ents[i].g_lit = -1;
+    /* last frame's tables, to the models they were made for */
+    if (lit_block && lit_tags[rp] == tag - 1 && lit_block[LB_HEAD + 2] == tag - 1)
+    {
+        lit_forget(rp);
+        for (k = 0; k < lit_nrecs[rp]; ++k)
+        {
+            const lit_rec   *r = &lit_recs[rp][k];
+            q_entity        *e = &ents[r->ent];
+
+            if (!e->live || e->mdl != r->mdl || e->g_owner != r->owner)
+                continue;
+            e->g_lit = (s8)(r->table + rp * LIT_DSP_POOL);
+            ++lit_stat[1];
+#ifdef MLIGHT_DSP_CHECK
+            lit_check(r, e, rp);
+#endif
+        }
+    }
+    /* this frame's models near a light: lit by draw_model if they've no table; and next frame's jobs */
+    for (i = 0; i < GAME_ENTS; ++i)
+    {
+        q_entity    *e = &ents[i];
+        const q_mdl *m = e->mdl;
+        s32         c, sn, best[LIT_DSP_LIGHTS];
+        int         sel[LIT_DSP_LIGHTS], ns = 0;
+        u32         *j;
+
+        if (!e->live || !m || (pvs && !r_leaf_in_pvs(e->g_leaf)))
+            continue;
+        {
+            /* off the screen (a sphere of 64 units against the view's sides)? Then only if it's drawn
+               after all, by draw_model */
+            s32 d0 = e->origin[0] - cam.pos[0], d1 = e->origin[1] - cam.pos[1], d2 = e->origin[2] - cam.pos[2];
+            s32 vx = fmul(d0, cam.right[0]) + fmul(d1, cam.right[1]) + fmul(d2, cam.right[2]);
+            s32 vy = fmul(d0, cam.up[0]) + fmul(d1, cam.up[1]) + fmul(d2, cam.up[2]);
+            s32 vz = fmul(d0, cam.fwd[0]) + fmul(d1, cam.fwd[1]) + fmul(d2, cam.fwd[2]);
+
+            if (vz < -m->cull_z || iabs(vx) - vz > m->cull_x || iabs(vy) - fmul(vz, FIX(0.7)) > m->cull_y)
+            {
+                if (e->g_lit < 0)
+                    e->g_lit = -2;
+                continue;
+            }
+        }
+        /* its strongest lights (as lights_pick) */
+        for (k = 0; k < nlag; ++k)
+        {
+            const q_dlight  *l = &lag[k];
+            s32             dx = (l->pos[0] - e->origin[0]) >> 16, dy = (l->pos[1] - e->origin[1]) >> 16;
+            s32             dz = (l->pos[2] - e->origin[2]) >> 16, r = l->radius >> 16, d2 = dx * dx + dy * dy + dz * dz;
+            s32             f;
+            int             q;
+
+            if (d2 >= r * r)
+                continue;
+            f = ((r * r - d2) * ((1 << 24) / imax(r * r, 1))) >> 8;
+            f = (f * (l->r + l->g + l->b)) >> 5;
+            if (ns == LIT_DSP_LIGHTS && f <= best[ns - 1])
+                continue;
+            if (ns < LIT_DSP_LIGHTS)
+                ++ns;
+            for (q = ns - 1; q > 0 && best[q - 1] < f; --q)
+            {
+                best[q] = best[q - 1];
+                sel[q] = sel[q - 1];
+            }
+            best[q] = f;
+            sel[q] = k;
+        }
+        if (!ns)
+            continue;
+        if (e->g_lit < 0)
+            e->g_lit = -2;                  /* (no table from last frame: draw_model's) */
+        if (!jobs || n == LIT_DSP_POOL)
+            continue;
+        c = fcos(e->yaw);
+        sn = fsin(e->yaw);
+        j = jobs + n * LB_JOBW;
+        j[0] = ((u32)(lit_block + LB_POOL + (wp * LIT_DSP_POOL + n) * LB_TABLE) & 0x07FFFFFF) >> 2;
+        j[1] = ((u32)e->gbase & 0x07FFFFFF) >> 2;
+        j[2] = (u32)ns;
+        for (k = 0; k < ns; ++k)
+        {
+            const q_dlight  *l = &lag[sel[k]];
+            s32             dx = (l->pos[0] - e->origin[0]) >> 16, dy = (l->pos[1] - e->origin[1]) >> 16;
+            s32             dz = (l->pos[2] - e->origin[2]) >> 16, r = l->radius >> 16, d2 = dx * dx + dy * dy + dz * dz;
+            s32             f = ((r * r - d2) * ((1 << 24) / imax(r * r, 1))) >> 8;     /* 0..65536 at the origin */
+            s32             len = (s32)isqrt((u32)d2) + 1;
+            s32             mx = ((dx * c + dy * sn) >> 2) / len, my = ((dy * c - dx * sn) >> 2) / len;
+            s32             mz = (dz << 14) / len;  /* (the direction to the light in the model's space, 2.14) */
+            u32             *w = j + 3 + k * 7;
+
+            w[0] = (u32)((mx * 10650) >> 20);
+            w[1] = (u32)((my * 10650) >> 20);
+            w[2] = (u32)((mz * 10650) >> 20);
+            w[3] = 5734u << 8;
+            w[4] = (u32)((l->r * f) >> 14);
+            w[5] = (u32)((l->g * f) >> 14);
+            w[6] = (u32)((l->b * f) >> 14);
+        }
+        {
+            lit_rec *r = &lit_recs[wp][n];
+
+            r->ent = (s16)i;
+            r->table = (s16)n;
+            r->mdl = m;
+            r->owner = e->g_owner;
+#ifdef MLIGHT_DSP_CHECK
+            r->nl = (s8)ns;
+            for (k = 0; k < ns * 7; ++k)
+                r->w[k] = j[3 + k];
+            memcpy(r->base, e->gbase, sizeof(r->base));
+#endif
+        }
+        ++n;
+    }
+    if (lit_block)
+    {
+        lit_nrecs[wp] = n;
+        lit_tags[wp] = tag;
+        lit_stat[0] += (u32)n;
+        lit_block[LB_HEAD + 1] = ((u32)jobs & 0x07FFFFFF) >> 2;
+        lit_block[LB_HEAD + 4] = (u32)n;
+        lit_block[LB_HEAD + 0] = tag;       /* (last: the DSP's go) */
+    }
+}
+#endif
 #endif
 
 /* each one's leaf: again only if it's moved (items stand still; render_world puts them in

@@ -143,6 +143,15 @@ void                dsp_chain_params(const void *block, const void *prog0)
     DSP_PDD = prog0 ? ((u32)prog0 & 0x07FFFFFF) >> 2 : 0;
 }
 
+void                dsp_data_write(u32 addr, const u32 *w, int n)
+{
+    int             i;
+
+    DSP_PDA = addr;
+    for (i = 0; i < n; ++i)
+        DSP_PDD = w[i];
+}
+
 void                dsp_models_prog(u32 *dst)
 {
     int             i;

@@ -59,6 +59,7 @@ void                dsp_maker_params(const void *block);
    in high work RAM (a DMA read of SAROO's cart has come in a word late; RAM0[56], [57]) */
 void                dsp_chain_params(const void *block, const void *prog0);
 void                dsp_models_prog(u32 *dst);  /* (xformm.dsp's 256 words, for that copy) */
+void                dsp_data_write(u32 addr, const u32 *w, int n);   /* (the DSP stopped) n words into its data RAM at addr */
 void                dsp_maker_start(void);  /* (the maker alone: no models, no walls) */
 void                dsp_walls_word(u32 w);  /* (dsp_walls_p's half) */
 void                dsp_init_faces(void);               /* (a test) faces' grids into view space (xformf.dsp) */

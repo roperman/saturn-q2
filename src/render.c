@@ -937,6 +937,20 @@ __attribute__((cold)) void render_init(void)                /* (at a level's sta
         free -= DW_VRAM_BYTES;
     }
 #endif
+#ifdef MLIGHT_DSP
+    /* the models' lights' DSP block (model.c lit_level): its programs, jobs and tables, the DSP's own */
+    {
+        u32     lv_vram = 0;
+
+        if (r_use_dsp && free >= LIT_DSP_BYTES + 256 * (u32)(lv.N * lv.N / 2))
+        {
+            lv_vram = base;
+            base += LIT_DSP_BYTES;
+            free -= LIT_DSP_BYTES;
+        }
+        lit_level(lv_vram);
+    }
+#endif
     /* the rest: tile-sized slots, in two parts, one each CPU's (SPLIT_M% the master's) */
     slot_bytes = (u32)(lv.N * lv.N / 2);
     slot_vram = base;
@@ -6547,6 +6561,10 @@ static void         models_to_dsp(void)
     *(volatile u8 *)UNCACHED(&dspm_lock) = 0;
     *(volatile u8 *)UNCACHED(&dspm_started) = 0;
 #endif
+#ifdef MLIGHT_DSP
+    if (lit_vram)
+        dsp_data_write(58, &lit_tag, 1);    /* (the frame's tag: engine/mlit.dsp waits for the slave's to match) */
+#endif
     if (nm)
     {
         *(volatile u32 *)UNCACHED(&dspm_count) = 0;
@@ -6570,6 +6588,10 @@ static void         models_to_dsp(void)
         dsp_maker_start();                  /* (neither: the maker alone) */
         mk_on = true;
     }
+#ifdef MLIGHT_DSP
+    else if (lit_vram)
+        dsp_maker_start();                  /* (no models: the lights' program straight away, from the maker's place) */
+#endif
 }
 
 #ifdef SHADE_CHECK
@@ -6676,7 +6698,11 @@ static __attribute__((noinline)) void draw_model(r_ctx *x, int ei)
         int gl = ((volatile q_entity *)UNCACHED(e))->g_lit;     /* (the slave's, after the master's read e) */
 
         if (gl >= 0)
+#ifdef MLIGHT_DSP
+            gt = lit_table(gl);             /* (the DSP's, last frame: model.c) */
+#else
             gt = ent_lit[gl];               /* (lit a frame behind, as the frame started: model.c) */
+#endif
         i = gl == -2 ? 0 : nml;             /* (lit by the slave, or by none: none again here) */
     }
 #else

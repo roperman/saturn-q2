@@ -5759,3 +5759,10 @@ the CPU 8.0 against 5.2: the fight's course, as 63 and 64 showed.) So
 the models' lights on the DSP are worth 3.2 ms on a Saturn, with the
 look change of section 107 (a model's own movement a frame behind its
 light); whether that's the default is Roper's call.
+
+**SUITE 76 on the Saturn**: the check's WRONG stayed 0 through the
+fight: the DSP's tables on a Saturn are the C's, every read of a job,
+its base colours and the normals come in right. (A few faces still drop
+in the benchmark's fight, as Roper's seen on it before this work.) A
+playable lean build with the switch is on the card for playing it:
+"lean bake, lights on the DSP".

@@ -5766,3 +5766,8 @@ its base colours and the normals come in right. (A few faces still drop
 in the benchmark's fight, as Roper's seen on it before this work.) A
 playable lean build with the switch is on the card for playing it:
 "lean bake, lights on the DSP".
+
+**The default** (2026-10-27): the models' lights on the DSP are the
+default build now, `OPT=-DNO_MLIGHT_DSP` the old way (the slave's, this
+frame's), with Roper's go after playing it (the frame's lag on a model's
+own movement not to be seen). The README says so.

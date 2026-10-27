@@ -250,7 +250,12 @@ At run time (`src/render.c`, and SH-2 assembly in `src/*.s`):
   after the models: it picks the faces the CPUs drew that the lights reach
   and lights them for the next frame (`engine/walls0.dsp` to `walls2.dsp`,
   loading each other in turn), so the walls, like the models, go by last
-  frame's lights.
+  frame's lights. The models' own lighting (each light's weight on a
+  model's 162 normals) is the DSP's too, worked out a frame ahead in the
+  time it has after the models (`engine/mlit.dsp`, chained after the
+  models' program), so a model is drawn with last frame's table: its own
+  movement is a frame behind its light. That took 3.2 ms off a Saturn's
+  frame in the yard fight (OVERNIGHT.md 107, 108).
 - **The sky**: the skybox (all six faces) on a cylinder round you, from 63
   degrees up to 19 down, on a VDP2 layer that scrolls as you turn and look:
   16-colour cells, each with whichever of 48 palettes suits it, read from
@@ -290,6 +295,7 @@ Build switches (`OPT=-D... ./build.sh`) and scripts in `tools/`:
 | `OPT=-DNO_FLIP_START` | every cell's lines drawn from its corner A, as before; the default starts them from the end nearer the screen (its corners given the other way round, its texture read mirrored) where A's end is off it, since VDP1 walks a line from its start till it leaves the screen, dots off it included (OVERNIGHT.md 80: 9-26% of a view's VDP1 time by Mednafen's model) |
 | `OPT=-DNO_BLOCK_MEMO` | a blocked monster tries every direction with its traces each tick, as Quake; the default remembers the steps the world refused from where it stands (a wall, an edge, no floor under a corner) for up to a second, or till it moves, and refuses those again without the traces (OVERNIGHT.md 81: a running monster's tick 3.2 -> 2.5 ms on Mednafen) |
 | `OPT="-DKEY_TEST -DNEW_GAME_DEMO=3"` | START + DOWN: a new game on Comm Center, the player beside its blue key's slot in god mode with the key's two doors used, and the key's spawn, rise and pickup checks on the HUD (OVERNIGHT.md 90) |
+| `OPT=-DNO_MLIGHT_DSP` | the models' dynamic lights worked out by the slave as it draws, this frame's, as before (the default has the DSP do them a frame ahead: OVERNIGHT.md 107, 108); `-DMLIGHT_DSP_CHECK` checks the DSP's tables against the C and shows the counts on the HUD |
 | `OPT=-DNO_MLIGHT_ASM` | a dynamic light's weights on a model's 162 normals in C, as before; the default is src/mlight.s (MAC.W, MULS.W, a clamp table: half the cycles), which rounds a unit from the C at most; `-DMLIGHT_CHECK` runs both and counts the colours further apart |
 | `OPT=-DMODEL_LIGHTS=n` | a model lit by at most the n strongest dynamic lights at it (each is 162 normals' weights: Comm Center's yard fight had some forty model-light pairs a frame, 9 ms of the slave's; OVERNIGHT.md 89); the default, 0, lights it by all of them |
 | `OPT=-DNO_HW_KEEP` | the level's hot lumps copied to high work RAM as far as it goes, as before; the default keeps room for the tables the renderer, the traces and the movers take after them, so a map short of it leaves a lump on the cart instead of failing to load (19 of the 38 retail maps: OVERNIGHT.md 97) |

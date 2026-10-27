@@ -26,9 +26,13 @@
 #undef DSP_MAKER
 #endif
 /* the models' dynamic lights worked out by the DSP a frame ahead (engine/mlit.dsp, src/model.c
-   ents_light_dyn: OVERNIGHT.md 107): off unless OPT=-DMLIGHT_DSP, and not with no DSP, the lights
-   as it draws, the old DSP lighting, the texture maker or the walls' lights (its place in the
-   models' program is the maker's) */
+   ents_light_dyn: OVERNIGHT.md 107, 108): the default since SUITE 75 (3.2 ms a frame off the yard
+   fight on a Saturn, a model's own movement a frame behind its light), off with OPT=-DNO_MLIGHT_DSP,
+   and not with no DSP, the lights as it draws, the old DSP lighting, the texture maker or the walls'
+   lights (its place in the models' program is the maker's) */
+#if !defined(MLIGHT_DSP) && !defined(NO_MLIGHT_DSP)
+#define MLIGHT_DSP
+#endif
 #if defined(MLIGHT_DSP) && (defined(NO_DSP) || defined(NO_LIGHT_AHEAD) || defined(DSP_LIGHT) || defined(DSP_MAKER) \
                             || defined(DSP_WALLS))
 #undef MLIGHT_DSP

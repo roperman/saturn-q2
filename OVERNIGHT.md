@@ -5745,3 +5745,17 @@ the level's load is followed by more than two seconds before its first
 frame, so the watchdog prints once then, and nothing clears those lines
 after; only the live line is current (72's: stage 4, the master in DRAW
 MASTER and GAME STEP DONE, the DSP idle, its text's end garbled).
+
+**SUITE 75 on the Saturn** (section 67's switches, the hardened
+program): FIGHT 85.5 (CPU 82.9, GAME 14.6; MODELS 18.5, CPU 8.0, DSP
+10.4, WAIT 1.8); held 241.8 / 281.9, turned 212.8 / 267.7, walk 44.5,
+late uploads 677 and 6,571; high work RAM 32 bytes left, low 216,464.
+Against 61's 88.7 that's 3.2 ms a frame off the fight, 2.4 short of
+65's 83.1 floor (the models unlit): what's left of the lighting's cost
+is the slave's listing and its base-colour copies into VRAM, the CPUs'
+table copies out of it (88 longs a model, uncached), and the DSP's bus
+traffic. (The DSP took fewer models this run, 10.4 against 14.0 in 74,
+the CPU 8.0 against 5.2: the fight's course, as 63 and 64 showed.) So
+the models' lights on the DSP are worth 3.2 ms on a Saturn, with the
+look change of section 107 (a model's own movement a frame behind its
+light); whether that's the default is Roper's call.

@@ -5729,3 +5729,19 @@ uncached: the DSP reads VRAM only, the CPUs never read it through the
 cache. 247 words of the 253. Through the bench on Mednafen: 1,577 jobs,
 1,562 tables, 0 wrong. On the card: SUITE 74 (the yard fight, the live
 trace line).
+
+**SUITE 74 on the Saturn**: through the fight to the bench's screen, the
+first of these builds to get there. FIGHT 108.3 (CPU 104.8, GAME 25.0;
+MODELS 18.3, CPU 5.2, DSP 14.0, WAIT 1.4); held 302.7, turned 274.6,
+walk 57.8, late uploads 667 and 5,957. Not a clean number: the live
+line is drawn every field from VDP1's font over the B-bus (section 65's
+trace build crawled for the same reason), and the held and turned stages
+say so (section 67's 290.9 and 209.3 with the models' program). SUITE 75
+(section 67's switches, the hardened program) and 76 (sampled, the check
+on the HUD) are the measure. A misreading set right: the watchdog's
+block in 72's and 74's pictures (steps VIEW LEVEL, DMA, DSPM LEVEL,
+LOADED at frame 0, the DMA's seventh transfer) is from boot. On a Saturn
+the level's load is followed by more than two seconds before its first
+frame, so the watchdog prints once then, and nothing clears those lines
+after; only the live line is current (72's: stage 4, the master in DRAW
+MASTER and GAME STEP DONE, the DSP idle, its text's end garbled).

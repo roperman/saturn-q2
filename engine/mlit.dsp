@@ -10,15 +10,22 @@
 ; models), for a while: given up, it loads the models' program back without a word written. The
 ; constants it uses (RAM0[41..54]) the host writes once a level, as the DSP's data RAM keeps them.
 ;
-; A job (31 words): where its table goes >> 2 (88 words: 176 colours,
-; two to a word, the high half first, as the CPUs' u16 tables), the model's base colours >> 2
-; (the same shape: its gbase, high work RAM), its lights (0..4), then each light's 7 words: kx ky
+; A job (31 words): two words the host fills but this program doesn't read (where its table goes,
+; its base colours: see below), its lights (0..3), then each light's 7 words: kx ky
 ; kz (the direction to it in the model's space, 0.65 of 2.14 >> 6: at most 166), C = 5734 << 8,
 ; cr cg cb (the colour at the model, 0..124). For each normal n: w = C + max(n . k, 0) is 2^22
 ; times the weight 0.35 + 0.65 cos, and c w is 2^24 times what the light adds to that colour,
 ; which the C adds with a shift. The colours are summed as 2^24 a unit (the base's unpacked to
 ; that), each clamped to 31 at the end and packed 5-5-5 with bit 15 set, as the CPUs' tables are.
 ; A unit from the CPUs' at most.
+;
+; Nothing read by DMA is ever an address here, nor a count unmasked: on a Saturn a DMA read has
+; come in a word late (OVERNIGHT.md 65, 66), and a job read wrong would have sent 88 words
+; anywhere on the bus (108). The host sets, as it starts the models: RAM0[55] the frame's first
+; table >> 2, RAM0[62] its first job >> 2, RAM0[63] its first base colours >> 2 (88 words a model,
+; copied into the block by the slave as it lists); once a level, RAM0[39] the normals >> 2. Each
+; job's table, job and colours follow the last's. The head's count is taken & 15, a job's lights
+; & 3: a word read wrong makes a frame's colours wrong, no more.
 ;
 ; Data RAM: RAM0 the block's words, the pointers, the job, the constants (41..54), the host's
 ; 56..58; RAM1 the chunk's 16 normals (48 words) then its 8 base words; RAM2 the chunk's 48 sums
@@ -31,7 +38,6 @@ B_FLAG  = 512                           ; the block's words after the two progra
 B_DONE  = 514
 P_FLAG  = 0                             ; (the block's 5 words, as read: tag, jobs, done, normals, how many)
 P_JOB   = 1                             ; the next job's address
-P_NORMA = 3
 P_JOBS  = 4
 P_OUT   = 6
 P_BASE  = 7
@@ -43,18 +49,22 @@ J_NL    = 12
 J_L     = 13                            ; its lights, 7 words each
 JOBW    = 31
 LW      = 7
+K_NORM  = 39                            ; the normals >> 2 (the host's, once a level)
 K_255   = 41                            ; the constants: 255, 31, 2^24, 0x3E0, 2^19, 0x7C00, 2^14,
 K_31    = 42                            ; 1, 32, 1024, 65536, 0x8000, the polls, 0xFFFF
 K_1     = 48
 K_65536 = 51
 K_POLL  = 53
 K_FFFF  = 54
+K_OUT0  = 55                            ; the frame's first table >> 2 (the host's, as the models start)
 W_MKP   = 56
 W_P0    = 57
 W_TAG   = 58
 P_OI    = 59                            ; the word out's place in RAM3
 P_N     = 60                            ; normals left (the unpack's, the pack's)
 P_NL    = 61                            ; lights left
+K_JOB0  = 62                            ; the frame's first job >> 2, first base colours >> 2 (the host's)
+K_BASE0 = 63
 N_BASE  = 48                            ; RAM1: the base words after the normals
 T_OUT   = 0                             ; RAM3
 T_W     = 8                             ; the word being packed
@@ -89,30 +99,35 @@ w_f:    jmp t0,w_f
         jmp back                        ; (given up: the models' program back, no word written)
         nop
 go:     mov P_JOBS,ct0
-        mov m0,a   mov 0,pl
-        or
+        mov m0,a   mov 15,pl
+        and  mov all,mc0                ; the jobs, 15 at most
         jmp z,fin
         nop
+        mov K_JOB0,ct0
+        mov m0,a   mov 0,pl
+        mov P_JOB,ct0
+        or   mov all,mc0                ; the first job
+        mov K_OUT0,ct0
+        mov m0,a
+        mov P_OUT,ct0
+        or   mov all,mc0                ; where its table goes (then on, 88 a job)
+        mov K_BASE0,ct0
+        mov m0,a
+        mov P_BASE,ct0
+        or   mov all,mc0                ; its base colours (the same)
 job:    mov P_JOB,ct0
         mov m0,ra0
         mov J_OUT,ct0
-        dma d0,mc0,#JOBW                ; the job
+        dma d0,mc0,#24                  ; the job: its 3 words and 3 lights' 21 (RAM0[10..33]: 39, the
+                                        ; normals' address, and 40, the walls' word, stay the host's)
 w_j:    jmp t0,w_j
         nop
         mov P_JOB,ct0
         mov m0,a
         mvi JOBW,pl
         add  mov all,mc0                ; the next's
-        mov J_OUT,ct0
+        mov K_NORM,ct0
         mov m0,a   mov 0,pl
-        mov P_OUT,ct0
-        or   mov all,mc0                ; where its table goes
-        mov J_BASE,ct0
-        mov m0,a
-        mov P_BASE,ct0
-        or   mov all,mc0                ; its base colours
-        mov P_NORMA,ct0
-        mov m0,a
         mov P_NORM,ct0
         or   mov all,mc0                ; the normals, from the first
         mov P_CHUNK,ct0
@@ -177,9 +192,9 @@ up:     mov K_31,ct0
         add  mov all,mc2   mov mc3,a    ; b << 24 (and CT3 on to the next colour)
         ; each light's share added: w = C + max(n . k, 0), then c w a colour
         mov J_NL,ct0
-        mov m0,a   mov 0,pl
+        mov m0,a   mov 3,pl
         mov P_NL,ct0
-        or   mov all,mc0
+        and  mov all,mc0                ; its lights, 3 at most
         jmp z,pack
         nop
         mov T_LB,ct3

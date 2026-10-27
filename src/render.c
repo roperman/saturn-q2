@@ -6562,8 +6562,7 @@ static void         models_to_dsp(void)
     *(volatile u8 *)UNCACHED(&dspm_started) = 0;
 #endif
 #ifdef MLIGHT_DSP
-    if (lit_vram)
-        dsp_data_write(58, &lit_tag, 1);    /* (the frame's tag: engine/mlit.dsp waits for the slave's to match) */
+    lit_frame_params();                     /* (the frame's tag and addresses: engine/mlit.dsp waits for the slave's tag to match) */
 #endif
 #ifdef DSP_DMA_ALONE
     scu_dma0_hold();                        /* (the DSP's DMA never beside the SCU's: OVERNIGHT.md 108) */

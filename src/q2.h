@@ -358,28 +358,25 @@ extern u16          ent_lit[LIT_POOL][162];
 #ifndef LIT_DSP_POOL
 #define LIT_DSP_POOL    (16)                    /* tables a frame (OPT=-DLIT_DSP_POOL=n, up to 64) */
 #endif
-#define LIT_DSP_LIGHTS  (4)                     /* a model's strongest lights */
+#define LIT_DSP_LIGHTS  (3)                     /* a model's strongest lights (engine/mlit.dsp takes a count & 3) */
 #define LB_PROG0        (256)
 #define LB_HEAD         (512)
 #define LB_NORM         (520)
 #define LB_JOBW         (31)
 #define LB_JOBS         (LB_NORM + 176 * 3)
 #define LB_TABLE        (88)
-#ifdef LIT_UNCACHED
-/* (OPT=-DLIT_UNCACHED: each job's model's base colours copied into the block, so the DSP reads VRAM only (the
-   jobs stay 31 words apart: engine/mlit.dsp steps by that); and the CPUs copy a table out of VRAM uncached) */
-# define LB_BASES       (LB_JOBS + 2 * LIT_DSP_POOL * LB_JOBW)
-# define LB_POOL        (LB_BASES + 2 * LIT_DSP_POOL * LB_TABLE)
-#else
-# define LB_POOL        (LB_JOBS + 2 * LIT_DSP_POOL * LB_JOBW)
-#endif
+/* each job's model's base colours are copied into the block, so the DSP reads VRAM only (the jobs stay 31 words
+   apart: engine/mlit.dsp steps by that); the CPUs copy a table out of VRAM uncached (model.c lit_table) */
+#define LB_BASES        (LB_JOBS + 2 * LIT_DSP_POOL * LB_JOBW)
+#define LB_POOL         (LB_BASES + 2 * LIT_DSP_POOL * LB_TABLE)
 #define LB_WORDS        (LB_POOL + 2 * LIT_DSP_POOL * LB_TABLE)
 #define LIT_DSP_BYTES   (LB_WORDS * 4)
 extern u32          lit_vram;                   /* its VRAM offset (0: none: the lights as it draws) */
 extern u32          lit_tag;                    /* the frame's tag (main.c, before the slave's first job) */
 extern u32          lit_stat[4];                /* jobs listed, tables given, checked, wrong (MLIGHT_DSP_CHECK) */
 extern u32          lit_dbg[6];                 /* (MLIGHT_DSP_CHECK: the DSP's data RAM after a run) */
-void                lit_level(u32 vram);        /* (render_init, the VRAM given) the block set up */
+void                lit_level(u32 vram);
+void                lit_frame_params(void);   /* (the master, as it starts the models: the frame's addresses to the DSP) */        /* (render_init, the VRAM given) the block set up */
 const u16           *lit_table(int gl);         /* (draw_model) a model's table, through the cache */
 #endif
 void                lights_lag(void);           /* (main.c, as a frame starts: last frame's lights kept) */

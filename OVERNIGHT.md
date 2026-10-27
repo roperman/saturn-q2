@@ -5698,3 +5698,34 @@ in a DSP job means DMA to anywhere. Fixed, the check gives 1,589 jobs,
 On the card: SUITE 72 (67 with the live line) and 73 (72 with
 LIT_UNCACHED). 72's last line names where each CPU was when the Saturn
 locked; 73 says whether those two paths were it.
+
+**SUITE 72's last screen** (the Saturn locked at the fight's end again):
+the live line still at stage 4, but the watchdog's steps were a level
+load's (VIEW LEVEL, the DMA's, DSPM LEVEL, LOADED) at frame 0, the end
+of the live line's text garbled, and the screen the orange of the
+yard's sky or of a bolt's texture blown up, no world: not a loading
+screen (that's darker, with the logo) but stale and damaged memory,
+VDP1's frame gone, the trace's font or layer hit. Something was writing
+garbage across the buses, and the one writer that takes its addresses
+from data is the lights' program: a job's table and base addresses came
+out of VRAM by DMA, and this Saturn's DSP DMA reads have come in a word
+late before (the gun's records, section 65; the maker's checksums,
+66). A job read a word late sends 88 words wherever its colour words
+say; a count read wrong runs the light loop for ever, or past the pool.
+That never happens in Mednafen, whose DMA is exact.
+
+So now nothing the DSP reads by DMA is an address or an unmasked
+count. The master writes, as it starts the models (the DSP stopped):
+RAM0[55] the frame's first table >> 2, RAM0[62] its first job, RAM0[63]
+its first base colours; once a level, RAM0[39] the normals. The program
+walks on from those (88, 31, 88 words a job), takes the head's count
+& 15 and a job's lights & 3 (LIT_DSP_LIGHTS 3, the pool's 15 a frame),
+and reads the job as 24 words, not 31, which had been landing on
+RAM0[39] and [40]: the first cut of this put the normals' address at 39
+and had every table wrong (1,723 of 1,769) until that was seen. The
+base colours are always copied into the block now (LB_BASES, the
+LIT_UNCACHED switch gone: the only way) and the CPUs copy a table out
+uncached: the DSP reads VRAM only, the CPUs never read it through the
+cache. 247 words of the 253. Through the bench on Mednafen: 1,577 jobs,
+1,562 tables, 0 wrong. On the card: SUITE 74 (the yard fight, the live
+trace line).

@@ -552,11 +552,13 @@ void                lit_level(u32 vram)
     for (i = 0; i < 176 * 3; ++i)
         lit_block[LB_NORM + i] = i < 162 * 3 && c < nmodels_loaded ? (u32)(s32)models[c].normals[i] : 0;
     dsp_data_write(41, consts, 14);         /* (its constants: the DSP's data RAM keeps them) */
+    dsp_data_write(39, &lit_block[LB_HEAD + 3], 1);     /* (the normals' address: the DSP takes it from here, not the head) */
     dsp_chain_params(lit_block, lit_block + LB_PROG0);
 }
 
-#ifdef LIT_UNCACHED
-static u32          lit_buf[2][LB_TABLE] __attribute__((aligned(16)));   /* (a CPU's copy of the table it's drawing with) */
+/* a CPU's copy of the table it's drawing with: read out of VRAM uncached (never through the cache: a line
+   fill off the B-bus is nothing a Saturn's been seen to do here) */
+static u32          lit_buf[2][LB_TABLE] __attribute__((aligned(16)));
 const u16           *lit_table(int gl)
 {
     const volatile u32 *t = lit_block + LB_POOL + gl * LB_TABLE;
@@ -569,12 +571,22 @@ const u16           *lit_table(int gl)
         b[k] = t[k];
     return (const u16 *)b;
 }
-#else
-const u16           *lit_table(int gl)
+
+/* (the master, as it starts the models, the DSP stopped) the frame's tag, and where its jobs, tables and base
+   colours start: the DSP goes by these, never by an address it read (engine/mlit.dsp's head) */
+void                lit_frame_params(void)
 {
-    return (const u16 *)((u32)(lit_block + LB_POOL + gl * LB_TABLE) & 0x1FFFFFFF);
+    u32             wp = lit_tag & 1, v[2];
+
+    if (!lit_block)
+        return;
+    v[0] = ((u32)(lit_block + LB_POOL + wp * LIT_DSP_POOL * LB_TABLE) & 0x07FFFFFF) >> 2;
+    dsp_data_write(55, v, 1);
+    dsp_data_write(58, &lit_tag, 1);
+    v[0] = ((u32)(lit_block + LB_JOBS + wp * LIT_DSP_POOL * LB_JOBW) & 0x07FFFFFF) >> 2;
+    v[1] = ((u32)(lit_block + LB_BASES + wp * LIT_DSP_POOL * LB_TABLE) & 0x07FFFFFF) >> 2;
+    dsp_data_write(62, v, 2);
 }
-#endif
 
 /* (the DSP wrote the pool: the cache's lines of it forgotten) */
 static void         lit_forget(int rp)
@@ -708,24 +720,20 @@ void                ents_light_dyn(bool pvs)
             continue;
         if (e->g_lit < 0)
             e->g_lit = -2;                  /* (no table from last frame: draw_model's) */
-        if (!jobs || n == LIT_DSP_POOL)
-            continue;
+        if (!jobs || n == LIT_DSP_POOL - 1)
+            continue;                       /* (15 at most: the DSP takes the count & 15) */
         c = fcos(e->yaw);
         sn = fsin(e->yaw);
         j = jobs + n * LB_JOBW;
         j[0] = ((u32)(lit_block + LB_POOL + (wp * LIT_DSP_POOL + n) * LB_TABLE) & 0x07FFFFFF) >> 2;
-#ifdef LIT_UNCACHED
         {
             const u32 *gb = (const u32 *)e->gbase;  /* (its base colours into the block: the DSP reads VRAM only) */
             u32     *bc = lit_block + LB_BASES + (wp * LIT_DSP_POOL + n) * LB_TABLE;
 
             for (k = 0; k < 81; ++k)
                 bc[k] = gb[k];
-            j[1] = ((u32)bc & 0x07FFFFFF) >> 2;
+            j[1] = ((u32)bc & 0x07FFFFFF) >> 2;     /* (for the record: the DSP works it out itself) */
         }
-#else
-        j[1] = ((u32)e->gbase & 0x07FFFFFF) >> 2;
-#endif
         j[2] = (u32)ns;
         for (k = 0; k < ns; ++k)
         {

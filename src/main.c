@@ -2255,6 +2255,23 @@ void                main(void)
                 client.ammo[AMMO_ROCKETS] = 50;
                 g_centerprint("All weapons");
             }
+#ifdef START_AT
+            {
+                /* (OPT='-DSTART_AT=x,y,z,yaw', a test: the game begun, you stand at that spot of the first level,
+                   facing that way: a Saturn's view reproduced on the emulator from its overlay's line) */
+                static const s32 sa[4] = { START_AT };
+                static bool sa_done;
+
+                if (!sa_done && g_player && menu_cur == MENU_NONE)
+                {
+                    const s32 at[3] = { FIX(sa[0]), FIX(sa[1]), FIX(sa[2]) };
+
+                    sa_done = true;
+                    pmove_spawn(at);
+                    cam.yaw = (int)sa[3];
+                }
+            }
+#endif
             if (god)
                 g_player->health = imax(g_player->health, 100);
             else if (pressed(PAD_B) && pad_now & PAD_START)

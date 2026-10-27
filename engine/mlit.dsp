@@ -10,8 +10,8 @@
 ; models), for a while: given up, it loads the models' program back without a word written. The
 ; constants it uses (RAM0[41..54]) the host writes once a level, as the DSP's data RAM keeps them.
 ;
-; A job (31 words): two words the host fills but this program doesn't read (where its table goes,
-; its base colours: see below), its lights (0..3), then each light's 7 words: kx ky
+; A job (31 words): a word the host fills but this program doesn't read (where its table goes: see
+; below), its entity's index, its lights (0..3), then each light's 7 words: kx ky
 ; kz (the direction to it in the model's space, 0.65 of 2.14 >> 6: at most 166), C = 5734 << 8,
 ; cr cg cb (the colour at the model, 0..124). For each normal n: w = C + max(n . k, 0) is 2^22
 ; times the weight 0.35 + 0.65 cos, and c w is 2^24 times what the light adds to that colour,
@@ -22,10 +22,12 @@
 ; Nothing read by DMA is ever an address here, nor a count unmasked: on a Saturn a DMA read has
 ; come in a word late (OVERNIGHT.md 65, 66), and a job read wrong would have sent 88 words
 ; anywhere on the bus (108). The host sets, as it starts the models: RAM0[55] the frame's first
-; table >> 2, RAM0[62] its first job >> 2, RAM0[63] its first base colours >> 2 (88 words a model,
-; copied into the block by the slave as it lists); once a level, RAM0[39] the normals >> 2. Each
-; job's table, job and colours follow the last's. The head's count is taken & 15, a job's lights
-; & 3: a word read wrong makes a frame's colours wrong, no more.
+; table >> 2, RAM0[62] its first job >> 2; once a level, RAM0[39] the normals >> 2, RAM0[37] an
+; entity's words (96) and RAM0[38] the first entity's base colours >> 2 (high work RAM: q_entity's
+; gbase). Each job's table and job follow the last's; a job's second word is its entity's index,
+; taken & 63 (the game's 64), its base colours that many entities on: a read inside them whatever
+; was read. The head's count is taken & 15, a job's lights & 3: a word read wrong makes a frame's
+; colours wrong, no more.
 ;
 ; Data RAM: RAM0 the block's words, the pointers, the job, the constants (41..54), the host's
 ; 56..58; RAM1 the chunk's 16 normals (48 words) then its 8 base words; RAM2 the chunk's 48 sums
@@ -49,6 +51,8 @@ J_NL    = 12
 J_L     = 13                            ; its lights, 7 words each
 JOBW    = 31
 LW      = 7
+K_ENTW  = 37                            ; an entity's words, the first's base colours >> 2 (the host's, once a level)
+K_ENTS  = 38
 K_NORM  = 39                            ; the normals >> 2 (the host's, once a level)
 K_255   = 41                            ; the constants: 255, 31, 2^24, 0x3E0, 2^19, 0x7C00, 2^14,
 K_31    = 42                            ; 1, 32, 1024, 65536, 0x8000, the polls, 0xFFFF
@@ -63,8 +67,7 @@ W_TAG   = 58
 P_OI    = 59                            ; the word out's place in RAM3
 P_N     = 60                            ; normals left (the unpack's, the pack's)
 P_NL    = 61                            ; lights left
-K_JOB0  = 62                            ; the frame's first job >> 2, first base colours >> 2 (the host's)
-K_BASE0 = 63
+K_JOB0  = 62                            ; the frame's first job >> 2 (the host's)
 N_BASE  = 48                            ; RAM1: the base words after the normals
 T_OUT   = 0                             ; RAM3
 T_W     = 8                             ; the word being packed
@@ -82,15 +85,13 @@ poll:   mov W_MKP,ct0
         mov P_FLAG,ct0
         dma d0,mc0,#5
 w_f:    jmp t0,w_f
-        nop
-        mov P_FLAG,ct0
+        mov P_FLAG,ct0                  ; (the slot: as well each time round)
         mov m0,a
         mov W_TAG,ct0
         mov m0,p
         sub                             ; the frame's tag: the master's?
         jmp z,go
-        nop
-        mov K_POLL,ct0
+        mov K_POLL,ct0                  ; (the slot: go sets its own)
         mov m0,a
         mov 1,pl
         sub  mov all,mc0                ; not yet: again, for a while
@@ -102,8 +103,7 @@ go:     mov P_JOBS,ct0
         mov m0,a   mov 15,pl
         and  mov all,mc0                ; the jobs, 15 at most
         jmp z,fin
-        nop
-        mov K_JOB0,ct0
+        mov K_JOB0,ct0                  ; (the slot: fin sets its own)
         mov m0,a   mov 0,pl
         mov P_JOB,ct0
         or   mov all,mc0                ; the first job
@@ -111,21 +111,26 @@ go:     mov P_JOBS,ct0
         mov m0,a
         mov P_OUT,ct0
         or   mov all,mc0                ; where its table goes (then on, 88 a job)
-        mov K_BASE0,ct0
-        mov m0,a
-        mov P_BASE,ct0
-        or   mov all,mc0                ; its base colours (the same)
 job:    mov P_JOB,ct0
         mov m0,ra0
         mov J_OUT,ct0
         dma d0,mc0,#24                  ; the job: its 3 words and 3 lights' 21 (RAM0[10..33]: 39, the
                                         ; normals' address, and 40, the walls' word, stay the host's)
 w_j:    jmp t0,w_j
-        nop
-        mov P_JOB,ct0
+        mov P_JOB,ct0                   ; (the slot)
         mov m0,a
         mvi JOBW,pl
         add  mov all,mc0                ; the next's
+        mov J_BASE,ct0
+        mov m0,a   mov 63,pl
+        and  mov all,rx                 ; X = its entity's index, inside the game's 64 whatever was read
+        mov K_ENTW,ct0
+        mov m0,y                        ; Y = an entity's words
+        mov mul,p
+        mov K_ENTS,ct0
+        mov m0,a
+        mov P_BASE,ct0
+        add  mov all,mc0                ; its base colours (high work RAM)
         mov K_NORM,ct0
         mov m0,a   mov 0,pl
         mov P_NORM,ct0
@@ -137,8 +142,7 @@ chunk:  mov P_NORM,ct0
         mov 0,ct1
         dma d0,mc1,#48                  ; 16 normals
 w_n1:   jmp t0,w_n1
-        nop
-        mov P_NORM,ct0
+        mov P_NORM,ct0                  ; (the slot)
         mov m0,a
         mov 48,pl
         add  mov all,mc0
@@ -147,8 +151,7 @@ w_n1:   jmp t0,w_n1
         mov N_BASE,ct1
         dma d0,mc1,#8                   ; their 16 base colours, two to a word
 w_b:    jmp t0,w_b
-        nop
-        mov P_BASE,ct0
+        mov P_BASE,ct0                  ; (the slot)
         mov m0,a
         mov 8,pl
         add  mov all,mc0
@@ -290,14 +293,12 @@ pnext:  mov P_N,ct0
         mov 1,pl
         sub  mov all,mc0                        ; a normal fewer
         jmp nz,pn
-        nop
-        mov P_OUT,ct0
+        mov P_OUT,ct0                   ; (the slot: pn sets its own)
         mov m0,wa0
         mov T_OUT,ct3
         dma mc3,d0,#8,1                         ; the 8 words out (the B-bus: add 1)
 w_o:    jmp t0,w_o
-        nop
-        mov P_OUT,ct0
+        mov P_OUT,ct0                   ; (the slot)
         mov m0,a
         mov 8,pl
         add  mov all,mc0
@@ -306,8 +307,7 @@ w_o:    jmp t0,w_o
         mov 1,pl
         sub  mov all,mc0                        ; a chunk fewer
         jmp nz,chunk
-        nop
-        mov P_JOBS,ct0
+        mov P_JOBS,ct0                  ; (the slot: chunk sets its own)
         mov m0,a
         mov 1,pl
         sub  mov all,mc0                        ; a job fewer

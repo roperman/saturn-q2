@@ -553,6 +553,11 @@ void                lit_level(u32 vram)
         lit_block[LB_NORM + i] = i < 162 * 3 && c < nmodels_loaded ? (u32)(s32)models[c].normals[i] : 0;
     dsp_data_write(41, consts, 14);         /* (its constants: the DSP's data RAM keeps them) */
     dsp_data_write(39, &lit_block[LB_HEAD + 3], 1);     /* (the normals' address: the DSP takes it from here, not the head) */
+    {
+        u32     ew[2] = { sizeof(q_entity) / 4, ((u32)ents[0].gbase & 0x07FFFFFF) >> 2 };
+
+        dsp_data_write(37, ew, 2);          /* (an entity's words, the first's base colours: a job's index counts from there) */
+    }
     dsp_chain_params(lit_block, lit_block + LB_PROG0);
 }
 
@@ -572,11 +577,11 @@ const u16           *lit_table(int gl)
     return (const u16 *)b;
 }
 
-/* (the master, as it starts the models, the DSP stopped) the frame's tag, and where its jobs, tables and base
-   colours start: the DSP goes by these, never by an address it read (engine/mlit.dsp's head) */
+/* (the master, as it starts the models, the DSP stopped) the frame's tag, and where its jobs and tables start: the
+   DSP goes by these, never by an address it read (engine/mlit.dsp's head) */
 void                lit_frame_params(void)
 {
-    u32             wp = lit_tag & 1, v[2];
+    u32             wp = lit_tag & 1, v[1];
 
     if (!lit_block)
         return;
@@ -584,8 +589,7 @@ void                lit_frame_params(void)
     dsp_data_write(55, v, 1);
     dsp_data_write(58, &lit_tag, 1);
     v[0] = ((u32)(lit_block + LB_JOBS + wp * LIT_DSP_POOL * LB_JOBW) & 0x07FFFFFF) >> 2;
-    v[1] = ((u32)(lit_block + LB_BASES + wp * LIT_DSP_POOL * LB_TABLE) & 0x07FFFFFF) >> 2;
-    dsp_data_write(62, v, 2);
+    dsp_data_write(62, v, 1);
 }
 
 /* (the DSP wrote the pool: the cache's lines of it forgotten) */
@@ -726,14 +730,7 @@ void                ents_light_dyn(bool pvs)
         sn = fsin(e->yaw);
         j = jobs + n * LB_JOBW;
         j[0] = ((u32)(lit_block + LB_POOL + (wp * LIT_DSP_POOL + n) * LB_TABLE) & 0x07FFFFFF) >> 2;
-        {
-            const u32 *gb = (const u32 *)e->gbase;  /* (its base colours into the block: the DSP reads VRAM only) */
-            u32     *bc = lit_block + LB_BASES + (wp * LIT_DSP_POOL + n) * LB_TABLE;
-
-            for (k = 0; k < 81; ++k)
-                bc[k] = gb[k];
-            j[1] = ((u32)bc & 0x07FFFFFF) >> 2;     /* (for the record: the DSP works it out itself) */
-        }
+        j[1] = (u32)i;                      /* (its entity: the DSP finds its base colours by that, bounded) */
         j[2] = (u32)ns;
         for (k = 0; k < ns; ++k)
         {

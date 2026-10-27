@@ -5771,3 +5771,28 @@ playable lean build with the switch is on the card for playing it:
 default build now, `OPT=-DNO_MLIGHT_DSP` the old way (the slave's, this
 frame's), with Roper's go after playing it (the frame's lag on a model's
 own movement not to be seen). The README says so.
+
+**The holes, and the block's VRAM** (2026-10-27, the full bake played on
+the Saturn): faces missing with the sky through them in Outer Base's
+yard, at 288 412 -168 facing FED0. `OPT='-DSTART_AT=x,y,z,yaw'` stands
+the emulator at a spot from the overlay's line, and Mednafen shows it:
+the full bake with the lights' block (30.8 KB of VRAM by then, the base
+colours' copies 11 KB of it) has a sky hole in the doorway that the
+build without draws, at 6.6 fps against 8.5, the texture cache full
+(render.c: a face whose texture gets no slot isn't drawn); the lean
+bake looks the same either way there. The block's VRAM is texture
+slots: 15 of the full bake's 2 KB ones. A pool of 8 tables cuts it to
+17 KB and draws the doorway, but Mednafen's fight goes 60.4 -> 64.8 ms
+(the models past 8 lit by the slave again). So the base colours' copies
+go instead: a job's second word is its entity's index, the DSP takes it
+& 63 (the game's 64) and reads the colours at RAM0[38] + index x
+RAM0[37] (the first entity's gbase >> 2, an entity's words: the host's,
+once a level), a read inside the entities whatever it read. 244 words
+(delay slots after the DMA waits and the loops' jumps hold the next
+instruction where that's harmless; the walls' and lights' programs never
+needed them). The block is 19.4 KB again, the slave's 1,300 VRAM writes
+a frame gone; Mednafen's check through the bench 1,491 jobs, 1,465
+tables, 0 wrong, and 754 texture slots against 666. On the card: SUITE
+77 and 78 (the check: a model's colours rewritten by the next frame's
+shading while the DSP still reads them would count as WRONG there), and
+both playable bakes again.

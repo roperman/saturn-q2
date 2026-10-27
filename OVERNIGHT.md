@@ -5664,3 +5664,37 @@ what's stuck two seconds in, the DSP running or not, VDP1's state and
 command, the token, GUN), SUITE 70 (69 with DSP_DMA_ALONE) and SUITE 71
 (70 sampled, MLIGHT_DSP_CHECK's lines on the HUD: WRONG counts the gbase
 race too, if the guard doesn't close it).
+
+**SUITE 69 and 70 on the Saturn** (2026-10-27): both froze the same way as
+67, at the moment the bench's screen was due, and in both the watchdog
+printed nothing and the reset button did nothing. So the master never
+took its field interrupt: the machine locked up on the bus, not in a
+wait loop, and the DMA guard changed nothing (the SCU-DMA overlap isn't
+it). Mednafen runs the same build through the whole bench to its screen
+(FIGHT 60.4 there), so it's the Saturn's alone, and tied to the fight's
+end.
+
+Two more builds for it. `OPT=-DBT_LIVE` (with BOOT_TRACE): the field
+interrupt draws a line every field with the frame, the bench's stage,
+each CPU's last two steps, the DSP's control port and VDP1's EDSR; a
+lock-up leaves the last one on the screen (the watchdog's STUCK lines
+need the interrupt, which a lock-up stops). New steps: the slave's
+LIGHT JOBS / DONE (58, 59) round ents_light_dyn, the master's BENCH
+SCREEN / DONE (45, 46). `OPT=-DLIT_UNCACHED`: the CPUs never read
+VDP1's VRAM through the cache (a table is copied out uncached, 88
+longs, into a buffer a CPU, lit_table), and the DSP never reads work
+RAM (each job's model's base colours are copied into the block by the
+slave as it lists, LB_BASES, 11 KB more VRAM): the two bus paths the
+lighting added that nothing before it had used on a Saturn. The jobs
+stay 31 words apart: the first cut put the copy after each job's words
+and the DSP, which steps by 31 (engine/mlit.dsp JOBW), read the second
+job out of the first's colours: garbage lights, the DSP looping for
+ever in its light loop and the master at WAIT DSP IDLE. Mednafen showed
+that one (the first freeze of this work it has shown), the live line
+naming it: a thing worth keeping in mind for the Saturn's, where garbage
+in a DSP job means DMA to anywhere. Fixed, the check gives 1,589 jobs,
+1,484 tables, 0 wrong through the bench.
+
+On the card: SUITE 72 (67 with the live line) and 73 (72 with
+LIT_UNCACHED). 72's last line names where each CPU was when the Saturn
+locked; 73 says whether those two paths were it.

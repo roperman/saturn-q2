@@ -365,7 +365,14 @@ extern u16          ent_lit[LIT_POOL][162];
 #define LB_JOBW         (31)
 #define LB_JOBS         (LB_NORM + 176 * 3)
 #define LB_TABLE        (88)
-#define LB_POOL         (LB_JOBS + 2 * LIT_DSP_POOL * LB_JOBW)
+#ifdef LIT_UNCACHED
+/* (OPT=-DLIT_UNCACHED: each job's model's base colours copied into the block, so the DSP reads VRAM only (the
+   jobs stay 31 words apart: engine/mlit.dsp steps by that); and the CPUs copy a table out of VRAM uncached) */
+# define LB_BASES       (LB_JOBS + 2 * LIT_DSP_POOL * LB_JOBW)
+# define LB_POOL        (LB_BASES + 2 * LIT_DSP_POOL * LB_TABLE)
+#else
+# define LB_POOL        (LB_JOBS + 2 * LIT_DSP_POOL * LB_JOBW)
+#endif
 #define LB_WORDS        (LB_POOL + 2 * LIT_DSP_POOL * LB_TABLE)
 #define LIT_DSP_BYTES   (LB_WORDS * 4)
 extern u32          lit_vram;                   /* its VRAM offset (0: none: the lights as it draws) */

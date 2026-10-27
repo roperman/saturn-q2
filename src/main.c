@@ -119,7 +119,9 @@ __attribute__((section(".lwdata"))) static char bt_names[BT_N][24] = {   /* (not
     [30] = "SOUNDS", [31] = "HUD INIT", [32] = "RENDER INIT", [33] = "TRACE INIT", [34] = "MOVERS INIT",
     [35] = "G INIT", [36] = "SKY INIT", [37] = "MODELS HOT", [38] = "TRACE HOT", [39] = "PORTALS",
     [40] = "WALL LEVEL", [41] = "VIEW LEVEL", [42] = "DSPM LEVEL", [43] = "LOADED",
+    [45] = "BENCH SCREEN", [46] = "BENCH SCREEN DONE", [47] = "HUD", [48] = "DRAW MASTER DONE",
     [50] = "WAIT SIGNAL", [51] = "LIST JOB", [52] = "WAIT CAMERA", [53] = "SHADE AND LIGHT",
+    [58] = "LIGHT JOBS", [59] = "LIGHT JOBS DONE", [60] = "SLAVE OVERLAYS",
     [54] = "DRAW FRONT", [55] = "DRAWN, SIGNALLED", [56] = "NEXT MOVE", [57] = "WAIT DSP MODEL",
     [70] = "SUBMIT: SWAP WAIT", [71] = "SUBMIT: LATE UPLOADS", [72] = "UPLOAD ONE", [74] = "SUBMIT: TABLE",
     [75] = "SUBMIT: DMA TABLE", [79] = "SUBMIT: DMA STARTED",
@@ -266,6 +268,13 @@ static __attribute__((cold)) void bt_draw_cpus(void)
    seconds, the SCU's DMA status, the DSP's (running? its PC), VDP1's and the swap's on three lines,
    again every two seconds while it's stuck: whatever the master's spinning on, this still runs */
 __attribute__((section(".lwdata"))) static u32 bt_wlast = 0, bt_wstuck = 0;
+#ifdef BT_LIVE
+# ifdef HW_BENCH
+static int          hb_stage;               /* (the bench's stage: defined below) */
+# else
+enum { hb_stage = 0 };
+# endif
+#endif
 
 static __attribute__((cold)) void bt_watch(void)
 {
@@ -273,6 +282,20 @@ static __attribute__((cold)) void bt_watch(void)
     char            buf[48];
     int             q, fl;
 
+#ifdef BT_LIVE
+    /* (OPT=-DBT_LIVE) each field, a line of where both CPUs are now: a machine that locks up (no
+       interrupt, the reset button dead) leaves the last one on the screen */
+    {
+        static u32  bt_fields;
+        const volatile u8 *hm = (const volatile u8 *)UNCACHED(bt_hist[0]), *hs = (const volatile u8 *)UNCACHED(bt_hist[1]);
+        u32         nm = *(volatile u32 *)UNCACHED(&bt_hpos[0]), ns = *(volatile u32 *)UNCACHED(&bt_hpos[1]);
+
+        ++bt_fields;
+        bt_fmt(buf, "T%d F%d ST%d M%02d %02d S%02d %02d DSP%X E%X", bt_fields / 50, f, hb_stage, hm[(nm - 1) & 7],
+               hm[(nm - 2) & 7], hs[(ns - 1) & 7], hs[(ns - 2) & 7], DSP_PPAF & 0x3FFFF, (u32)VDP1_EDSR);
+        bt_line(136, buf);
+    }
+#endif
     if (f != bt_wlast)
     {
         bt_wlast = f;
@@ -1099,7 +1122,9 @@ static void         slave_loop(void)
 #endif
             ents_shade(PRE_CAM > 1);            /* (the master's gone on: it waits for these only to draw) */
 #ifndef NO_LIGHT_AHEAD
+            BT(1, 58);
             ents_light_dyn(PRE_CAM > 1);        /* (the master's gone on; the walk's only starting) */
+            BT(1, 59);
 #endif
 #ifdef FIGHT_BENCH
             sl_dyn = (frt_read() - sl_t) & 0xFFFF;
@@ -2797,7 +2822,9 @@ void                main(void)
 
             if (pressed(PAD_A))
                 page = (page + 1) % HB_PAGES;
+            BT(0, 45);
             hb_screen(page);
+            BT(0, 46);
         }
 #endif
 #if defined(FIGHT_BENCH) && !defined(HW_BENCH)  /* (HW_BENCH: its own screen instead) */

@@ -555,10 +555,26 @@ void                lit_level(u32 vram)
     dsp_chain_params(lit_block, lit_block + LB_PROG0);
 }
 
+#ifdef LIT_UNCACHED
+static u32          lit_buf[2][LB_TABLE] __attribute__((aligned(16)));   /* (a CPU's copy of the table it's drawing with) */
+const u16           *lit_table(int gl)
+{
+    const volatile u32 *t = lit_block + LB_POOL + gl * LB_TABLE;
+    u32             sp, *b;
+    int             k;
+
+    __asm__ volatile ("mov r15,%0" : "=r" (sp));
+    b = lit_buf[SP_MASTER(sp) ? 0 : 1];
+    for (k = 0; k < LB_TABLE; ++k)
+        b[k] = t[k];
+    return (const u16 *)b;
+}
+#else
 const u16           *lit_table(int gl)
 {
     return (const u16 *)((u32)(lit_block + LB_POOL + gl * LB_TABLE) & 0x1FFFFFFF);
 }
+#endif
 
 /* (the DSP wrote the pool: the cache's lines of it forgotten) */
 static void         lit_forget(int rp)
@@ -698,7 +714,18 @@ void                ents_light_dyn(bool pvs)
         sn = fsin(e->yaw);
         j = jobs + n * LB_JOBW;
         j[0] = ((u32)(lit_block + LB_POOL + (wp * LIT_DSP_POOL + n) * LB_TABLE) & 0x07FFFFFF) >> 2;
+#ifdef LIT_UNCACHED
+        {
+            const u32 *gb = (const u32 *)e->gbase;  /* (its base colours into the block: the DSP reads VRAM only) */
+            u32     *bc = lit_block + LB_BASES + (wp * LIT_DSP_POOL + n) * LB_TABLE;
+
+            for (k = 0; k < 81; ++k)
+                bc[k] = gb[k];
+            j[1] = ((u32)bc & 0x07FFFFFF) >> 2;
+        }
+#else
         j[1] = ((u32)e->gbase & 0x07FFFFFF) >> 2;
+#endif
         j[2] = (u32)ns;
         for (k = 0; k < ns; ++k)
         {

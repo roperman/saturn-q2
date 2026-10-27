@@ -294,5 +294,9 @@ bool                on_abus(u32 a);
 void                ab_copy(u32 dst, u32 src, u32 bytes);
 #endif
 bool                scu_dma0_chain_done(void);
+#ifdef DSP_DMA_ALONE
+void                scu_dma0_hold(void);        /* (a DSP start between these: level 0 landed, the lock held) */
+void                scu_dma0_release(void);
+#endif
 
 #endif

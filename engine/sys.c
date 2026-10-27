@@ -3,6 +3,9 @@
 */
 #include <stdarg.h>
 #include "sat.h"
+#ifdef DSP_DMA_ALONE
+# include "dsp.h"
+#endif
 
 void                *memset(void *d, int c, u32 n)
 {
@@ -396,6 +399,19 @@ void                dma_wait_add(int i, u32 t0)
         dma_wait[i] += (frt_read() - t0) & 0xFFFF;
 }
 #endif
+#ifdef DSP_DMA_ALONE
+/* (OPT=-DDSP_DMA_ALONE, a test on a Saturn: the DSP's DMA and level 0 never at once. A DSP start
+   goes between these, which wait for level 0 to land under the lock; dma_start waits for the DSP) */
+void                scu_dma0_hold(void)
+{
+    dma_lock();
+    DMA_WAIT(0, scu_dma0_busy() || (SCU_DSTA & D0_ACTIVE));
+}
+void                scu_dma0_release(void)
+{
+    dma_unlock();
+}
+#endif
 void                scu_dma0_init(void)
 {
     *(volatile u32 *)(VDP1_VRAM + TOKEN_VRAM) = 0;      /* (VRAM is anything at power-on) */
@@ -408,7 +424,11 @@ static void         dma_start(u32 *table, int n, u32 ad, bool chain)
     u32             seq, slot = VDP1_VRAM + TOKEN_VRAM + ((ad & 7) == 1 ? 2 : 4);   /* (the low half's) */
 
     dma_lock();
+#ifdef DSP_DMA_ALONE
+    DMA_WAIT(0, scu_dma0_busy() || (SCU_DSTA & D0_ACTIVE) || dsp_busy());  /* (...nor while the DSP runs) */
+#else
     DMA_WAIT(0, scu_dma0_busy() || (SCU_DSTA & D0_ACTIVE));
+#endif
     seq = UNC(dma_seq) + 1;
     UNC(dma_seq) = seq;
     UNC(dma_tokval) = seq;

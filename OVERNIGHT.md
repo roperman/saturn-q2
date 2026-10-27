@@ -5627,3 +5627,40 @@ every frame, no table ever given. The card decides: SUITE 67 (the yard
 fight, lit by the DSP) against 61's 88.7 and 65's 83.1 floor, and 68
 (sampled, the check on the HUD) for the slave's hot spots and whether
 the tables are right on a Saturn.
+
+## 108. SUITE 67 on the Saturn: a freeze at the fight's end, faces dropped
+
+SUITE 67 (`OPT="-DHW_BENCH -DMLIGHT_DSP"`) on Roper's PAL Saturn: it runs
+and looks right, but a face goes missing now and then, and twice it
+froze just before the bench's screen (about 20 s into the fight), once
+with the last frame still up, once on an orange smear. No number.
+
+The engine's one unbounded wait is VDP1's draw end (vdp.c, the swap),
+and the pair, faces vanishing now and then and a freeze with VDP1 on a
+garbage command, is sections 65's and 76's: the SCU's level 0 transfers
+coming in shifted or lost. What's new in 67 is when the DSP's DMA runs.
+The models' job alone is done early in the frame, reading the cart and
+work RAM; the lights' program keeps the DSP's DMA on the B-bus (VDP1's
+VRAM: the jobs, the normals, the tables, the polls) for up to ~25 ms of
+the frame, into the gap after VDP1's end where the lists and textures go
+by level 0. The walls' and the maker's DSP traffic was early and short,
+and the maker+walls run still had a gun copy come in shifted (67). So
+the first suspect is the DSP's DMA and level 0 at once. (VDP1's drawing
+also stops 10+ cycles for each outside access to its VRAM: the lighting's
+~13 K words a frame cost it something, which 69's number will show.) A
+second fault, certain on a Saturn though Mednafen can't show it (its DSP
+is instant): the DSP of one frame can still be reading a model's gbase
+when the next frame's ents_shade rewrites it, a wrong table for a frame.
+The guard below ends the chain before the swap, so before that.
+
+`OPT=-DDSP_DMA_ALONE`: the DSP's DMA and level 0 never at once. dma_start
+(engine/sys.c) waits for the DSP to stop before programming level 0; the
+master's DSP start (models_to_dsp) takes the DMA lock and waits for level
+0 to land first. Blunt (a CPU wanting a transfer waits out the lights'
+job), but it decides the question; the schedule can be shaped after.
+
+On the card: SUITE 69 (67 with BOOT_TRACE's watchdog: a freeze prints
+what's stuck two seconds in, the DSP running or not, VDP1's state and
+command, the token, GUN), SUITE 70 (69 with DSP_DMA_ALONE) and SUITE 71
+(70 sampled, MLIGHT_DSP_CHECK's lines on the HUD: WRONG counts the gbase
+race too, if the guard doesn't close it).

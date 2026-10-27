@@ -6565,6 +6565,9 @@ static void         models_to_dsp(void)
     if (lit_vram)
         dsp_data_write(58, &lit_tag, 1);    /* (the frame's tag: engine/mlit.dsp waits for the slave's to match) */
 #endif
+#ifdef DSP_DMA_ALONE
+    scu_dma0_hold();                        /* (the DSP's DMA never beside the SCU's: OVERNIGHT.md 108) */
+#endif
     if (nm)
     {
         *(volatile u32 *)UNCACHED(&dspm_count) = 0;
@@ -6591,6 +6594,9 @@ static void         models_to_dsp(void)
 #ifdef MLIGHT_DSP
     else if (lit_vram)
         dsp_maker_start();                  /* (no models: the lights' program straight away, from the maker's place) */
+#endif
+#ifdef DSP_DMA_ALONE
+    scu_dma0_release();
 #endif
 }
 
